@@ -87,8 +87,7 @@ impl Desktop {
             Some(Page::Home) => self.show_projects(),
             Some(Page::Thread(id)) => self.open_thread(&id),
             Some(Page::NewThread(project)) => {
-                self.close_command();
-                self.close_diff();
+                self.close_conversation_inspectors();
                 self.workspace.show_projects = false;
                 self.new_threads.reopen(project);
             }

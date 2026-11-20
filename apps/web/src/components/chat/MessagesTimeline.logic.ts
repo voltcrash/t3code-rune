@@ -1,4 +1,8 @@
 import {
+  formatWorkEntryLabel,
+  workEntryReadRawPaths,
+} from "@t3tools/client-runtime/work-log/timeline";
+import {
   collapsedTurnFolds,
   timelineEntryRunId,
   deriveTerminalAssistantMessageIds,
@@ -38,13 +42,9 @@ import {
 } from "@t3tools/client-runtime/user-message";
 import type { HandoffTimelineRun } from "@t3tools/client-runtime/handoff";
 import { renderCodexDirectivesForCopy } from "@t3tools/shared/codexMarkdownDirectives";
-import {
-  commandDisplayText,
-  commandProgramName,
-} from "@t3tools/client-runtime/work-log/command-label";
+import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
 import {
   liveActivityToolStatus,
-  normalizeCompactToolLabel,
   resolveWorkEntryToolPresentation,
   summarizeToolGroup,
   toolGroupAction,
@@ -94,14 +94,8 @@ import { compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
 import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { mcpAppReferencesEqual, type McpAppReference } from "@t3tools/shared/mcpApp";
 
-import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { m, type MessageResolver } from "../../i18n/messages";
-import { collectToolFilePaths } from "@t3tools/shared/toolActivity";
-import {
-  dynamicToolTitle,
-  formatReadToolLabel,
-  formatSearchToolLabel,
-} from "@t3tools/shared/toolActivityCopy";
+import { dynamicToolTitle } from "@t3tools/shared/toolActivityCopy";
 import { isHostPath } from "@t3tools/shared/path";
 
 function workEntryIsActiveTurnActivity(entry: WorkLogEntry): boolean {
@@ -128,88 +122,12 @@ function singleToolCallLabel(entry: WorkLogEntry, resolve: MessageResolver): str
   return workEntryDisplayLabel(entry, undefined, resolve);
 }
 
-function workEntryToolDataRecord(entry: WorkLogEntry): Record<string, unknown> | undefined {
-  return entry.toolData !== null &&
-    typeof entry.toolData === "object" &&
-    !Array.isArray(entry.toolData)
-    ? (entry.toolData as Record<string, unknown>)
-    : undefined;
-}
-
-function workEntryReadRawPaths(entry: WorkLogEntry): readonly string[] {
-  const fromChanged = entry.changedFiles ?? [];
-  if (fromChanged.length > 0) return fromChanged;
-  const structured = entry.structuredPayload;
-  if (structured?.type === "dynamic_tool") {
-    const structuredPaths = collectToolFilePaths({ input: structured.input });
-    if (structuredPaths.length > 0) return structuredPaths;
-  }
-  return collectToolFilePaths(workEntryToolDataRecord(entry));
-}
-
-function workEntryReadPaths(entry: WorkLogEntry, workspaceRoot: string | undefined): string[] {
-  return workEntryReadRawPaths(entry).map((filePath) =>
-    formatWorkspaceRelativePath(filePath, workspaceRoot),
-  );
-}
-
-/** Components pass `useMessages()` so the label follows a language switch. */
 export function workEntryDisplayLabel(
   entry: WorkLogEntry,
   workspaceRoot: string | undefined,
   resolve: MessageResolver = m,
 ) {
-  if (entry.itemType === "system_notice") return entry.label;
-  if (entry.itemType === "reasoning" || entry.tone === "thinking") {
-    const thought = entry.detail?.trim().replace(/\s+/g, " ");
-    return thought || entry.label;
-  }
-  const toolPresentation = resolveWorkEntryToolPresentation(entry, undefined, resolve);
-  if (toolPresentation) return toolPresentation.displayName;
-  if (entry.command?.trim()) return commandDisplayText(entry.command);
-  const action = toolGroupAction(entry);
-  if (action === "code-search" || action === "search") {
-    const searchLabel =
-      entry.itemType === "file_search"
-        ? entry.label
-        : formatSearchToolLabel(workEntryToolDataRecord(entry), resolve);
-    if (searchLabel) return searchLabel;
-  }
-  const readPaths = action === "read" ? workEntryReadPaths(entry, workspaceRoot) : [];
-  if (action === "read" && readPaths[0]) {
-    return formatReadToolLabel(readPaths[0], readPaths.length - 1, resolve);
-  }
-  const providerRetry =
-    entry.projectedItem?.item.type === "error" && entry.projectedItem.item.retry !== undefined;
-  const item = entry.structuredPayload;
-  const title =
-    item?.type === "dynamic_tool"
-      ? dynamicToolTitle(item.toolName, item.input, item.title, resolve)
-      : null;
-  if (title) return title;
-  const compactDetail = entry.detail?.trim();
-  const detailIsSearchOutput =
-    (action === "code-search" || action === "search") && /[\r\n]/.test(compactDetail ?? "");
-  if (compactDetail && !providerRetry && action !== "read" && !detailIsSearchOutput) {
-    return compactDetail;
-  }
-  const [firstPath] = entry.changedFiles ?? [];
-  if (firstPath) {
-    const path = formatWorkspaceRelativePath(firstPath, workspaceRoot);
-    return entry.changedFiles!.length === 1
-      ? path
-      : resolve(
-          msg("{count, plural, one {{path} +{count} more} other {{path} +{count} more}}", {
-            path,
-            count: entry.changedFiles!.length - 1,
-          }),
-        );
-  }
-  if (action === "read" && !entry.viewedImagePath) {
-    return resolve(msg("Read file"));
-  }
-  const heading = normalizeCompactToolLabel(entry.toolTitle || entry.label);
-  return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
+  return formatWorkEntryLabel(entry, workspaceRoot, resolve);
 }
 
 export function threadReadTargetId(entry: Pick<WorkLogEntry, "structuredPayload">) {

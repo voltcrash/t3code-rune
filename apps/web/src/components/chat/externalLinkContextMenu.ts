@@ -1,3 +1,4 @@
+import { resolveExternalWebLink } from "@t3tools/shared/url";
 import type { ContextMenuItem } from "@t3tools/contracts";
 import { msg } from "gt-react";
 
@@ -71,17 +72,6 @@ interface ShowExternalLinkContextMenuOptions {
     operation: ExternalLinkContextMenuFailureOperation,
     cause: unknown,
   ) => void;
-}
-
-function resolveExternalWebLink(href: string | null | undefined): URL | null {
-  if (!href) return null;
-  try {
-    const url = new URL(href.startsWith("//") ? `https:${href}` : href);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return url;
-  } catch {
-    return null;
-  }
 }
 
 export function resolveExternalWebLinkHref(href: string | null | undefined): string | null {

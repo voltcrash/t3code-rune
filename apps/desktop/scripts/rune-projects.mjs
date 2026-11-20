@@ -1,3 +1,5 @@
+import * as NodeTimersPromises from "node:timers/promises";
+import { turnItemNeedsDetailFetch } from "@t3tools/client-runtime/work-log/item-detail";
 import desktopPackage from "../package.json" with { type: "json" };
 import {
   isNightlyDesktopVersion,
@@ -5,6 +7,7 @@ import {
 } from "../src/updates/updateChannels.ts";
 import * as Effect from "effect/Effect";
 import { respondToApproval, respondToQuestion } from "../src/native/runtimeRequests.ts";
+import { readToolDetail } from "../src/native/toolDetail.ts";
 import { readFileDiff } from "../src/native/fileChange.ts";
 import { readCommandOutput } from "../src/native/commandOutput.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
@@ -58,7 +61,7 @@ function stopWatching() {
 
 function watch(owner, thread, id, state) {
   const controller = new AbortController();
-  const record = { owner, thread, id, state, controller, synchronized: false };
+  const record = { owner, thread, id, state, controller, tools: new Map(), synchronized: false };
   watching = record;
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(
@@ -67,11 +70,22 @@ function watch(owner, thread, id, state) {
     signal,
     (update) => {
       if (watching !== record || signal.aborted) return;
-      if (update.kind === "status") record.synchronized = update.state === "live";
+      if (update.kind === "status") {
+        record.synchronized = update.state === "live";
+        if (!record.synchronized) record.needsDetailSync = true;
+        else if (record.needsDetailSync) {
+          for (const tool of record.tools.values()) refreshDetail(record, tool, "resync");
+          record.needsDetailSync = false;
+        }
+      }
       write({ type: "live", watch: id, thread, sequence: state.sequence, update });
       if (update.kind === "deleted") stopWatching();
-      if (record.file && (update.kind === "window" || update.kind === "splice"))
-        refreshFileDiff(record);
+      if (update.kind === "window" || update.kind === "splice") {
+        if (record.file) refreshDetail(record, record.file);
+        for (const tool of record.tools.values())
+          refreshDetail(record, tool, update.kind === "window" ? "resync" : undefined);
+        if (update.kind === "window") record.needsDetailSync = false;
+      }
       const output = record.output;
       if (output && (update.kind === "splice" || update.kind === "window")) {
         const row = state.rows[state.indices.get(output.request.key)];
@@ -84,6 +98,10 @@ function watch(owner, thread, id, state) {
       }
     },
     (threadId, itemId) => {
+      if (record.tools.size) {
+        const tool = record.tools.get(JSON.stringify([threadId, itemId]));
+        if (tool) refreshDetail(record, tool, "changed");
+      }
       const output = record.output;
       if (!owner.streamsCommandOutput && output?.threadId === threadId && output.itemId === itemId)
         output.reload();
@@ -142,37 +160,80 @@ async function inspectCommand(request) {
   await reload();
 }
 
-function refreshFileDiff(record) {
-  const file = record.file;
-  const row = record.state.rows[record.state.indices.get(file.key)];
-  const revision = row?.file?.revision ?? null;
-  if (file.revision === revision) return;
-  file.revision = revision;
-  file.fetch?.abort();
+function refreshDetail(record, detail, updated) {
+  const row = record.state.rows[record.state.indices.get(detail.key)];
+  const file = detail.type === "filediff";
+  const revision = (file ? row?.file : row?.tool)?.revision ?? null;
+  if (detail.revision === revision && !updated) return;
+  const [threadId, itemId] = JSON.parse(detail.key);
+  const item =
+    !file && row?.tool
+      ? record.state.projection.visibleTurnItems.findLast(
+          (entry) => entry.sourceItemId === itemId && entry.sourceThreadId === threadId,
+        )?.item
+      : undefined;
+  if (detail.revision === revision && item) {
+    if (updated !== "resync" && detail.source === item) return;
+    if (detail.fetch && turnItemNeedsDetailFetch(item)) {
+      detail.again = true;
+      return;
+    }
+  }
+  detail.again = false;
+  detail.source = item;
+  detail.revision = revision;
+  detail.fetch?.abort();
   const fetch = new AbortController();
-  file.fetch = fetch;
+  detail.fetch = fetch;
   const signal = AbortSignal.any([record.owner.signal, record.controller.signal, fetch.signal]);
   const emit = (value) => {
-    if (!signal.aborted) write({ type: "filediff", operation: file.operation, ...value });
+    if (!signal.aborted)
+      write({ type: detail.type, key: detail.key, operation: detail.operation, ...value });
   };
-  if (!revision) return emit({ message: "This file change is unavailable." });
-  const [threadId, itemId] = JSON.parse(row.key);
+  if (!revision || (!file && !item))
+    return emit({
+      message: file ? "This file change is unavailable." : "This tool call is unavailable.",
+    });
+  const input = { threadId, itemId };
+  const root = record.state.projection.thread.worktreePath ?? record.state.projectRoot;
+  const load = file
+    ? readFileDiff(record.owner, input, root)
+    : readToolDetail(record.owner, input, item, root);
   void Effect.runPromise(
-    readFileDiff(
-      record.owner,
-      { threadId, itemId },
-      record.state.projection.thread.worktreePath ?? record.state.projectRoot,
-    ).pipe(Effect.scoped, Effect.timeout("20 seconds"), Effect.provide(record.owner.http)),
+    load.pipe(Effect.scoped, Effect.timeout("20 seconds"), Effect.provide(record.owner.http)),
     { signal },
-  ).then(emit, () => emit({ message: "Couldn’t load the recorded diff. Reopen it to retry." }));
+  )
+    .then(emit, () =>
+      emit({
+        message: file
+          ? "Couldn’t load the recorded diff. Reopen it to retry."
+          : "Couldn’t load tool details. Reopen the tool to retry.",
+      }),
+    )
+    .then(async () => {
+      // Coalesce compact streaming updates into one trailing lookup per open tool.
+      if (revision === "live" && item && turnItemNeedsDetailFetch(item) && !signal.aborted)
+        await NodeTimersPromises.setTimeout(200, undefined, { signal }).catch(() => {});
+      if (signal.aborted) return;
+      detail.fetch = undefined;
+      if (detail.again) refreshDetail(record, detail, "resync");
+    });
 }
 
-function inspectFile(request) {
+function inspectDetail(request) {
   const record = watching;
   if (!record || record.id !== request.watch) return;
-  record.file?.fetch?.abort();
-  record.file = request.key ? { key: request.key, operation: request.operation } : undefined;
-  if (record.file) refreshFileDiff(record);
+  const file = request.type === "inspectfile";
+  const previous = file ? record.file : record.tools.get(request.key);
+  previous?.fetch?.abort();
+  const detail =
+    request.key && request.open !== false
+      ? { key: request.key, operation: request.operation, type: file ? "filediff" : "tooldetail" }
+      : undefined;
+  if (file) record.file = detail;
+  else if (detail) record.tools.set(request.key, detail);
+  else record.tools.delete(request.key);
+  if (detail) refreshDetail(record, detail);
 }
 
 async function openThread(owner, request, reply) {
@@ -480,8 +541,8 @@ try {
     const reply = (value) => write({ id: request?.id, ...value });
     if (request?.type === "inspectcommand") {
       void inspectCommand(request);
-    } else if (request?.type === "inspectfile") {
-      inspectFile(request);
+    } else if (request?.type === "inspectfile" || request?.type === "inspecttool") {
+      inspectDetail(request);
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {

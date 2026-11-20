@@ -33,25 +33,29 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
+import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
 import * as NodeUtil from "node:util";
 import { nativeTurnFolds } from "./turnFolds.ts";
 
 type Row = {
   key: string;
-  role: "command" | "reasoning" | "tasks" | "file" | "user" | "assistant";
+  role: "command" | "reasoning" | "tasks" | "file" | "tool" | "user" | "assistant";
   body: string;
   attachments: string[];
   caption?: string;
   language?: string;
   exit_code?: number | undefined;
   failed?: boolean | undefined;
+  tool?: ReturnType<typeof toolRow>["tool"];
   file?: ReturnType<typeof fileChangeRow>["file"];
 };
 
 function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row | null {
   const item = row.item;
   const key = JSON.stringify([row.sourceThreadId, row.sourceItemId]);
+  if (item.type === "dynamic_tool" || item.type === "file_search" || item.type === "web_search")
+    return toolRow(key, row, root);
   if (item.type === "file_change") return fileChangeRow(key, item, root);
   if (item.type === "command_execution" && !turnItemIsWorkspacePreparation(item)) {
     const failed =
@@ -270,6 +274,8 @@ function sameRow(a: Row, b: Row) {
     a.caption === b.caption &&
     a.exit_code === b.exit_code &&
     a.failed === b.failed &&
+    a.tool?.revision === b.tool?.revision &&
+    a.tool?.action === b.tool?.action &&
     a.file?.revision === b.file?.revision &&
     a.file?.added === b.file?.added &&
     a.file?.removed === b.file?.removed &&
@@ -305,6 +311,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
       if (sameRow(old, row)) return;
       state.rows[i] = row;
       if (
+        !row.tool &&
         !row.file &&
         row.role !== "command" &&
         row.role === old.role &&
@@ -341,7 +348,7 @@ export function followWindow(
   state: Window,
   signal: AbortSignal,
   emit: (update: Update) => void,
-  commandChanged?: (threadId: string, itemId: string) => void,
+  inspectedItemChanged?: (threadId: string, itemId: string) => void,
 ) {
   const id = state.projection.thread.id;
   let consecutiveFailures = 0;
@@ -448,9 +455,12 @@ export function followWindow(
           }
           if (
             item.event.type === "turn-item.updated" &&
-            item.event.payload.type === "command_execution"
+            (item.event.payload.type === "command_execution" ||
+              item.event.payload.type === "dynamic_tool" ||
+              item.event.payload.type === "web_search" ||
+              item.event.payload.type === "file_search")
           ) {
-            commandChanged?.(item.event.payload.threadId, item.event.payload.id);
+            inspectedItemChanged?.(item.event.payload.threadId, item.event.payload.id);
           }
         }),
       ),
