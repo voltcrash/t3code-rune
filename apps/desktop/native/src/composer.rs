@@ -81,25 +81,11 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme) -> El
             }
         })
         .on_submit(|s: &mut Desktop, _| s.send_message());
-    let send = el()
-        .key("send-message")
-        .label("Send message")
-        .role("button")
-        .help("Send message")
-        .size(32.0, 32.0)
-        .radius(16.0)
-        .center()
-        .fill(rune::oklch(0.56, 0.19, 259.0))
-        .child(
-            text("↑")
-                .font(TextStyle::new(18.0, 600.0))
-                .color(rune::Color::WHITE),
-        );
-    let send = if s.pending || draft.editor.text.trim().is_empty() {
-        send.disabled(true).opacity(0.5)
-    } else {
-        send.focusable(true).on_press(Desktop::send_message)
-    };
+    let send = send_button(
+        "Send message",
+        !s.pending && !draft.editor.text.trim().is_empty(),
+        Desktop::send_message,
+    );
     let controls = row()
         .w_full()
         .center_y()
@@ -112,6 +98,32 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme) -> El
                 .truncate(),
         )
         .child(send);
+    surface(id, field, controls, theme)
+}
+
+pub(super) fn send_button(caption: &str, enabled: bool, run: fn(&mut Desktop)) -> El {
+    let send = el()
+        .key("send-message")
+        .label(caption)
+        .role("button")
+        .help(caption)
+        .size(32.0, 32.0)
+        .radius(16.0)
+        .center()
+        .fill(rune::oklch(0.56, 0.19, 259.0))
+        .child(
+            text("↑")
+                .font(TextStyle::new(18.0, 600.0))
+                .color(rune::Color::WHITE),
+        );
+    if !enabled {
+        send.disabled(true).opacity(0.5)
+    } else {
+        send.focusable(true).on_press(run)
+    }
+}
+
+pub(super) fn surface(id: &str, field: El, controls: El, theme: &tok::Theme) -> El {
     let surface = col()
         .key(format!("composer-{id}"))
         .w_full()

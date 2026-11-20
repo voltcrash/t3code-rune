@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
+import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage } from "../src/native/messages.ts";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
@@ -14,6 +15,7 @@ let session;
 let localSession;
 let server;
 let watching;
+const pendingLaunches = new Map();
 const lifetime = new AbortController();
 const input = NodeReadline.createInterface({ input: process.stdin, terminal: false });
 const write = (value) => {
@@ -21,6 +23,7 @@ const write = (value) => {
 };
 const close = () => {
   stopWatching();
+  pendingLaunches.clear();
   lifetime.abort();
   void server?.stop();
 };
@@ -77,6 +80,7 @@ function localServer() {
       server = undefined;
       if (!localSession) return;
       stopWatching();
+      pendingLaunches.clear();
       session = localSession = undefined;
       write({ type: "localclosed" });
     });
@@ -85,6 +89,12 @@ function localServer() {
 }
 
 function requestError(error, type, editing) {
+  if (error instanceof NewThreadUnavailable) return error.message;
+  if (type === "preparethread") return "Couldn’t load models for this project. Try again.";
+  if (type === "launchthread" && error?._tag === "OrchestrationV2ThreadLaunchError")
+    return error.message;
+  if (type === "launchthread")
+    return "Couldn’t confirm that the thread started. Retry to check delivery.";
   if (error instanceof HomePathNeedsBrowseAccess) {
     return "Enter the full folder path. This connection cannot look up the environment’s home folder.";
   }
@@ -120,6 +130,7 @@ try {
       request = JSON.parse(line);
       if (request.type === "disconnect") {
         stopWatching();
+        pendingLaunches.clear();
         session = localSession = undefined;
         reply({ type: "disconnected" });
         continue;
@@ -135,12 +146,38 @@ try {
           localSession = undefined;
         }
         stopWatching();
+        pendingLaunches.clear();
         reply({
           type: "connected",
           label: session.label,
           local: Boolean(localSession),
           can_operate: session.canOperate,
         });
+      } else if (request.type === "preparethread" || request.type === "launchthread") {
+        reading = session;
+        if (!reading?.canOperate) throw new Error("Read-only session");
+        if (request.type === "preparethread") {
+          const options = await Effect.runPromise(
+            readLaunchOptions(reading, request.project).pipe(
+              Effect.timeout("20 seconds"),
+              Effect.scoped,
+              Effect.provide(reading.http),
+            ),
+            { signal: reading.signal },
+          );
+          if (reading === session) reply({ type: "launchoptions", ...options });
+        } else {
+          const thread = await Effect.runPromise(
+            launchThread(reading, request, pendingLaunches).pipe(
+              Effect.timeout("60 seconds"),
+              Effect.scoped,
+              Effect.provide(reading.http),
+            ),
+            { signal: reading.signal },
+          );
+          if (reading === session) reply({ type: "threadlaunched", thread });
+        }
+        continue;
       } else if (request.type === "thread" && session) {
         reading = session;
         await openThread(reading, request, reply);
@@ -179,7 +216,15 @@ try {
       }
     } catch (error) {
       if (reading && session !== reading) continue;
-      reply({ type: "error", message: requestError(error, request?.type, editing) });
+      const message = requestError(error, request?.type, editing);
+      if (request?.type === "launchthread")
+        reply({
+          type: "launchfailed",
+          project: request.project,
+          uncertain: pendingLaunches.has(request.operation),
+          message,
+        });
+      else reply({ type: "error", message });
     }
   }
 } finally {

@@ -23,7 +23,7 @@ pub(super) struct Project {
 #[derive(Deserialize)]
 pub(super) struct Thread {
     pub id: String,
-    project: String,
+    pub(super) project: String,
     title: String,
     #[serde(skip)]
     search_title: String,
@@ -131,7 +131,7 @@ pub(super) struct Workspace {
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
     search: TextEdit,
-    show_projects: bool,
+    pub(super) show_projects: bool,
     sidebar: bool,
     show_settled: bool,
 }
@@ -183,6 +183,29 @@ impl Workspace {
         self.projects = projects;
         self.threads = threads;
         self.filter();
+    }
+
+    pub fn insert_launched(&mut self, mut thread: Thread) {
+        thread.search_title = thread.title.to_lowercase();
+        if let Some(&i) = self.by_thread.get(&thread.id) {
+            self.threads.remove(i);
+        }
+        self.threads.insert(0, thread);
+        self.by_thread = self
+            .threads
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id.clone(), i))
+            .collect();
+        self.settled_count = self.threads.iter().filter(|t| t.settled).count();
+        self.filter();
+    }
+    pub(super) fn launch_projects(&self) -> Vec<rune_kit::ComboboxOption> {
+        self.projects
+            .iter()
+            .filter(|p| !p.archived)
+            .map(|p| rune_kit::ComboboxOption::new(&p.id, &p.title))
+            .collect()
     }
 
     fn filter(&mut self) {
@@ -257,10 +280,41 @@ impl Workspace {
 }
 
 impl Desktop {
-    fn open_thread(&mut self, id: &str) {
+    pub(super) fn replace_workspace(&mut self, projects: Vec<Project>, threads: Vec<Thread>) {
+        self.workspace.replace(projects, threads);
+        self.new_threads
+            .retain(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
+    }
+    pub(super) fn new_thread_in_workspace(&mut self) {
+        if self.pending || !self.can_operate {
+            return;
+        }
+        let project = self
+            .new_threads
+            .active
+            .clone()
+            .or_else(|| {
+                self.workspace
+                    .conversation
+                    .as_ref()
+                    .and_then(|c| self.workspace.by_thread.get(&c.id))
+                    .map(|i| self.workspace.threads[*i].project.clone())
+            })
+            .filter(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
+        let mut active = self.workspace.projects.iter().filter(|p| !p.archived);
+        let single = active.next().filter(|_| active.next().is_none());
+        if let Some(id) = project.or_else(|| single.map(|p| p.id.clone())) {
+            self.prepare_thread(&id);
+        } else {
+            self.workspace.show_projects = true;
+            self.new_threads.active = None;
+        }
+    }
+    pub(super) fn open_thread(&mut self, id: &str) {
         if self.pending {
             return;
         }
+        self.new_threads.active = None;
         self.workspace.show_projects = false;
         if self
             .workspace
@@ -314,7 +368,7 @@ fn label(value: &str, size: f32, weight: f32, color: rune::Color) -> El {
     text(value).font(TextStyle::new(size, weight)).color(color)
 }
 
-fn action(
+pub(super) fn action(
     caption: &str,
     theme: &tok::Theme,
     enabled: bool,
@@ -445,6 +499,12 @@ fn thread_row(
     }
 }
 
+static NEW_THREAD_ICON: rune::Icon = rune::Icon {
+    name: "new-thread",
+    view: 24.0,
+    body: r#"<path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6 M15.5 5.5l3 3 M9 15l1-4 8-8a2 2 0 0 1 3 3l-8 8-4 1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
 fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
     let search = text_input(&s.workspace.search, TextStyle::new(13.0, 400.0))
         .key("thread-search")
@@ -479,7 +539,8 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
                     .workspace
                     .project(&t.project)
                     .map_or("", |p| p.title.as_str());
-                let selected = !s.workspace.show_projects
+                let selected = s.new_threads.active.is_none()
+                    && !s.workspace.show_projects
                     && s.workspace
                         .conversation
                         .as_ref()
@@ -538,7 +599,25 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
                 .px(7.0)
                 .gap(4.0)
                 .child(icon(&rune_kit::glyphs::SEARCH, 16.0).color(theme.text_secondary))
-                .child(search.shrink()),
+                .child(search.shrink())
+                .children(s.can_operate.then(|| {
+                    let item = el()
+                        .key("new-thread")
+                        .label("New thread")
+                        .role("button")
+                        .help("New thread")
+                        .size(26.0, 26.0)
+                        .radius(5.0)
+                        .center()
+                        .child(icon(&NEW_THREAD_ICON, 16.0).color(theme.text_secondary));
+                    if s.pending {
+                        item.disabled(true)
+                    } else {
+                        item.focusable(true)
+                            .hover(theme.separator)
+                            .on_press(Desktop::new_thread_in_workspace)
+                    }
+                })),
         )
         .child(list);
     if settled > 0 && query_empty {
@@ -553,7 +632,8 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
     sidebar.child(
         row()
             .w_full()
-            .child(action("Projects", theme, true, |s| {
+            .child(action("Projects", theme, !s.pending, |s| {
+                s.new_threads.active = None;
                 s.workspace.show_projects = true
             }))
             .child(spacer())
@@ -632,6 +712,12 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
                 }
                 if s.can_operate {
                     let id = p.id.clone();
+                    if !p.archived {
+                        let project = id.clone();
+                        title = title.child(action("New thread", theme, !s.pending, move |s| {
+                            s.prepare_thread(&project)
+                        }));
+                    }
                     let archived = !p.archived;
                     title = title.child(spacer()).child(action(
                         if archived { "Archive" } else { "Restore" },
@@ -795,6 +881,8 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
+    let composing = s.new_threads.active.as_deref();
+    let mut overlays = Vec::new();
     let thread = s.workspace.conversation.as_ref().and_then(|p| {
         s.workspace
             .by_thread
@@ -817,7 +905,12 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 s.workspace.sidebar = true
             }));
     }
-    if !s.workspace.show_projects
+    if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
+        header = header
+            .child(project_badge(&project.title, theme))
+            .child(label(&project.title, 13.0, 400.0, theme.text_secondary))
+            .child(label("/  New thread", 14.0, 500.0, theme.text));
+    } else if !s.workspace.show_projects
         && let Some(thread) = thread
     {
         if let Some(project) = s.workspace.project(&thread.project) {
@@ -835,7 +928,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         header = header.child(label("Projects", 14.0, 500.0, theme.text));
     }
     header = header.child(spacer());
-    if (s.workspace.show_projects || s.workspace.conversation.is_none())
+    if composing.is_none()
+        && (s.workspace.show_projects || s.workspace.conversation.is_none())
         && s.project_path.is_none()
         && s.can_operate
     {
@@ -846,7 +940,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             add_project,
         ));
     }
-    if !s.pending
+    if composing.is_none()
+        && !s.pending
         && !s.workspace.show_projects
         && let Some(pane) = &s.workspace.conversation
         && pane.watch.is_some()
@@ -866,7 +961,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     header = header
         .pr(inset.trailing + 12.0)
         .child(action("Refresh", theme, !s.pending, |s| {
-            if s.workspace.conversation.is_some() && !s.workspace.show_projects {
+            if let Some(id) = s.new_threads.active.clone() {
+                s.prepare_thread(&id);
+            } else if s.workspace.conversation.is_some() && !s.workspace.show_projects {
                 s.refresh_thread();
             } else {
                 s.send(Request::Refresh);
@@ -881,7 +978,18 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         );
     }
     main = main.child(
-        if !s.workspace.show_projects
+        if let Some(id) = composing
+            && let Some(project) = s.workspace.project(id)
+        {
+            super::new_thread::view(
+                s,
+                id,
+                &project.title,
+                theme,
+                &Kit::neutral(cx.system_dark()),
+                &mut overlays,
+            )
+        } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
             timeline(s, pane, theme, cx.system_dark())
@@ -889,7 +997,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             projects_view(s, theme)
         },
     );
-    if !s.workspace.show_projects
+    if composing.is_none()
+        && !s.workspace.show_projects
         && let Some(thread) = thread
         && let Some(pane) = &s.workspace.conversation
         && pane.sequence.is_some()
@@ -903,7 +1012,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .child(sidebar(s, inset.leading, theme))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
-    root.child(main)
+    rune_kit::root(root.child(main), overlays)
 }
 
 #[cfg(test)]
