@@ -28,7 +28,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
-import { headersFor, type Session } from "./projects.ts";
+import { headersFor, projectSummary, type Session } from "./projects.ts";
 
 export class NewThreadUnavailable extends Schema.TaggedError<NewThreadUnavailable>()(
   "NewThreadUnavailable",
@@ -121,6 +121,7 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
       });
   });
   return {
+    record: projectSummary(record, config.scratchWorkspaceRoot),
     cwd: record.workspaceRoot,
     startFromOrigin: settings.newWorktreesStartFromOrigin,
     project,
@@ -139,18 +140,22 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
 
 export const readLaunchOptions = Effect.fn("nativeDesktop.readLaunchOptions")(function* (
   session: Session,
-  project: string,
+  existingProject: string | null,
 ) {
   const rpc = yield* openEnvironmentRpc(session);
+  const project = existingProject ?? (yield* rpc[WS_METHODS.projectsEnsureScratch]({})).projectId;
   const options = yield* launchContext(session, project, rpc);
-  const branch = yield* rpc[WS_METHODS.subscribeVcsBranch]({ cwd: options.cwd }).pipe(
-    Stream.runHead,
-    Effect.map(Option.getOrNull),
-    Effect.orElseSucceed(() => null),
-  );
+  const branch = options.record.scratch
+    ? null
+    : yield* rpc[WS_METHODS.subscribeVcsBranch]({ cwd: options.cwd }).pipe(
+        Stream.runHead,
+        Effect.map(Option.getOrNull),
+        Effect.orElseSucceed(() => null),
+      );
   return {
     project,
-    worktree: options.worktree,
+    record: options.record,
+    worktree: !options.record.scratch && options.worktree,
     base: branch?.refName ?? (options.startFromOrigin ? "" : "HEAD"),
     choices: options.choices.map(({ id, name, provider, runtime, preferred }) => ({
       id,

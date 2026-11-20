@@ -11,12 +11,14 @@ import {
   WS_METHODS,
   CommandId,
   ProjectId,
+  type Project,
   isListedThreadLineage,
 } from "@t3tools/contracts";
 import { withOrchestrationProtocolHeader } from "@t3tools/client-runtime/state/environmentHttpAuth";
 import {
   findProjectByPath,
   inferProjectTitleFromPath,
+  isScratchProject,
   isUnsupportedWindowsProjectPath,
 } from "@t3tools/client-runtime/state/projects";
 import { parseOAuthScope } from "@t3tools/shared/oauthScope";
@@ -81,20 +83,46 @@ export type Session = Awaited<ReturnType<typeof pairWithEnvironment>>;
 export const headersFor = (session: Session) =>
   withOrchestrationProtocolHeader({ authorization: `Bearer ${session.token}` });
 
+export function projectSummary(
+  project: Pick<Project, "id" | "title" | "workspaceRoot" | "archivedAt">,
+  scratchRoot: string | undefined,
+) {
+  return {
+    id: project.id,
+    title: project.title,
+    path: project.workspaceRoot,
+    archived: project.archivedAt != null,
+    scratch: isScratchProject(project, scratchRoot),
+  };
+}
+
+const readScratchRoot = Effect.fn("nativeDesktop.readScratchRoot")(function* (session: Session) {
+  const rpc = yield* openEnvironmentRpc(session);
+  return (yield* rpc[WS_METHODS.serverGetConfig]({})).scratchWorkspaceRoot;
+});
+
 const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: Session) {
   const client = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
-  const snapshot = yield* client.shellSnapshot({
-    headers: headersFor(session),
-    query: { omitIdleSubagents: "1" },
-  });
+  const [snapshot, scratchRoot] = yield* Effect.all(
+    [
+      client.shellSnapshot({
+        headers: headersFor(session),
+        query: { omitIdleSubagents: "1" },
+      }),
+      session.canOperate
+        ? readScratchRoot(session).pipe(
+            Effect.scoped,
+            Effect.timeout("3 seconds"),
+            Effect.orElseSucceed(() => undefined),
+          )
+        : Effect.undefined,
+    ],
+    { concurrency: "unbounded" },
+  );
   if ("resumable" in snapshot) return yield* Effect.die("Unexpected resume without a shell cursor");
   return {
-    projects: snapshot.projects.map((project) => ({
-      id: project.id,
-      title: project.title,
-      path: project.workspaceRoot,
-      archived: project.archivedAt != null,
-    })),
+    scratch_available: Boolean(scratchRoot),
+    projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
     threads: snapshot.threads
       .filter(
         (thread) =>

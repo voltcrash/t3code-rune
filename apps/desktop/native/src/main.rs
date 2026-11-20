@@ -21,6 +21,7 @@ enum Reply {
         can_operate: bool,
     },
     Workspace {
+        scratch_available: bool,
         projects: Vec<Project>,
         threads: Vec<Thread>,
     },
@@ -43,6 +44,7 @@ enum Reply {
         operation: String,
     },
     LaunchOptions {
+        record: Project,
         project: String,
         choices: Vec<new_thread::Choice>,
         base: String,
@@ -85,6 +87,7 @@ enum Request<'a> {
     Pair {
         link: &'a str,
     },
+    PrepareScratch,
     PrepareThread {
         project: String,
     },
@@ -238,15 +241,22 @@ impl Desktop {
                 self.environment = Some(label);
                 self.pending = true;
             }
-            Reply::Workspace { projects, threads } => {
+            Reply::Workspace {
+                projects,
+                threads,
+                scratch_available,
+            } => {
+                self.workspace.scratch_available = scratch_available;
                 self.replace_workspace(projects, threads);
             }
             Reply::LaunchOptions {
+                record,
                 project,
                 choices,
                 base,
                 worktree,
             } => {
+                self.workspace.upsert_project(record);
                 self.new_threads
                     .configure(project, choices, worktree, &base);
                 self.workspace.show_projects = false;
@@ -441,7 +451,13 @@ fn start() -> io::Result<()> {
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         on_key: Some(|s: &mut Desktop, ev, tx| {
-            if s.can_operate && !ev.mods.alt && !ev.mods.shift && ev.is_command('n') {
+            if s.can_operate && !ev.mods.shift && ev.is_command('n') {
+                if ev.mods.alt {
+                    if !tx.key_repeat() {
+                        s.prepare_scratch();
+                    }
+                    return true;
+                }
                 if !tx.key_repeat() {
                     s.new_thread_in_workspace();
                 }

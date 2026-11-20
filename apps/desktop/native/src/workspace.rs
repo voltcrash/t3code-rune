@@ -18,6 +18,7 @@ pub(super) struct Project {
     search_title: String,
     path: String,
     archived: bool,
+    pub(super) scratch: bool,
 }
 
 #[derive(Deserialize)]
@@ -121,6 +122,7 @@ impl Conversation {
 }
 
 pub(super) struct Workspace {
+    pub(super) scratch_available: bool,
     projects: Vec<Project>,
     by_project: HashMap<String, usize>,
     threads: Vec<Thread>,
@@ -139,6 +141,7 @@ pub(super) struct Workspace {
 impl Workspace {
     pub fn new() -> Self {
         Self {
+            scratch_available: false,
             projects: Vec::new(),
             by_project: HashMap::new(),
             threads: Vec::new(),
@@ -182,6 +185,18 @@ impl Workspace {
         self.settled_count = threads.iter().filter(|t| t.settled).count();
         self.projects = projects;
         self.threads = threads;
+        self.filter();
+    }
+
+    pub fn upsert_project(&mut self, mut project: Project) {
+        project.search_title = project.title.to_lowercase();
+        if let Some(&index) = self.by_project.get(&project.id) {
+            self.projects[index] = project;
+        } else {
+            self.by_project
+                .insert(project.id.clone(), self.projects.len());
+            self.projects.push(project);
+        }
         self.filter();
     }
 
@@ -285,6 +300,12 @@ impl Desktop {
         self.new_threads
             .retain(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
     }
+    pub(super) fn prepare_scratch(&mut self) {
+        if self.can_operate && self.workspace.scratch_available && !self.pending {
+            self.send(Request::PrepareScratch);
+        }
+    }
+
     pub(super) fn new_thread_in_workspace(&mut self) {
         if self.pending || !self.can_operate {
             return;
@@ -505,7 +526,7 @@ static NEW_THREAD_ICON: rune::Icon = rune::Icon {
     body: r#"<path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6 M15.5 5.5l3 3 M9 15l1-4 8-8a2 2 0 0 1 3 3l-8 8-4 1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
+fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
     let search = text_input(&s.workspace.search, TextStyle::new(13.0, 400.0))
         .key("thread-search")
         .label("Search threads")
@@ -557,26 +578,42 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
-        .child(if count == 0 {
-            label(
-                if query_empty {
-                    "No threads"
-                } else {
-                    "No matching threads"
-                },
-                13.0,
-                400.0,
-                theme.text_secondary,
-            )
-            .padding(10.0)
-        } else {
-            rows
-        });
+        .child(
+            if query_empty && s.workspace.projects.is_empty() && !s.pending {
+                let mut empty = col().w_full().pt(12.0).gap(6.0).center().child(label(
+                    "No projects yet",
+                    12.0,
+                    400.0,
+                    theme.text_secondary,
+                ));
+                if s.can_operate {
+                    empty = empty.child(
+                        home_button("Add project", &ADD_ICON, false, theme, true, add_project)
+                            .key("sidebar-add-project"),
+                    );
+                }
+                empty
+            } else if count == 0 {
+                label(
+                    if query_empty {
+                        "No threads"
+                    } else {
+                        "No matching threads"
+                    },
+                    13.0,
+                    400.0,
+                    theme.text_secondary,
+                )
+                .padding(10.0)
+            } else {
+                rows
+            },
+        );
     let settled = s.workspace.settled_count;
     let mut sidebar = col()
         .key("sidebar")
-        .w(256.0)
-        .max_w(256.0)
+        .w(width)
+        .max_w(width)
         .h_full()
         .px(8.0)
         .pb(8.0)
@@ -648,7 +685,7 @@ fn add_project(s: &mut Desktop, tx: &mut Tx) {
         return;
     }
     if !s.local {
-        s.project_path = Some(TextEdit::new(""));
+        s.project_path.get_or_insert_with(|| TextEdit::new(""));
         tx.focus("project-path", true);
         return;
     }
@@ -686,6 +723,123 @@ fn submit_project_path(s: &mut Desktop) {
         s.send(Request::AddProject {
             path: field.text.trim().to_owned(),
         });
+    }
+}
+
+fn empty_home(s: &Desktop, theme: &tok::Theme, narrow: bool) -> El {
+    let write = s.can_operate;
+    let scratch = write && s.workspace.scratch_available;
+    let mut buttons = if narrow { col() } else { row().flex_wrap() }
+        .w_full()
+        .max_w(450.0)
+        .gap(8.0)
+        .center();
+    if write {
+        buttons = buttons.child(home_button(
+            "Add project",
+            &ADD_ICON,
+            true,
+            theme,
+            !s.pending,
+            add_project,
+        ));
+    }
+    if scratch {
+        buttons = buttons.child(home_button(
+            "Start without a project",
+            &SCRATCH_ICON,
+            false,
+            theme,
+            !s.pending,
+            |s, _| s.prepare_scratch(),
+        ));
+    }
+    let intro = col()
+        .w_full()
+        .center()
+        .gap(4.0)
+        .child(
+            label(
+                "What should we work on?",
+                if narrow { 24.0 } else { 30.0 },
+                600.0,
+                theme.text,
+            )
+            .w_full()
+            .wrap()
+            .align(rune::Align::Center),
+        )
+        .child(
+            label(
+                if scratch {
+                    "Add a project, or start without one."
+                } else if write {
+                    "Add a project to start your first thread."
+                } else {
+                    "No projects in this environment."
+                },
+                14.0,
+                400.0,
+                theme.text_secondary,
+            )
+            .w_full()
+            .wrap()
+            .align(rune::Align::Center),
+        );
+    col()
+        .px(8.0)
+        .min_w(0.0)
+        .w_full()
+        .grow(1.0)
+        .center()
+        .gap(24.0)
+        .child(intro)
+        .child(buttons)
+}
+
+static ADD_ICON: rune::Icon = rune::Icon {
+    name: "add-project",
+    view: 24.0,
+    body: r#"<path d="M12 5v14m-7-7h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#,
+};
+static SCRATCH_ICON: rune::Icon = rune::Icon {
+    name: "scratch-thread",
+    view: 24.0,
+    body: r#"<path d="M8 3H6a3 3 0 0 0-3 3v2m0 3v3m0 3v4l4-2m3 0h3m3 0h2a3 3 0 0 0 3-3m0-3v-3m0-3V6a3 3 0 0 0-3-3m-3 0h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>"#,
+};
+fn home_button(
+    caption: &str,
+    glyph: &'static rune::Icon,
+    primary: bool,
+    theme: &tok::Theme,
+    enabled: bool,
+    press: impl Fn(&mut Desktop, &mut Tx) + 'static,
+) -> El {
+    let fg = if primary {
+        rune::Color::WHITE
+    } else {
+        theme.text
+    };
+    let mut button = row()
+        .label(caption)
+        .role("button")
+        .key(caption)
+        .h(28.0)
+        .px(9.0)
+        .gap(5.0)
+        .center()
+        .radius(8.0)
+        .child(icon(glyph, 16.0).color(fg))
+        .child(label(caption, 13.0, 500.0, fg));
+    button = if primary {
+        button.fill(rune::oklch(0.56, 0.19, 259.0))
+    } else {
+        button.border(1.0, theme.separator)
+    };
+    if enabled {
+        button.focusable(true).on_press_tx(press)
+    } else {
+        button.disabled(true).opacity(0.5)
     }
 }
 
@@ -881,6 +1035,9 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
+    let narrow = cx
+        .layout_with("workspace", |rect| rect[2] < 640.0)
+        .unwrap_or(false);
     let composing = s.new_threads.active.as_deref();
     let mut overlays = Vec::new();
     let thread = s.workspace.conversation.as_ref().and_then(|p| {
@@ -890,6 +1047,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .map(|&i| &s.workspace.threads[i])
     });
     let inset = cx.chrome_insets();
+    let empty = s.workspace.projects.is_empty() && s.project_path.is_none() && !s.pending;
     let mut header = row()
         .key("thread-titlebar")
         .w_full()
@@ -924,13 +1082,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .truncate()
                 .shrink(),
         );
-    } else {
+    } else if !empty {
         header = header.child(label("Projects", 14.0, 500.0, theme.text));
     }
     header = header.child(spacer());
     if composing.is_none()
         && (s.workspace.show_projects || s.workspace.conversation.is_none())
         && s.project_path.is_none()
+        && !empty
         && s.can_operate
     {
         header = header.child(action_with_tx(
@@ -985,6 +1144,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 s,
                 id,
                 &project.title,
+                project.scratch,
                 theme,
                 &Kit::neutral(cx.system_dark()),
                 &mut overlays,
@@ -994,7 +1154,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         {
             timeline(s, pane, theme, cx.system_dark())
         } else {
-            projects_view(s, theme)
+            if empty {
+                empty_home(s, theme, narrow)
+            } else {
+                projects_view(s, theme)
+            }
         },
     );
     if composing.is_none()
@@ -1006,10 +1170,15 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     {
         main = main.child(composer::view(s, &thread.id, &thread.model, theme));
     }
-    let mut root = row().w_full().h_full().fill(theme.bg);
+    let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     if s.workspace.sidebar {
         root = root
-            .child(sidebar(s, inset.leading, theme))
+            .child(sidebar(
+                s,
+                inset.leading,
+                if narrow { 176.0 } else { 256.0 },
+                theme,
+            ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
     rune_kit::root(root.child(main), overlays)

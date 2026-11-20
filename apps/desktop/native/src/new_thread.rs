@@ -139,6 +139,7 @@ pub(super) fn view(
     s: &Desktop,
     project: &str,
     title: &str,
+    scratch: bool,
     theme: &tok::Theme,
     kit: &Kit,
     overlays: &mut Vec<El>,
@@ -181,11 +182,9 @@ pub(super) fn view(
         }
     })
     .build(kit, overlays);
-    let mut controls = row()
-        .w_full()
-        .gap(8.0)
-        .center_y()
-        .child(super::workspace::action(
+    let mut controls = row().w_full().gap(8.0).center_y();
+    if !scratch {
+        controls = controls.child(super::workspace::action(
             if draft.worktree {
                 "New worktree"
             } else {
@@ -198,7 +197,8 @@ pub(super) fn view(
                 draft.worktree = !draft.worktree;
             },
         ));
-    if draft.worktree {
+    }
+    if !scratch && draft.worktree {
         controls = controls.child(
             text_input(&draft.base, TextStyle::new(12.0, 400.0))
                 .key("launch-base")
@@ -240,43 +240,75 @@ pub(super) fn view(
         Desktop::launch,
     ));
     let project_options = s.workspace.launch_projects();
-    let heading = row()
-        .max_w(736.0)
-        .center_y()
-        .gap(6.0)
-        .child(
-            text("What should we build in")
-                .font(TextStyle::new(30.0, 400.0))
-                .color(theme.text)
-                .shrink(),
-        )
-        .child(
-            Combobox::new(
-                "launch-project",
-                &s.new_threads.project_picker,
-                &project_options,
-                |s: &mut Desktop| &mut s.new_threads.project_picker,
-            )
-            .disabled(s.pending)
-            .current(Some(project))
+    let project_picker = Combobox::new(
+        "launch-project",
+        &s.new_threads.project_picker,
+        &project_options,
+        |s: &mut Desktop| &mut s.new_threads.project_picker,
+    )
+    .disabled(s.pending)
+    .current(Some(project))
+    .label("Project")
+    .search_placeholder("Search projects")
+    .trigger(
+        row()
             .label("Project")
-            .search_placeholder("Search projects")
-            .trigger(
-                row()
-                    .label("Project")
-                    .role("button")
-                    .focusable(true)
-                    .shrink()
-                    .child(
-                        text(format!("{title}?"))
-                            .truncate()
-                            .font(TextStyle::new(30.0, 500.0))
-                            .color(theme.text),
-                    ),
+            .role("button")
+            .focusable(true)
+            .shrink()
+            .child(
+                text(if scratch {
+                    "No project".into()
+                } else {
+                    format!("{title}?")
+                })
+                .truncate()
+                .font(TextStyle::new(
+                    if scratch { 14.0 } else { 30.0 },
+                    if scratch { 400.0 } else { 500.0 },
+                ))
+                .color(if scratch {
+                    theme.text_secondary
+                } else {
+                    theme.text
+                }),
+            ),
+    )
+    .on_choose(|s, id, _| s.prepare_thread(id))
+    .build(kit, overlays);
+    let heading = if scratch {
+        col()
+            .center()
+            .gap(8.0)
+            .child(
+                text("What should we work on?")
+                    .font(TextStyle::new(30.0, 400.0))
+                    .color(theme.text),
             )
-            .on_choose(|s, id, _| s.prepare_thread(id))
-            .build(kit, overlays),
-        );
+            .child(project_picker)
+    } else {
+        let title = row()
+            .max_w(736.0)
+            .center_y()
+            .gap(6.0)
+            .child(
+                text("What should we build in")
+                    .font(TextStyle::new(30.0, 400.0))
+                    .color(theme.text)
+                    .shrink(),
+            )
+            .child(project_picker);
+        let mut heading = col().center().gap(8.0).child(title);
+        if s.workspace.scratch_available {
+            heading = heading.child(super::workspace::action(
+                "or start without a project",
+                theme,
+                !s.pending,
+                Desktop::prepare_scratch,
+            ));
+        }
+        heading
+    };
     let mut content = col()
         .w_full()
         .grow(1.0)
