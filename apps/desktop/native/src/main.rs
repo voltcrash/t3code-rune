@@ -7,6 +7,7 @@ use rune::{
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
+mod composer;
 mod workspace;
 use workspace::{MessageRow, Project, Thread, Workspace};
 
@@ -16,7 +17,7 @@ enum Reply {
     Connected {
         label: String,
         local: bool,
-        can_edit_projects: bool,
+        can_operate: bool,
     },
     Workspace {
         projects: Vec<Project>,
@@ -32,6 +33,10 @@ enum Reply {
     },
     Error {
         message: String,
+    },
+    MessageSent {
+        thread: String,
+        operation: String,
     },
     ProjectSaved {
         added: bool,
@@ -62,6 +67,11 @@ enum Request<'a> {
     Pair {
         link: &'a str,
     },
+    SendMessage {
+        thread: String,
+        text: String,
+        operation: String,
+    },
     AddProject {
         path: String,
     },
@@ -85,7 +95,7 @@ struct Desktop {
     link: TextEdit,
     environment: Option<String>,
     local: bool,
-    can_edit_projects: bool,
+    can_operate: bool,
     project_path: Option<TextEdit>,
     workspace: Workspace,
     request_id: u64,
@@ -101,7 +111,7 @@ impl Desktop {
             link: TextEdit::new("").secure(),
             environment: None,
             local: false,
-            can_edit_projects: false,
+            can_operate: false,
             project_path: None,
             workspace: Workspace::new(),
             request_id: 0,
@@ -160,6 +170,11 @@ impl Desktop {
         self.starting_local = false;
         self.error = None;
         match message.reply {
+            Reply::MessageSent { thread, operation } => {
+                if self.workspace.finish_message(&thread, &operation) {
+                    self.refresh_thread();
+                }
+            }
             Reply::ProjectSaved { added } => {
                 if added {
                     self.project_path = None;
@@ -169,10 +184,10 @@ impl Desktop {
             Reply::Connected {
                 label,
                 local,
-                can_edit_projects,
+                can_operate,
             } => {
                 self.local = local;
-                self.can_edit_projects = can_edit_projects;
+                self.can_operate = can_operate;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -423,7 +438,7 @@ mod tests {
             reply: Reply::Connected {
                 label: "This computer".into(),
                 local: true,
-                can_edit_projects: true,
+                can_operate: true,
             },
         });
         assert_eq!(desktop.environment.as_deref(), Some("This computer"));

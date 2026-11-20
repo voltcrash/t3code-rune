@@ -61,7 +61,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     httpBaseUrl: target.httpBaseUrl,
     token: session.access_token,
     canBrowse: scopes.includes(AuthFilesystemReadScope),
-    canEditProjects: scopes.includes(AuthOrchestrationOperateScope),
+    canOperate: scopes.includes(AuthOrchestrationOperateScope),
   };
 });
 
@@ -112,6 +112,7 @@ const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: S
         title: thread.title,
         branch: thread.branch,
         status: thread.status,
+        model: thread.modelSelection.model,
         settled: thread.settledOverride === "settled",
       })),
   };
