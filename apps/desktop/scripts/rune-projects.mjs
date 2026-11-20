@@ -2,6 +2,8 @@ import * as Effect from "effect/Effect";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage } from "../src/native/messages.ts";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
 import {
@@ -73,7 +75,17 @@ async function openThread(owner, request, reply) {
 
 function localServer() {
   if (!server) {
-    const started = startLocalServer();
+    const packaged = process.argv[2] === "--packaged";
+    const cwd = NodePath.resolve(import.meta.dirname, packaged ? "server" : "../../server");
+    const started = startLocalServer({
+      cwd,
+      entryPath: NodePath.join(cwd, packaged ? "dist/bin.mjs" : "src/bin.ts"),
+      t3Home: packaged
+        ? NodePath.resolve(
+            process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
+          )
+        : NodePath.resolve(import.meta.dirname, "../../../.t3/rune"),
+    });
     server = started;
     void started.stopped.then(() => {
       if (server !== started) return;
