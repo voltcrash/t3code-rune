@@ -9,6 +9,7 @@ use std::io::{self, BufRead, BufReader, Write};
 
 mod approval;
 mod composer;
+mod navigation;
 mod new_thread;
 mod questions;
 mod workspace;
@@ -31,6 +32,9 @@ enum Reply {
         thread: String,
         #[serde(flatten)]
         window: ConversationWindow,
+    },
+    ThreadUnavailable {
+        thread: String,
     },
     Live {
         watch: u64,
@@ -163,6 +167,7 @@ struct Desktop {
     can_operate: bool,
     project_path: Option<TextEdit>,
     workspace: Workspace,
+    history: navigation::History,
     new_threads: new_thread::NewThreads,
     palette: Option<workspace::palette::Palette>,
     request_id: u64,
@@ -182,6 +187,7 @@ impl Desktop {
             can_operate: false,
             project_path: None,
             workspace: Workspace::new(),
+            history: Default::default(),
             new_threads: Default::default(),
             palette: None,
             request_id: 0,
@@ -263,8 +269,11 @@ impl Desktop {
         {
             let thread_count = self.workspace.thread_count();
             self.workspace.apply_live(watch, &thread, sequence, update);
-            if self.palette.is_some() && thread_count != self.workspace.thread_count() {
-                self.filter_palette(true);
+            if thread_count != self.workspace.thread_count() {
+                self.history.retain(&self.workspace, &self.new_threads);
+                if self.palette.is_some() {
+                    self.filter_palette(true);
+                }
             }
             return;
         }
@@ -342,6 +351,8 @@ impl Desktop {
                 base,
                 worktree,
             } => {
+                self.history
+                    .visit(navigation::Page::NewThread(project.clone()));
                 self.workspace.upsert_project(record);
                 self.new_threads
                     .configure(project, choices, worktree, &base);
@@ -349,9 +360,11 @@ impl Desktop {
             }
             Reply::ThreadLaunched { thread } => {
                 let id = thread.id.clone();
+                self.history.launched(&thread.project, &id);
                 self.new_threads.forget(&thread.project);
                 self.workspace.insert_launched(thread);
                 self.open_thread(&id);
+                self.history.retain(&self.workspace, &self.new_threads);
             }
             Reply::LaunchFailed {
                 project,
@@ -367,6 +380,13 @@ impl Desktop {
                 {
                     pane.replace(window, &mut self.workspace.questions);
                     pane.begin_watch(self.request_id);
+                }
+            }
+            Reply::ThreadUnavailable { thread } => {
+                self.workspace.remove_thread(&thread);
+                self.history.retain(&self.workspace, &self.new_threads);
+                if self.palette.is_some() {
+                    self.filter_palette(true);
                 }
             }
             Reply::Unchanged => {
@@ -549,6 +569,16 @@ fn start() -> io::Result<()> {
             }
             if s.palette.is_some() {
                 return false;
+            }
+            if s.environment.is_some()
+                && !ev.mods.alt
+                && !ev.mods.shift
+                && (ev.is_command('[') || ev.is_command(']'))
+            {
+                if !tx.key_repeat() {
+                    s.go(ev.is_command(']'));
+                }
+                return true;
             }
             if s.question_shortcut(ev, tx) {
                 return true;

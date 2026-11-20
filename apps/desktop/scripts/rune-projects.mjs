@@ -62,6 +62,8 @@ async function openThread(owner, request, reply) {
   try {
     const state = await readWindow(owner, request, same?.state);
     if (session !== owner || lifetime.signal.aborted) return;
+    if (state.projection.thread.deletedAt !== null || state.projection.thread.archivedAt !== null)
+      return reply({ type: "threadunavailable", thread: request.thread });
     if (!request.cursor && state === same?.state && request.sequence === state.sequence) {
       reply({ type: "unchanged" });
     } else {
@@ -69,6 +71,10 @@ async function openThread(owner, request, reply) {
     }
     watch(owner, request.thread, request.id, state);
   } catch (error) {
+    if (error?._tag === "EnvironmentResourceNotFoundError" && error.reason === "thread_not_found") {
+      if (session === owner) reply({ type: "threadunavailable", thread: request.thread });
+      return;
+    }
     if (same && session === owner && !lifetime.signal.aborted)
       watch(owner, same.thread, same.id, same.state);
     throw error;
