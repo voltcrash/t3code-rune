@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { respondToApproval } from "../src/native/approvals.ts";
+import { respondToApproval, respondToQuestion } from "../src/native/runtimeRequests.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage, stopThreadRun } from "../src/native/messages.ts";
@@ -231,41 +231,57 @@ async function handleWorkspaceRequest(request, reply) {
       reading = session;
       await openThread(reading, request, reply);
       return;
-    } else if (request.type === "approval") {
+    } else if (request.type === "approval" || request.type === "question") {
       reading = session;
-      const result = {
-        type: "approvalresult",
-        thread: request.thread,
-        request: request.request,
-        version: request.version,
-      };
-      const approval = watching?.state.approvals.find((item) => item.id === request.request);
+      const result = { type: "requestresult", thread: request.thread, version: request.version };
+      const current = watching;
       if (
         !reading?.canOperate ||
-        !watching?.synchronized ||
-        watching.owner !== reading ||
-        watching?.thread !== request.thread ||
-        !approval?.live ||
-        approval.version !== request.version ||
-        !approval.options.some((option) => option.decision === request.decision)
+        !current?.synchronized ||
+        current.owner !== reading ||
+        current.thread !== request.thread
       ) {
         reply({
           ...result,
           error:
-            "This approval changed or is unavailable on this connection. Refresh the conversation.",
+            "This request changed or is unavailable on this connection. Refresh the conversation.",
         });
         return;
       }
+      const approval =
+        request.type === "approval" &&
+        current.state.requests.approvals.find(
+          (a) =>
+            a.id === request.request &&
+            a.version === request.version &&
+            a.live &&
+            a.options.some((c) => c.decision === request.decision),
+        );
+      const question =
+        request.type === "question" &&
+        current.state.requests.questions.find(
+          (q) => q.requestId === request.request && q.version === request.version,
+        );
+      const command = approval
+        ? respondToApproval(reading, request).pipe(Effect.as(true))
+        : question
+          ? respondToQuestion(reading, question, request)
+          : Effect.succeed(false);
       try {
-        await Effect.runPromise(
-          respondToApproval(reading, request).pipe(
-            Effect.scoped,
-            Effect.timeout("15 seconds"),
-            Effect.provide(reading.http),
-          ),
+        const accepted = await Effect.runPromise(
+          command.pipe(Effect.scoped, Effect.timeout("15 seconds"), Effect.provide(reading.http)),
           { signal: reading.signal },
         );
-        if (reading === session) reply(result);
+        if (reading === session)
+          reply(
+            accepted
+              ? result
+              : {
+                  ...result,
+                  error:
+                    "This response is unavailable. Refresh the conversation and check the request.",
+                },
+          );
       } catch {
         if (reading === session)
           reply({

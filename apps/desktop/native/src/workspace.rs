@@ -1,6 +1,7 @@
 #[path = "palette.rs"]
 pub(super) mod palette;
 
+use super::questions::{self, Forms, Prompt};
 use super::{
     Desktop, Request,
     approval::{self, Approval},
@@ -49,6 +50,8 @@ pub(super) struct MessageRow {
 #[derive(Deserialize)]
 pub(super) struct ConversationWindow {
     #[serde(default)]
+    questions: Vec<Prompt>,
+    #[serde(default)]
     approvals: Vec<Approval>,
     active_run: Option<String>,
     rows: Vec<MessageRow>,
@@ -68,7 +71,8 @@ pub(super) enum LiveStatus {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(super) enum LiveUpdate {
-    Approvals {
+    Requests {
+        questions: Vec<Prompt>,
         approvals: Vec<Approval>,
     },
     Splice {
@@ -112,7 +116,8 @@ pub(super) struct Conversation {
 }
 
 impl Conversation {
-    pub fn replace(&mut self, window: ConversationWindow) {
+    pub fn replace(&mut self, window: ConversationWindow, forms: &mut Forms) {
+        questions::replace(forms, &self.id, window.questions);
         self.replace_approvals(window.approvals);
         self.set_active_run(window.active_run);
         self.rows = window.rows;
@@ -148,6 +153,7 @@ impl Conversation {
 }
 
 pub(super) struct Workspace {
+    pub questions: Forms,
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
     by_project: HashMap<String, usize>,
@@ -177,6 +183,7 @@ impl Workspace {
             settled_count: 0,
             conversation: None,
             drafts: HashMap::new(),
+            questions: HashMap::new(),
             search: TextEdit::new(""),
             show_projects: false,
             sidebar: true,
@@ -207,6 +214,8 @@ impl Workspace {
         {
             self.conversation = None;
         }
+        self.questions
+            .retain(|id, _| self.by_thread.contains_key(id));
         self.drafts.retain(|id, _| self.by_thread.contains_key(id));
         self.settled_count = threads.iter().filter(|t| t.settled).count();
         self.projects = projects;
@@ -284,7 +293,11 @@ impl Workspace {
             return;
         }
         match update {
-            LiveUpdate::Approvals { approvals } => {
+            LiveUpdate::Requests {
+                approvals,
+                questions,
+            } => {
+                questions::replace(&mut self.questions, id, questions);
                 pane.replace_approvals(approvals);
                 pane.sequence = Some(sequence);
             }
@@ -295,6 +308,7 @@ impl Workspace {
             LiveUpdate::Deleted => {
                 self.conversation = None;
                 self.drafts.remove(id);
+                self.questions.remove(id);
                 if let Some(index) = self.by_thread.remove(id) {
                     let removed = self.threads.remove(index);
                     self.settled_count -= usize::from(removed.settled);
@@ -304,7 +318,7 @@ impl Workspace {
                     self.filter();
                 }
             }
-            LiveUpdate::Window { window } => pane.replace(window),
+            LiveUpdate::Window { window } => pane.replace(window, &mut self.questions),
             LiveUpdate::Status { state } if !pane.needs_reload => pane.set_status(state),
             LiveUpdate::Append { index, key, text }
                 if !pane.needs_reload && pane.rows.get(index).is_some_and(|row| row.key == key) =>
@@ -1236,8 +1250,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && let Some(thread) = thread
         && let Some(pane) = &s.workspace.conversation
         && pane.sequence.is_some()
-        && s.can_operate
+        && (s.can_operate || s.workspace.questions.contains_key(&thread.id))
     {
+        if s.workspace.questions.contains_key(&thread.id) {
+            main = main.child(questions::banner(s, &thread.id, theme, cx.system_dark()));
+        }
         main = main.child(composer::view(
             s,
             &thread.id,
@@ -1359,18 +1376,18 @@ mod tests {
             body: key.into(),
             attachments: Vec::new(),
         };
-        workspace
-            .conversation
-            .as_mut()
-            .unwrap()
-            .replace(ConversationWindow {
+        workspace.conversation.as_mut().unwrap().replace(
+            ConversationWindow {
+                questions: vec![],
                 approvals: vec![],
                 active_run: None,
                 rows: vec![message("earlier"), message("latest")],
                 sequence: 10,
                 earlier_pages: 1,
                 cursor: None,
-            });
+            },
+            &mut workspace.questions,
+        );
         desktop.open_thread("thread");
         let pane = desktop.workspace.conversation.as_ref().unwrap();
         let Request::Thread {

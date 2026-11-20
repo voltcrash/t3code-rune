@@ -10,6 +10,7 @@ use std::io::{self, BufRead, BufReader, Write};
 mod approval;
 mod composer;
 mod new_thread;
+mod questions;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
@@ -46,9 +47,8 @@ enum Reply {
         run: String,
         error: Option<String>,
     },
-    ApprovalResult {
+    RequestResult {
         thread: String,
-        request: String,
         version: String,
         error: Option<String>,
     },
@@ -112,6 +112,13 @@ enum Request<'a> {
         operation: String,
         base: Option<String>,
     },
+    Question {
+        thread: String,
+        request: String,
+        version: String,
+        operation: String,
+        drafts: Option<std::collections::HashMap<String, questions::Submission>>,
+    },
     Approval {
         thread: String,
         request: String,
@@ -149,6 +156,7 @@ enum Request<'a> {
 
 struct Desktop {
     output: Option<std::process::ChildStdin>,
+    answer_advance: Option<questions::Advance>,
     link: TextEdit,
     environment: Option<String>,
     local: bool,
@@ -167,6 +175,7 @@ impl Desktop {
     fn new() -> Self {
         Self {
             output: None,
+            answer_advance: None,
             link: TextEdit::new("").secure(),
             environment: None,
             local: false,
@@ -202,6 +211,7 @@ impl Desktop {
         if self.pending || self.output.is_none() {
             return;
         }
+        self.answer_advance = None;
         self.request_id += 1;
         let starting_local = matches!(request, Request::Local);
         if self.write_request(Some(self.request_id), request) {
@@ -269,17 +279,19 @@ impl Desktop {
         self.starting_local = false;
         self.error = None;
         match message.reply {
-            Reply::ApprovalResult {
+            Reply::RequestResult {
                 thread,
-                request,
                 version,
                 error,
             } => {
                 if self.workspace.conversation.as_ref().is_some_and(|p| {
                     p.id == thread
-                        && p.approvals
-                            .iter()
-                            .any(|a| a.id == request && a.version == version)
+                        && (p.approvals.iter().any(|a| a.version == version)
+                            || self
+                                .workspace
+                                .questions
+                                .get(&thread)
+                                .is_some_and(|f| f.prompt.version == version))
                 }) {
                     if let Some(message) = error {
                         self.error = Some(message);
@@ -353,7 +365,7 @@ impl Desktop {
                 if let Some(pane) = &mut self.workspace.conversation
                     && pane.id == thread
                 {
-                    pane.replace(window);
+                    pane.replace(window, &mut self.workspace.questions);
                     pane.begin_watch(self.request_id);
                 }
             }
@@ -524,7 +536,10 @@ fn start() -> io::Result<()> {
     let input = BufReader::new(child.stdout.take().unwrap());
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
-        poll: Some(Desktop::poll_stop),
+        poll: Some(|s: &mut Desktop, now, tx| {
+            let stop = s.poll_stop(now, tx);
+            s.poll_answer(tx) || stop
+        }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
                 if !tx.key_repeat() {
@@ -534,6 +549,9 @@ fn start() -> io::Result<()> {
             }
             if s.palette.is_some() {
                 return false;
+            }
+            if s.question_shortcut(ev, tx) {
+                return true;
             }
             if s.environment.is_some() && !ev.mods.alt && !ev.mods.shift && ev.is_command('b') {
                 if !tx.key_repeat() {
