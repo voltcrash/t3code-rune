@@ -2,6 +2,7 @@ import {
   applyOrchestrationV2ProjectionEvent,
   getProjectionArrayReplacementIndex,
 } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { activeThreadRun } from "@t3tools/client-runtime/state/thread-execution";
 import { mergeOlderHistoryIntoProjection } from "@t3tools/client-runtime/state/thread-history-merge";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
@@ -36,6 +37,7 @@ const messages = (items: readonly OrchestrationV2ProjectedTurnItem[]) =>
   items.flatMap((row) => message(row) ?? []);
 type Window = {
   projection: OrchestrationV2ThreadProjection;
+  activeRun: string | null;
   sequence: number;
   watermark: number | null;
   rows: Row[];
@@ -46,8 +48,9 @@ type Window = {
 type Update =
   | { kind: "splice"; index: number; remove: number; rows: Row[] }
   | { kind: "append"; index: number; key: string; text: string }
-  | { kind: "window"; rows: Row[]; cursor: string | null; earlier_pages: number }
+  | ({ kind: "window" } & ReturnType<typeof windowReply>)
   | { kind: "status"; state: "live" | "reconnecting" | "paused" }
+  | { kind: "run"; run: string | null }
   | { kind: "deleted" };
 
 const indexRows = (rows: Row[]) => new Map(rows.map((row, i) => [row.key, i]));
@@ -91,6 +94,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
   const projection = boundedSnapshotProjection(snapshot);
   const state: Window = {
     projection,
+    activeRun: activeThreadRun(projection)?.id ?? null,
     sequence: snapshot.snapshotSequence,
     watermark: snapshot.latestLocalTurnOrdinal ?? null,
     cursor: snapshot.hasMoreHistory ? (snapshot.historyCursor ?? null) : null,
@@ -152,6 +156,7 @@ export function readWindow(session: Session, request: ReadRequest, previous?: Wi
 export function windowReply(state: Window) {
   return {
     rows: state.rows,
+    active_run: state.activeRun,
     cursor: state.cursor,
     earlier_pages: state.earlier_pages,
     sequence: state.sequence,
@@ -270,8 +275,16 @@ export function followWindow(
             emit({ kind: "deleted" });
             return;
           }
+          const previousRuns = state.projection.runs;
           const update = applyEvent(state, item.event);
           state.sequence = item.sequence;
+          if (previousRuns !== state.projection.runs) {
+            const run = activeThreadRun(state.projection)?.id ?? null;
+            if (state.activeRun !== run) {
+              state.activeRun = run;
+              emit({ kind: "run", run });
+            }
+          }
           if (update) emit(update);
         }),
       ),

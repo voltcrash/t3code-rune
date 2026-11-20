@@ -1,5 +1,7 @@
+use super::workspace::Conversation;
 use super::{Desktop, Request, Workspace};
 use rune::{El, TextEdit, TextStyle, auto_grow, col, el, row, spacer, text, text_input, tok};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 pub(super) struct Draft {
@@ -46,7 +48,79 @@ impl Workspace {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum StopFeedback {
+    Pending(Instant),
+    Retry,
+    Landed(Instant),
+}
+
+impl Conversation {
+    pub(super) fn set_active_run(&mut self, run: Option<String>) {
+        if self.active_run != run {
+            self.stop_operation = None;
+            self.stop_feedback = if run.is_none() && self.stop_feedback.is_some() {
+                Some(StopFeedback::Landed(
+                    Instant::now() + Duration::from_millis(500),
+                ))
+            } else {
+                None
+            };
+            self.active_run = run;
+        }
+    }
+}
+
 impl Desktop {
+    pub(super) fn poll_stop(&mut self, _: f64, tx: &mut rune::Tx) -> bool {
+        let Some(pane) = self.workspace.conversation.as_mut() else {
+            return false;
+        };
+        let Some(phase) = pane.stop_feedback else {
+            return false;
+        };
+        let deadline = match phase {
+            StopFeedback::Pending(t) | StopFeedback::Landed(t) => t,
+            StopFeedback::Retry => return false,
+        };
+        if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            tx.wake_after(remaining);
+            return false;
+        }
+        pane.stop_feedback =
+            matches!(phase, StopFeedback::Pending(_)).then_some(StopFeedback::Retry);
+        true
+    }
+
+    fn stop_run(&mut self, thread: &str, run: &str, tx: &mut rune::Tx) {
+        if !self.can_operate {
+            return;
+        }
+        let Some(pane) = self.workspace.conversation.as_mut() else {
+            return;
+        };
+        if pane.id != thread
+            || pane.active_run.as_deref() != Some(run)
+            || matches!(pane.stop_feedback, Some(StopFeedback::Pending(_)))
+        {
+            return;
+        }
+        let timeout = Duration::from_secs(10);
+        pane.stop_feedback = Some(StopFeedback::Pending(Instant::now() + timeout));
+        tx.wake_after(timeout);
+        let operation = Uuid::new_v4().to_string();
+        pane.stop_operation = Some(operation.clone());
+        self.error = None;
+        self.write_request(
+            None,
+            Request::StopRun {
+                thread: thread.into(),
+                run: run.into(),
+                operation,
+            },
+        );
+    }
+
     fn send_message(&mut self) {
         if self.pending || !self.can_operate {
             return;
@@ -54,6 +128,9 @@ impl Desktop {
         let Some(pane) = &self.workspace.conversation else {
             return;
         };
+        if matches!(pane.stop_feedback, Some(StopFeedback::Landed(_))) {
+            return;
+        }
         let Some(draft) = self.workspace.drafts.get_mut(&pane.id) else {
             return;
         };
@@ -63,7 +140,7 @@ impl Desktop {
     }
 }
 
-pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme) -> El {
+pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark: bool) -> El {
     let draft = &s.workspace.drafts[id];
     let input_id = id.to_owned();
     let edit_id = id.to_owned();
@@ -81,23 +158,59 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme) -> El
             }
         })
         .on_submit(|s: &mut Desktop, _| s.send_message());
+    let pane = s
+        .workspace
+        .conversation
+        .as_ref()
+        .expect("composer has a conversation");
+    let guarded = matches!(pane.stop_feedback, Some(StopFeedback::Landed(_)));
+    let empty = draft.editor.text.trim().is_empty();
     let send = send_button(
         "Send message",
-        !s.pending && !draft.editor.text.trim().is_empty(),
+        !s.pending && !empty && !guarded,
         Desktop::send_message,
     );
-    let controls = row()
-        .w_full()
-        .center_y()
-        .gap(9.0)
-        .child(spacer())
-        .child(
-            text(model)
-                .font(TextStyle::new(13.0, 500.0))
-                .color(theme.text_secondary)
-                .truncate(),
-        )
-        .child(send);
+    let mut controls = row().w_full().center_y().gap(9.0).child(spacer()).child(
+        text(model)
+            .font(TextStyle::new(13.0, 500.0))
+            .color(theme.text_secondary)
+            .truncate(),
+    );
+    let show_stop = pane.active_run.is_some() && (empty || pane.stop_feedback.is_some());
+    if !show_stop || !empty {
+        controls = controls.child(send);
+    }
+    if show_stop && let Some(run) = &pane.active_run {
+        let waiting = matches!(pane.stop_feedback, Some(StopFeedback::Pending(_)));
+        let caption = if waiting {
+            "Stopping"
+        } else {
+            "Stop generation"
+        };
+        let error = rune::color::hex(if dark { "#fb414a" } else { "#fb2c36" }).unwrap();
+        let mut stop = el()
+            .key(format!("stop-{run}"))
+            .role("button")
+            .label(caption)
+            .help(if waiting { "Stopping…" } else { "Interrupt" })
+            .size(32.0, 32.0)
+            .radius(16.0)
+            .center()
+            .fill(error.alpha(0.9))
+            .hover(error)
+            .shadow(1.0, 2.0, error.alpha(0.24))
+            .child(el().size(8.0, 8.0).radius(1.5).fill(rune::Color::WHITE));
+        if waiting {
+            stop = stop.disabled(true).opacity(0.64);
+        } else {
+            let thread = pane.id.clone();
+            let run = run.clone();
+            stop = stop
+                .focusable(true)
+                .on_press_tx(move |s: &mut Desktop, tx| s.stop_run(&thread, &run, tx));
+        }
+        controls = controls.child(stop);
+    }
     surface(id, field, controls, theme)
 }
 
@@ -144,6 +257,43 @@ pub(super) fn surface(id: &str, field: El, controls: El, theme: &tok::Theme) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_late_stop_receipt_cannot_finish_a_retry_or_an_unrelated_request() {
+        use crate::{Reply, WorkerMessage};
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        let pane = app.workspace.conversation.as_mut().unwrap();
+        pane.set_active_run(Some("run".into()));
+        pane.stop_operation = Some("retry".into());
+        pane.stop_feedback = Some(StopFeedback::Pending(
+            Instant::now() + Duration::from_secs(10),
+        ));
+        app.pending = true;
+        app.request_id = 17;
+        let receipt = |op: &str| WorkerMessage {
+            id: None,
+            reply: Reply::StopResult {
+                thread: "thread".into(),
+                run: "run".into(),
+                operation: op.into(),
+                error: Some("delivery uncertain".into()),
+            },
+        };
+        app.receive(receipt("previous"));
+        assert!(app.error.is_none());
+        assert!(matches!(
+            app.workspace.conversation.as_ref().unwrap().stop_feedback,
+            Some(StopFeedback::Pending(_))
+        ));
+        app.receive(receipt("retry"));
+        assert!(app.pending);
+        assert_eq!(app.request_id, 17);
+        assert!(matches!(
+            app.workspace.conversation.as_ref().unwrap().stop_feedback,
+            Some(StopFeedback::Retry)
+        ));
+    }
 
     #[test]
     fn a_retry_reuses_the_operation_until_the_matching_send_is_confirmed() {
