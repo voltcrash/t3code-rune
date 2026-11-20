@@ -3261,6 +3261,8 @@ name = "t3-code"
 version = "0.1.0"
 dependencies = [
  "rune",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
