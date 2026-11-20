@@ -2,6 +2,8 @@
 mod activity;
 #[path = "command.rs"]
 mod command;
+#[path = "file_diff.rs"]
+pub(crate) mod file_diff;
 #[path = "palette.rs"]
 pub(super) mod palette;
 #[path = "sidebar_header.rs"]
@@ -55,6 +57,7 @@ pub(super) struct MessageRow {
     body: String,
     attachments: Vec<String>,
     caption: Option<String>,
+    file: Option<file_diff::Row>,
     exit_code: Option<i32>,
     #[serde(default)]
     failed: bool,
@@ -113,6 +116,7 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    project_root: Option<String>,
     expanded_activities: HashSet<String>,
     command: Option<command::Expanded>,
     pub(super) approvals: Vec<Approval>,
@@ -156,6 +160,7 @@ impl Conversation {
     fn refresh(&self) -> Request<'static> {
         Request::Thread {
             thread: self.id.clone(),
+            project_root: self.project_root.clone(),
             cursor: None,
             sequence: self.sequence.filter(|_| !self.needs_reload),
             earlier_pages: self.earlier_pages,
@@ -169,6 +174,7 @@ impl Conversation {
 }
 
 pub(super) struct Workspace {
+    pub(crate) diff: file_diff::Panel,
     pub questions: Forms,
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
@@ -191,6 +197,7 @@ pub(super) struct Workspace {
 impl Workspace {
     pub fn new() -> Self {
         Self {
+            diff: Default::default(),
             scratch_available: false,
             projects: Vec::new(),
             by_project: HashMap::new(),
@@ -233,6 +240,7 @@ impl Workspace {
             .is_some_and(|p| !self.by_thread.contains_key(&p.id))
         {
             self.conversation = None;
+            self.diff = Default::default();
         }
         self.questions
             .retain(|id, _| self.by_thread.contains_key(id));
@@ -324,6 +332,7 @@ impl Workspace {
     pub fn remove_thread(&mut self, id: &str) {
         if self.conversation.as_ref().is_some_and(|pane| pane.id == id) {
             self.conversation = None;
+            self.diff = Default::default();
         }
         self.drafts.remove(id);
         self.questions.remove(id);
@@ -447,6 +456,12 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            project_root: self
+                .workspace
+                .by_thread
+                .get(id)
+                .and_then(|i| self.workspace.project(&self.workspace.threads[*i].project))
+                .map(|p| p.path.clone()),
             expanded_activities: HashSet::new(),
             command: None,
             approval_menu: None,
@@ -474,6 +489,7 @@ impl Desktop {
 
     pub(super) fn show_projects(&mut self) {
         self.close_command();
+        self.close_diff();
         self.history.visit(Page::Home);
         self.new_threads.active = None;
         self.workspace.show_projects = true;
@@ -506,6 +522,7 @@ impl Desktop {
         let thread = pane.id.clone();
         self.send(Request::Thread {
             thread,
+            project_root: pane.project_root.clone(),
             cursor: Some(cursor),
             sequence: None,
             oldest: None,
@@ -1321,8 +1338,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             cx.system_dark(),
         ));
     }
+    let diff_open = s.workspace.diff.visible(s);
+    let split_panel = diff_open
+        && cx
+            .layout_with("workspace", |rect| rect[2] >= 980.)
+            .unwrap_or(false);
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    if s.workspace.sidebar {
+    if s.workspace.sidebar && (!diff_open || split_panel) {
         root = root
             .child(sidebar(
                 s,
@@ -1335,7 +1357,25 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
     palette::overlay(s, cx, theme, &mut overlays);
-    let mut workspace = root.child(main);
+    let mut workspace = if diff_open {
+        let leading = if split_panel { 0. } else { inset.leading };
+        let panel = file_diff::view(
+            s,
+            theme,
+            &Kit::neutral(cx.system_dark()),
+            leading,
+            inset.trailing,
+        );
+        if split_panel {
+            root.child(main)
+                .child(el().w(1.).h_full().fill(theme.separator))
+                .child(panel)
+        } else {
+            root.child(panel)
+        }
+    } else {
+        root.child(main)
+    };
     if s.palette.is_some() {
         workspace = workspace.blur(3.0);
     }
@@ -1381,6 +1421,7 @@ mod tests {
                     role: "assistant".into(),
                     body: "hello".into(),
                     attachments: vec![],
+                    file: None,
                     caption: None,
                     exit_code: None,
                     failed: false,
@@ -1441,6 +1482,7 @@ mod tests {
             role: "user".into(),
             body: key.into(),
             attachments: Vec::new(),
+            file: None,
             caption: None,
             exit_code: None,
             failed: false,

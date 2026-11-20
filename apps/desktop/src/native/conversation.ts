@@ -30,9 +30,24 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
-function timelineRow(row: OrchestrationV2ProjectedTurnItem) {
+import { fileChangeRow } from "./fileChange.ts";
+
+type Row = {
+  key: string;
+  role: "command" | "reasoning" | "tasks" | "file" | "user" | "assistant";
+  body: string;
+  attachments: string[];
+  caption?: string;
+  language?: string;
+  exit_code?: number | undefined;
+  failed?: boolean | undefined;
+  file?: ReturnType<typeof fileChangeRow>["file"];
+};
+
+function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row | null {
   const item = row.item;
   const key = JSON.stringify([row.sourceThreadId, row.sourceItemId]);
+  if (item.type === "file_change") return fileChangeRow(key, item, root);
   if (item.type === "command_execution" && !turnItemIsWorkspacePreparation(item)) {
     const failed =
       item.status === "failed" ||
@@ -83,10 +98,9 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem) {
     attachments: (item.attachments ?? []).map((a) => a.name),
   };
 }
-type Row = NonNullable<ReturnType<typeof timelineRow>>;
-const timelineRows = (items: readonly OrchestrationV2ProjectedTurnItem[]) =>
-  items.flatMap((row) => timelineRow(row) ?? []);
+
 type Window = {
+  projectRoot: string | undefined;
   projection: OrchestrationV2ThreadProjection;
   activeRun: string | null;
   requests: ReturnType<typeof pendingRequests>;
@@ -108,7 +122,9 @@ type Update =
 
 const indexRows = (rows: Row[]) => new Map(rows.map((row, i) => [row.key, i]));
 function windowRows(state: Window) {
-  state.rows = timelineRows(state.projection.visibleTurnItems);
+  state.rows = state.projection.visibleTurnItems.flatMap(
+    (row) => timelineRow(row, state.projection.thread.worktreePath ?? state.projectRoot) ?? [],
+  );
   state.indices = indexRows(state.rows);
 }
 function earlier(
@@ -143,9 +159,11 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
   snapshot: Snapshot,
   oldest: string | undefined,
   depth: number,
+  projectRoot?: string,
 ) {
   const projection = boundedSnapshotProjection(snapshot);
   const state: Window = {
+    projectRoot,
     projection,
     requests: { approvals: [], questions: [] },
     activeRun: activeThreadRun(projection)?.id ?? null,
@@ -160,7 +178,10 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
   while (
     state.cursor &&
     state.earlier_pages < depth &&
-    !lastPage.some((row) => oldest !== undefined && timelineRow(row)?.key === oldest)
+    !lastPage.some(
+      (row) =>
+        oldest !== undefined && JSON.stringify([row.sourceThreadId, row.sourceItemId]) === oldest,
+    )
   ) {
     const page = yield* readPage(session, projection.thread.id, state.cursor);
     earlier(state, page);
@@ -177,6 +198,7 @@ type ReadRequest = {
   sequence?: number;
   oldest?: string;
   earlier_pages: number;
+  projectRoot?: string;
 };
 const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
   session: Session,
@@ -198,7 +220,13 @@ const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
     query: { dedupeBodies: "1", compactTurnItems: "1" },
   });
   if (previous && previous.sequence === snapshot.snapshotSequence) return previous;
-  return yield* expandedWindow(session, snapshot, request.oldest, request.earlier_pages);
+  return yield* expandedWindow(
+    session,
+    snapshot,
+    request.oldest,
+    request.earlier_pages,
+    request.projectRoot,
+  );
 });
 export function readWindow(session: Session, request: ReadRequest, previous?: Window) {
   return Effect.runPromise(
@@ -228,6 +256,9 @@ function sameRow(a: Row, b: Row) {
     a.caption === b.caption &&
     a.exit_code === b.exit_code &&
     a.failed === b.failed &&
+    a.file?.revision === b.file?.revision &&
+    a.file?.added === b.file?.added &&
+    a.file?.removed === b.file?.removed &&
     a.attachments.length === b.attachments.length &&
     a.attachments.every((value, i) => value === b.attachments[i])
   );
@@ -251,7 +282,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
   if (changed !== undefined) {
     const oldItem = previous.visibleTurnItems[changed]!;
     const newItem = next.visibleTurnItems[changed]!;
-    const row = timelineRow(newItem);
+    const row = timelineRow(newItem, state.projection.thread.worktreePath ?? state.projectRoot);
     const key = JSON.stringify([oldItem.sourceThreadId, oldItem.sourceItemId]);
     const i = state.indices.get(key);
     if (!row && i === undefined) return;
@@ -260,6 +291,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
       if (sameRow(old, row)) return;
       state.rows[i] = row;
       if (
+        !row.file &&
         row.role !== "command" &&
         row.role === old.role &&
         row.caption === old.caption &&
@@ -323,6 +355,7 @@ export function followWindow(
               item,
               state.rows[0]?.key,
               state.earlier_pages,
+              state.projectRoot,
             );
             if (
               fresh.projection.thread.deletedAt !== null ||

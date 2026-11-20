@@ -5,6 +5,7 @@ import {
 } from "../src/updates/updateChannels.ts";
 import * as Effect from "effect/Effect";
 import { respondToApproval, respondToQuestion } from "../src/native/runtimeRequests.ts";
+import { readFileDiff } from "../src/native/fileChange.ts";
 import { readCommandOutput } from "../src/native/commandOutput.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
@@ -69,6 +70,8 @@ function watch(owner, thread, id, state) {
       if (update.kind === "status") record.synchronized = update.state === "live";
       write({ type: "live", watch: id, thread, sequence: state.sequence, update });
       if (update.kind === "deleted") stopWatching();
+      if (record.file && (update.kind === "window" || update.kind === "splice"))
+        refreshFileDiff(record);
       const output = record.output;
       if (output && (update.kind === "splice" || update.kind === "window")) {
         const row = state.rows[state.indices.get(output.request.key)];
@@ -139,11 +142,48 @@ async function inspectCommand(request) {
   await reload();
 }
 
+function refreshFileDiff(record) {
+  const file = record.file;
+  const row = record.state.rows[record.state.indices.get(file.key)];
+  const revision = row?.file?.revision ?? null;
+  if (file.revision === revision) return;
+  file.revision = revision;
+  file.fetch?.abort();
+  const fetch = new AbortController();
+  file.fetch = fetch;
+  const signal = AbortSignal.any([record.owner.signal, record.controller.signal, fetch.signal]);
+  const emit = (value) => {
+    if (!signal.aborted) write({ type: "filediff", operation: file.operation, ...value });
+  };
+  if (!revision) return emit({ message: "This file change is unavailable." });
+  const [threadId, itemId] = JSON.parse(row.key);
+  void Effect.runPromise(
+    readFileDiff(
+      record.owner,
+      { threadId, itemId },
+      record.state.projection.thread.worktreePath ?? record.state.projectRoot,
+    ).pipe(Effect.scoped, Effect.timeout("20 seconds"), Effect.provide(record.owner.http)),
+    { signal },
+  ).then(emit, () => emit({ message: "Couldn’t load the recorded diff. Reopen it to retry." }));
+}
+
+function inspectFile(request) {
+  const record = watching;
+  if (!record || record.id !== request.watch) return;
+  record.file?.fetch?.abort();
+  record.file = request.key ? { key: request.key, operation: request.operation } : undefined;
+  if (record.file) refreshFileDiff(record);
+}
+
 async function openThread(owner, request, reply) {
   const prior = stopWatching();
   const same = prior?.owner === owner && prior.thread === request.thread ? prior : undefined;
   try {
-    const state = await readWindow(owner, request, same?.state);
+    const state = await readWindow(
+      owner,
+      { ...request, projectRoot: request.project_root },
+      same?.state,
+    );
     if (session !== owner || lifetime.signal.aborted) return;
     if (state.projection.thread.deletedAt !== null || state.projection.thread.archivedAt !== null)
       return reply({ type: "threadunavailable", thread: request.thread });
@@ -440,6 +480,8 @@ try {
     const reply = (value) => write({ id: request?.id, ...value });
     if (request?.type === "inspectcommand") {
       void inspectCommand(request);
+    } else if (request?.type === "inspectfile") {
+      inspectFile(request);
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {

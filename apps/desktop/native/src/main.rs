@@ -48,6 +48,11 @@ enum Reply {
     Error {
         message: String,
     },
+    FileDiff {
+        operation: String,
+        #[serde(flatten)]
+        recorded: workspace::file_diff::Recorded,
+    },
     CommandOutput {
         operation: String,
         text: String,
@@ -137,6 +142,11 @@ enum Request<'a> {
         decision: String,
         operation: String,
     },
+    InspectFile {
+        watch: u64,
+        key: Option<String>,
+        operation: String,
+    },
     InspectCommand {
         watch: u64,
         key: Option<String>,
@@ -162,6 +172,7 @@ enum Request<'a> {
     Refresh,
     Thread {
         thread: String,
+        project_root: Option<String>,
         cursor: Option<String>,
         sequence: Option<u64>,
         oldest: Option<String>,
@@ -233,6 +244,7 @@ impl Desktop {
         }
         if matches!(request, Request::Thread { .. }) {
             self.close_command();
+            self.close_diff();
         }
         self.answer_advance = None;
         self.request_id += 1;
@@ -255,6 +267,14 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::FileDiff {
+            operation,
+            recorded,
+        } = message.reply
+        {
+            self.workspace.diff.receive(&operation, recorded);
+            return;
+        }
         if let Reply::CommandOutput { operation, text } = message.reply {
             if let Some(pane) = &mut self.workspace.conversation {
                 pane.update_output(&operation, text);
@@ -377,6 +397,7 @@ impl Desktop {
                 worktree,
             } => {
                 self.close_command();
+                self.close_diff();
                 self.history
                     .visit(navigation::Page::NewThread(project.clone()));
                 self.workspace.upsert_project(record);
@@ -420,7 +441,10 @@ impl Desktop {
                     pane.begin_watch(self.request_id);
                 }
             }
-            Reply::Live { .. } | Reply::StopResult { .. } | Reply::CommandOutput { .. } => {
+            Reply::Live { .. }
+            | Reply::StopResult { .. }
+            | Reply::CommandOutput { .. }
+            | Reply::FileDiff { .. } => {
                 unreachable!()
             }
             Reply::Error { message } => self.error = Some(message),
@@ -606,6 +630,10 @@ fn start() -> io::Result<()> {
                 if !tx.key_repeat() {
                     s.go(ev.is_command(']'));
                 }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
+                s.close_diff();
                 return true;
             }
             if s.question_shortcut(ev, tx) {

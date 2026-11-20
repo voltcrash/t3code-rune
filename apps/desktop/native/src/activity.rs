@@ -113,8 +113,18 @@ pub(super) fn row_view(
     let button = disclosure(
         &key,
         title,
-        if reasoning { &THOUGHT } else { &TASKS },
-        theme.text_secondary,
+        if reasoning {
+            &THOUGHT
+        } else if item.file.is_some() {
+            &glyphs::FILE_CODE
+        } else {
+            &TASKS
+        },
+        if item.failed {
+            kit.c.danger.icon
+        } else {
+            theme.text_secondary
+        },
         open,
         theme,
     )
@@ -131,7 +141,9 @@ pub(super) fn row_view(
     });
     let mut group = col().w_full().pb(8.).child(button);
     if open {
-        let body = if reasoning {
+        let body = if let Some(file) = &item.file {
+            super::file_diff::details(app, item, file, theme, kit)
+        } else if reasoning {
             Markdown::new(&item.body)
                 .style(style.clone())
                 .selectable(true)
