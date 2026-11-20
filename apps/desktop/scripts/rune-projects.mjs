@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { respondToApproval } from "../src/native/approvals.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage, stopThreadRun } from "../src/native/messages.ts";
@@ -44,11 +45,12 @@ function stopWatching() {
 
 function watch(owner, thread, id, state) {
   const controller = new AbortController();
-  const record = { owner, thread, id, state, controller };
+  const record = { owner, thread, id, state, controller, synchronized: false };
   watching = record;
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(owner, state, signal, (update) => {
     if (watching !== record || signal.aborted) return;
+    if (update.kind === "status") record.synchronized = update.state === "live";
     write({ type: "live", watch: id, thread, sequence: state.sequence, update });
     if (update.kind === "deleted") stopWatching();
   });
@@ -228,6 +230,50 @@ async function handleWorkspaceRequest(request, reply) {
     } else if (request.type === "thread" && session) {
       reading = session;
       await openThread(reading, request, reply);
+      return;
+    } else if (request.type === "approval") {
+      reading = session;
+      const result = {
+        type: "approvalresult",
+        thread: request.thread,
+        request: request.request,
+        version: request.version,
+      };
+      const approval = watching?.state.approvals.find((item) => item.id === request.request);
+      if (
+        !reading?.canOperate ||
+        !watching?.synchronized ||
+        watching.owner !== reading ||
+        watching?.thread !== request.thread ||
+        !approval?.live ||
+        approval.version !== request.version ||
+        !approval.options.some((option) => option.decision === request.decision)
+      ) {
+        reply({
+          ...result,
+          error:
+            "This approval changed or is unavailable on this connection. Refresh the conversation.",
+        });
+        return;
+      }
+      try {
+        await Effect.runPromise(
+          respondToApproval(reading, request).pipe(
+            Effect.scoped,
+            Effect.timeout("15 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        if (reading === session) reply(result);
+      } catch {
+        if (reading === session)
+          reply({
+            ...result,
+            error:
+              "Couldn’t confirm the response. Refresh to check the request before trying again.",
+          });
+      }
       return;
     } else if (request.type === "sendmessage" && session) {
       reading = session;

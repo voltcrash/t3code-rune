@@ -7,6 +7,7 @@ use rune::{
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
+mod approval;
 mod composer;
 mod new_thread;
 mod workspace;
@@ -43,6 +44,12 @@ enum Reply {
         operation: String,
         thread: String,
         run: String,
+        error: Option<String>,
+    },
+    ApprovalResult {
+        thread: String,
+        request: String,
+        version: String,
         error: Option<String>,
     },
     MessageSent {
@@ -104,6 +111,13 @@ enum Request<'a> {
         text: String,
         operation: String,
         base: Option<String>,
+    },
+    Approval {
+        thread: String,
+        request: String,
+        version: String,
+        decision: String,
+        operation: String,
     },
     StopRun {
         thread: String,
@@ -255,6 +269,25 @@ impl Desktop {
         self.starting_local = false;
         self.error = None;
         match message.reply {
+            Reply::ApprovalResult {
+                thread,
+                request,
+                version,
+                error,
+            } => {
+                if self.workspace.conversation.as_ref().is_some_and(|p| {
+                    p.id == thread
+                        && p.approvals
+                            .iter()
+                            .any(|a| a.id == request && a.version == version)
+                }) {
+                    if let Some(message) = error {
+                        self.error = Some(message);
+                    } else {
+                        self.refresh_thread();
+                    }
+                }
+            }
             Reply::MessageSent { thread, operation } => {
                 if self.workspace.finish_message(&thread, &operation)
                     && self
