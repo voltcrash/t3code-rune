@@ -5,6 +5,7 @@ import {
 } from "../src/updates/updateChannels.ts";
 import * as Effect from "effect/Effect";
 import { respondToApproval, respondToQuestion } from "../src/native/runtimeRequests.ts";
+import { readCommandOutput } from "../src/native/commandOutput.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage, stopThreadRun } from "../src/native/messages.ts";
@@ -59,12 +60,83 @@ function watch(owner, thread, id, state) {
   const record = { owner, thread, id, state, controller, synchronized: false };
   watching = record;
   const signal = AbortSignal.any([owner.signal, controller.signal]);
-  void followWindow(owner, state, signal, (update) => {
-    if (watching !== record || signal.aborted) return;
-    if (update.kind === "status") record.synchronized = update.state === "live";
-    write({ type: "live", watch: id, thread, sequence: state.sequence, update });
-    if (update.kind === "deleted") stopWatching();
-  });
+  void followWindow(
+    owner,
+    state,
+    signal,
+    (update) => {
+      if (watching !== record || signal.aborted) return;
+      if (update.kind === "status") record.synchronized = update.state === "live";
+      write({ type: "live", watch: id, thread, sequence: state.sequence, update });
+      if (update.kind === "deleted") stopWatching();
+      const output = record.output;
+      if (output && (update.kind === "splice" || update.kind === "window")) {
+        const row = state.rows[state.indices.get(output.request.key)];
+        if (row?.role !== "command") {
+          output.controller.abort();
+          record.output = undefined;
+        } else if (!owner.streamsCommandOutput && update.kind === "window") {
+          output.reload();
+        }
+      }
+    },
+    (threadId, itemId) => {
+      const output = record.output;
+      if (!owner.streamsCommandOutput && output?.threadId === threadId && output.itemId === itemId)
+        output.reload();
+    },
+  );
+}
+
+async function inspectCommand(request) {
+  const record = watching;
+  if (!record || record.id !== request.watch) return;
+  record.output?.controller.abort();
+  record.output = undefined;
+  if (!request.key) return;
+  const controller = new AbortController();
+
+  const signal = AbortSignal.any([
+    record.controller.signal,
+    controller.signal,
+    record.owner.signal,
+  ]);
+  const writeText = (text) => {
+    if (!signal.aborted) write({ type: "commandoutput", operation: request.operation, text });
+  };
+  const row = record.state.rows[record.state.indices.get(request.key)];
+  if (row?.role !== "command") return writeText("Command unavailable.");
+  const [threadId, itemId] = JSON.parse(request.key);
+  let lastText = "";
+  const emit = (text) => {
+    lastText = text;
+    writeText(text);
+  };
+  let loading = false;
+  let dirty = false;
+  async function reload() {
+    dirty = true;
+    if (loading) return;
+    loading = true;
+    while (dirty && !signal.aborted) {
+      dirty = false;
+      try {
+        await Effect.runPromise(
+          readCommandOutput(record.owner, { threadId, itemId }, emit).pipe(
+            Effect.scoped,
+            Effect.provide(record.owner.http),
+          ),
+          { signal },
+        );
+      } catch {
+        const error = "Couldn’t load output. Reopen the command to retry.";
+        writeText(lastText ? lastText + "\n" + error : error);
+      }
+    }
+    loading = false;
+  }
+  record.output = { controller, request, threadId, itemId, reload };
+  await reload();
 }
 
 async function openThread(owner, request, reply) {
@@ -366,7 +438,9 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "stoprun") {
+    if (request?.type === "inspectcommand") {
+      void inspectCommand(request);
+    } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));

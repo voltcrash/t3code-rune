@@ -48,6 +48,10 @@ enum Reply {
     Error {
         message: String,
     },
+    CommandOutput {
+        operation: String,
+        text: String,
+    },
     StopResult {
         operation: String,
         thread: String,
@@ -131,6 +135,11 @@ enum Request<'a> {
         request: String,
         version: String,
         decision: String,
+        operation: String,
+    },
+    InspectCommand {
+        watch: u64,
+        key: Option<String>,
         operation: String,
     },
     StopRun {
@@ -222,6 +231,9 @@ impl Desktop {
         if self.pending || self.output.is_none() {
             return;
         }
+        if matches!(request, Request::Thread { .. }) {
+            self.close_command();
+        }
         self.answer_advance = None;
         self.request_id += 1;
         let starting_local = matches!(request, Request::Local);
@@ -243,6 +255,12 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::CommandOutput { operation, text } = message.reply {
+            if let Some(pane) = &mut self.workspace.conversation {
+                pane.update_output(&operation, text);
+            }
+            return;
+        }
         if let Reply::StopResult {
             thread,
             run,
@@ -358,6 +376,7 @@ impl Desktop {
                 base,
                 worktree,
             } => {
+                self.close_command();
                 self.history
                     .visit(navigation::Page::NewThread(project.clone()));
                 self.workspace.upsert_project(record);
@@ -401,7 +420,9 @@ impl Desktop {
                     pane.begin_watch(self.request_id);
                 }
             }
-            Reply::Live { .. } | Reply::StopResult { .. } => unreachable!(),
+            Reply::Live { .. } | Reply::StopResult { .. } | Reply::CommandOutput { .. } => {
+                unreachable!()
+            }
             Reply::Error { message } => self.error = Some(message),
             Reply::Disconnected | Reply::LocalClosed => {
                 let lost = matches!(message.reply, Reply::LocalClosed);
