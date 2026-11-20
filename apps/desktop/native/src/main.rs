@@ -21,11 +21,27 @@ enum Reply {
     Projects { projects: Vec<Project> },
     Error { message: String },
     Disconnected,
+    LocalClosed,
+}
+
+#[derive(Deserialize)]
+struct WorkerMessage {
+    id: Option<u64>,
+    #[serde(flatten)]
+    reply: Reply,
+}
+
+#[derive(Serialize)]
+struct ClientMessage<'a> {
+    id: u64,
+    #[serde(flatten)]
+    request: Request<'a>,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    Local,
     Pair { link: &'a str },
     Refresh,
     Disconnect,
@@ -36,7 +52,9 @@ struct Desktop {
     link: TextEdit,
     environment: Option<String>,
     projects: Vec<Project>,
+    request_id: u64,
     pending: bool,
+    starting_local: bool,
     error: Option<String>,
 }
 
@@ -47,7 +65,9 @@ impl Desktop {
             link: TextEdit::new("").secure(),
             environment: None,
             projects: Vec::new(),
+            request_id: 0,
             pending: false,
+            starting_local: false,
             error: None,
         }
     }
@@ -59,12 +79,19 @@ impl Desktop {
         let Some(mut output) = self.output.as_mut() else {
             return;
         };
-        let sent = serde_json::to_writer(&mut output, &request).is_ok()
+        self.request_id += 1;
+        let starting_local = matches!(request, Request::Local);
+        let message = ClientMessage {
+            id: self.request_id,
+            request,
+        };
+        let sent = serde_json::to_writer(&mut output, &message).is_ok()
             && output
                 .write_all(b"\n")
                 .and_then(|()| output.flush())
                 .is_ok();
         if sent {
+            self.starting_local = starting_local;
             self.pending = true;
             self.error = None;
         } else {
@@ -82,23 +109,33 @@ impl Desktop {
         });
     }
 
-    fn receive(&mut self, reply: Reply) {
-        if self.output.is_none() {
+    fn receive(&mut self, message: WorkerMessage) {
+        if matches!(message.reply, Reply::LocalClosed) {
+            if self.environment.is_none() {
+                return;
+            }
+        } else if !self.pending || message.id != Some(self.request_id) {
             return;
         }
         self.pending = false;
+        self.starting_local = false;
         self.error = None;
-        match reply {
+        match message.reply {
             Reply::Connected { label } => {
                 self.environment = Some(label);
                 self.pending = true;
             }
             Reply::Projects { projects } => self.projects = projects,
             Reply::Error { message } => self.error = Some(message),
-            Reply::Disconnected => {
+            Reply::Disconnected | Reply::LocalClosed => {
+                let lost = matches!(message.reply, Reply::LocalClosed);
                 let output = self.output.take();
                 *self = Self {
                     output,
+                    request_id: self.request_id,
+                    error: lost.then(|| {
+                        "The local environment stopped. Reconnect to start it again.".to_owned()
+                    }),
                     ..Self::new()
                 };
             }
@@ -202,6 +239,8 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
             list = list.child(text("No projects").color(theme.text_secondary));
         }
         panel = panel.child(list);
+    } else if s.starting_local {
+        panel = panel.child(title("T3 Code"));
     } else {
         let field = text_input(&s.link, TextStyle::new(14.0, 400.0))
             .key("pairing-link")
@@ -226,6 +265,11 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
                     .font(TextStyle::new(18.0, 500.0))
                     .color(theme.text),
             )
+            .child(
+                row().child(button("Use this computer", !s.pending, &theme, |s| {
+                    s.send(Request::Local)
+                })),
+            )
             .child(title("Pair with this environment"))
             .child(text("Pairing link").color(theme.text))
             .child(field)
@@ -238,7 +282,9 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     }
     if s.pending {
         panel = panel.child(
-            text(if s.environment.is_some() {
+            text(if s.starting_local {
+                "Starting local environment…"
+            } else if s.environment.is_some() {
                 "Loading projects…"
             } else {
                 "Pairing…"
@@ -269,10 +315,12 @@ fn start() -> io::Result<()> {
     let input = BufReader::new(child.stdout.take().unwrap());
     let app =
         App::new(AppSpec::new("T3 Code", (1100.0, 780.0), Desktop::new, view)).init(move || {
-            Desktop {
+            let mut desktop = Desktop {
                 output,
                 ..Desktop::new()
-            }
+            };
+            desktop.send(Request::Local);
+            desktop
         });
     let handle = app.handle();
     std::thread::spawn(move || {
@@ -285,12 +333,53 @@ fn start() -> io::Result<()> {
         }
         handle.update(|s, _| *s = Desktop::new());
     });
-    app.run();
-    let _ = child.kill();
+    // Rune's fast exit would skip reaping the worker and its scoped backend.
+    rune::orderly_exit();
+    let result = app.try_run();
     child.wait()?;
-    Ok(())
+    result.map_err(io::Error::other)
 }
 
 fn main() -> io::Result<()> {
     start()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_old_reply_cannot_finish_reconnection_after_the_local_server_exits() {
+        let mut desktop = Desktop {
+            environment: Some("This computer".into()),
+            request_id: 4,
+            pending: true,
+            ..Desktop::new()
+        };
+        desktop.receive(WorkerMessage {
+            id: None,
+            reply: Reply::LocalClosed,
+        });
+        assert!(desktop.environment.is_none());
+        assert!(!desktop.pending);
+        desktop.request_id += 1;
+        desktop.pending = true;
+        desktop.starting_local = true;
+        for reply in [
+            Reply::Disconnected,
+            Reply::Error {
+                message: "Refresh failed".into(),
+            },
+        ] {
+            desktop.receive(WorkerMessage { id: Some(4), reply });
+            assert!(desktop.pending && desktop.starting_local);
+        }
+        desktop.receive(WorkerMessage {
+            id: Some(5),
+            reply: Reply::Connected {
+                label: "This computer".into(),
+            },
+        });
+        assert_eq!(desktop.environment.as_deref(), Some("This computer"));
+    }
 }

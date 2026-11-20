@@ -452,6 +452,53 @@ describe("DesktopBackendManager", () => {
     ),
   );
 
+  it.effect(
+    "waits for the spawned server to announce readiness before exchanging local credentials",
+    () =>
+      Effect.gen(function* () {
+        const controlStarted = yield* Deferred.make<void>();
+        const announce = yield* Deferred.make<void>();
+        const ready = yield* Deferred.make<void>();
+        const requests = yield* Ref.make(0);
+        const layerSpawner = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Effect.succeed(
+              makeProcess({
+                getOutputFd: () =>
+                  Stream.fromEffect(
+                    Deferred.succeed(controlStarted, undefined).pipe(
+                      Effect.andThen(Deferred.await(announce)),
+                      Effect.as(
+                        new TextEncoder().encode(
+                          encodeDesktopTelemetryControl({ version: 1, type: "serverReady" }) + "\n",
+                        ),
+                      ),
+                    ),
+                  ),
+                exitCode: Deferred.await(ready).pipe(Effect.as(ChildProcessSpawner.ExitCode(0))),
+              }),
+            ),
+          ),
+        );
+        const http = layerHttpClient((request) =>
+          Ref.update(requests, (count) => count + 1).pipe(
+            Effect.as(responseForRequest(request, 200)),
+          ),
+        );
+        const run = yield* DesktopBackendManager.runBackendProcess({
+          ...baseConfig,
+          requireControlReady: true,
+          desktopTelemetryStream: Stream.empty,
+          onReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+        }).pipe(Effect.provide(Layer.merge(layerSpawner, http)), Effect.forkScoped);
+        yield* Deferred.await(controlStarted);
+        yield* Deferred.succeed(announce, undefined);
+        yield* Fiber.join(run);
+        assert.equal(yield* Ref.get(requests), 0);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("continues routing desktop telemetry control messages after an invalid line", () =>
     Effect.gen(function* () {
       const handled = yield* Deferred.make<boolean>();

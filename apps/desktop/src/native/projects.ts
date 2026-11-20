@@ -11,10 +11,18 @@ import {
   type ResolvedRemotePairingTarget,
 } from "@t3tools/shared/remote";
 import * as Effect from "effect/Effect";
+import { FetchHttpClient } from "effect/http";
+import * as Layer from "effect/Layer";
 
-const http = layerRemoteHttpClient(globalThis.fetch);
+const remoteHttp = layerRemoteHttpClient(globalThis.fetch);
+const localHttp = Layer.merge(
+  remoteHttp,
+  Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" }),
+);
 
-const pair = Effect.fn("nativeDesktop.pair")(function* (target: ResolvedRemotePairingTarget) {
+const pair = Effect.fn("nativeDesktop.pair")(function* (
+  target: Pick<ResolvedRemotePairingTarget, "credential" | "httpBaseUrl">,
+) {
   const descriptor = yield* fetchRemoteEnvironmentDescriptor(target);
   const session = yield* bootstrapRemoteBearerSession({
     ...target,
@@ -24,9 +32,18 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (target: ResolvedRemotePa
   return { label: descriptor.label, httpBaseUrl: target.httpBaseUrl, token: session.access_token };
 });
 
-export function pairWithEnvironment(link: string) {
+export async function pairWithTarget(
+  target: Pick<ResolvedRemotePairingTarget, "credential" | "httpBaseUrl">,
+  signal: AbortSignal,
+  http: typeof remoteHttp = localHttp,
+) {
+  const session = await Effect.runPromise(pair(target).pipe(Effect.provide(http)), { signal });
+  return { ...session, http, signal };
+}
+
+export function pairWithEnvironment(link: string, signal: AbortSignal) {
   const target = resolveRemotePairingTarget({ pairingUrl: readPairingAppLink(link) ?? link });
-  return Effect.runPromise(pair(target).pipe(Effect.provide(http)));
+  return pairWithTarget(target, signal, remoteHttp);
 }
 
 export const readProjects = (session: Awaited<ReturnType<typeof pairWithEnvironment>>) =>
@@ -43,5 +60,6 @@ export const readProjects = (session: Awaited<ReturnType<typeof pairWithEnvironm
           path: project.workspaceRoot,
           archived: project.archivedAt != null,
         }));
-    }).pipe(Effect.timeout("20 seconds"), Effect.provide(http)),
+    }).pipe(Effect.timeout("20 seconds"), Effect.provide(session.http)),
+    { signal: session.signal },
   );

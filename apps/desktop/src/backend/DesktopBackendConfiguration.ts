@@ -19,6 +19,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
+import { backendChildEnvPatch } from "./DesktopBackendProcess.ts";
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -72,18 +73,6 @@ const emptyBackendObservabilitySettings: BackendObservabilitySettings = {
   otlpLogsUrl: Option.none(),
 };
 
-const DESKTOP_BACKEND_ENV_NAMES = [
-  "T3CODE_PORT",
-  "T3CODE_MODE",
-  "T3CODE_NO_BROWSER",
-  "T3CODE_HOST",
-  "T3CODE_DESKTOP_WS_URL",
-  "T3CODE_DESKTOP_LAN_HOST",
-  "T3CODE_DESKTOP_HTTPS_ENDPOINTS",
-  "T3CODE_TAILSCALE_SERVE",
-  "T3CODE_TAILSCALE_SERVE_PORT",
-] as const;
-
 // Windows forwards these variables into WSL only through WSLENV.
 const WSL_FORWARDED_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -123,9 +112,6 @@ const nodeBinDirOf = (nodePath: string): string => {
   const lastSlash = nodePath.lastIndexOf("/");
   return lastSlash > 0 ? nodePath.slice(0, lastSlash) : "/usr/bin";
 };
-
-const backendChildEnvPatch = (): Record<string, string | undefined> =>
-  Object.fromEntries(DESKTOP_BACKEND_ENV_NAMES.map((name) => [name, undefined]));
 
 const getWslEnvEntryName = (entry: string): string => {
   const slashIndex = entry.indexOf("/");
