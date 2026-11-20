@@ -2,6 +2,7 @@ import {
   applyOrchestrationV2ProjectionEvent,
   getProjectionArrayReplacementIndex,
 } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { taskListLabel } from "@t3tools/client-runtime/work-log/presentation";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 import {
   commandHighlightLanguage,
@@ -55,6 +56,24 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem) {
       exit_code: item.exitCode,
       failed: verb === "Failed",
     };
+  }
+  if (item.type === "reasoning" && item.text) {
+    return {
+      key,
+      role: "reasoning",
+      body: item.text,
+      caption: item.streaming ? "Thinking" : "Thought",
+      attachments: [],
+    };
+  }
+  if (item.type === "todo_list") {
+    const body = item.steps
+      .map((step) => {
+        const mark = step.status === "completed" ? "✓" : step.status === "running" ? "◉" : "○";
+        return mark + " " + step.text;
+      })
+      .join("\n");
+    return { key, role: "tasks", body, caption: taskListLabel(item.steps), attachments: [] };
   }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
   return {
@@ -113,7 +132,7 @@ const readPage = Effect.fn("nativeDesktop.readHistoryPage")(function* (
   return yield* api.threadHistoryPage({
     headers: headersFor(session),
     params: { threadId: ThreadId.make(id) },
-    query: { cursor, view: "conversation", deferWork: "1" },
+    query: { cursor, view: "activity" },
   });
 });
 type Snapshot =
@@ -176,7 +195,7 @@ const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
   const snapshot = yield* api.threadBoundedSnapshot({
     headers: headersFor(session),
     params: { threadId: ThreadId.make(request.thread) },
-    query: { deferWork: "1", dedupeBodies: "1", compactTurnItems: "1" },
+    query: { dedupeBodies: "1", compactTurnItems: "1" },
   });
   if (previous && previous.sequence === snapshot.snapshotSequence) return previous;
   return yield* expandedWindow(session, snapshot, request.oldest, request.earlier_pages);
@@ -243,6 +262,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
       if (
         row.role !== "command" &&
         row.role === old.role &&
+        row.caption === old.caption &&
         row.attachments.length === 0 &&
         old.attachments.length === 0 &&
         row.body.startsWith(old.body)
@@ -286,7 +306,6 @@ export function followWindow(
       afterSequence: state.sequence,
       requestCompletionMarker: true,
       acceptBoundedSnapshot: true,
-      acceptDeferredWork: true,
       acceptCompactTurnItems: true,
       acceptDedupedBodies: true,
     });

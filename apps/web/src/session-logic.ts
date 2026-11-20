@@ -29,6 +29,7 @@ import {
 } from "@t3tools/shared/toolOutput";
 import {
   contextCompactionLabel,
+  taskListLabel,
   workEntryIndicatesToolFailure,
 } from "@t3tools/client-runtime/work-log/presentation";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
@@ -493,20 +494,7 @@ function projectedWorkEntry(
     }
     case "todo_list": {
       // Each todo update is a quiet row where the agent wrote it; it opens to every step.
-      const done = item.steps.filter((step) => step.status === "completed").length;
-      const current =
-        item.steps.find((step) => step.status === "running") ??
-        item.steps.find((step) => step.status === "pending");
-      return {
-        ...common,
-        label: current
-          ? resolve(msg("Tasks {done}/{total} · {current}"), {
-              done,
-              total: item.steps.length,
-              current: current.text,
-            })
-          : resolve(msg("Tasks {done}/{total}"), { done, total: item.steps.length }),
-      };
+      return { ...common, label: taskListLabel(item.steps, resolve) };
     }
     case "approval_request":
       return {

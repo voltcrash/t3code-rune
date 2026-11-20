@@ -54,6 +54,25 @@ export function toolItemForDisplay(item: OrchestrationV2TurnItem): Orchestration
   }
 }
 
+export function taskListLabel(
+  steps: Extract<OrchestrationV2TurnItem, { type: "todo_list" }>["steps"],
+  resolve: MFunctionType = mFallback,
+): string {
+  const done = steps.filter((step) => step.status === "completed").length;
+  const current =
+    steps.find((step) => step.status === "running") ??
+    steps.find((step) => step.status === "pending");
+  return current
+    ? resolve(
+        msg("Tasks {done}/{total} · {current}", {
+          done,
+          total: steps.length,
+          current: current.text,
+        }),
+      )
+    : resolve(msg("Tasks {done}/{total}", { done, total: steps.length }));
+}
+
 type CompactionLabelItem = Pick<
   Extract<OrchestrationV2TurnItem, { type: "compaction" }>,
   "status" | "beforeTokenCount" | "afterTokenCount"
