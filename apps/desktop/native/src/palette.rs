@@ -251,6 +251,7 @@ impl Desktop {
         if self.palette.take().is_some() || self.environment.is_none() || self.pending {
             return;
         }
+        self.workspace.project_scope.close();
         self.palette = Some(Palette::new());
         self.filter_palette(false);
         tx.focus("palette-query", true);
