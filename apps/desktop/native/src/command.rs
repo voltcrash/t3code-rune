@@ -1,6 +1,6 @@
 use super::{Conversation, Desktop, MessageRow, Request};
-use rune::{El, ScrollSpec, TextStyle, col, el, icon, rich, row, text, tok};
-use rune_kit::{Kit, glyphs, syntax};
+use rune::{El, ScrollSpec, TextStyle, col, rich, text, tok};
+use rune_kit::{Kit, syntax};
 use uuid::Uuid;
 
 pub(super) struct Expanded {
@@ -77,42 +77,19 @@ pub(super) fn row_view(
     let pane = app.workspace.conversation.as_ref().unwrap();
     let open = pane.command.as_ref().filter(|c| c.key == item.key);
     let key = item.key.clone();
-    let mut toggle = row()
-        .key(format!("command-{key}"))
-        .role("button")
-        .label(caption)
-        .expanded(open.is_some())
-        .w_full()
-        .px(2.)
-        .radius(6.)
-        .hover(theme.hover)
-        .center_y()
-        .gap(6.)
-        .min_h(24.)
-        .child(
-            el().size(24., 24.)
-                .center()
-                .child(icon(&super::approval::TERMINAL, 16.).color(if item.failed {
-                    kit.c.danger.icon
-                } else {
-                    theme.text_secondary
-                })),
-        )
-        .child(
-            super::label(caption, 14., 400., theme.text_secondary)
-                .truncate()
-                .grow(1.)
-                .min_w(0.),
-        )
-        .child(
-            icon(&glyphs::CHEVRON_DOWN, 14.)
-                .color(theme.text_secondary)
-                .rotate(if open.is_some() {
-                    0.
-                } else {
-                    -std::f32::consts::FRAC_PI_2
-                }),
-        );
+    let ink = if item.failed {
+        kit.c.danger.icon
+    } else {
+        theme.text_secondary
+    };
+    let mut toggle = super::activity::disclosure(
+        &key,
+        caption,
+        &super::approval::TERMINAL,
+        ink,
+        open.is_some(),
+        theme,
+    );
     if let Some(watch) = pane.watch
         && !app.pending
     {

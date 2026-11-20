@@ -1,3 +1,5 @@
+#[path = "activity.rs"]
+mod activity;
 #[path = "command.rs"]
 mod command;
 #[path = "palette.rs"]
@@ -18,7 +20,7 @@ use rune::{
 };
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 pub(super) struct Project {
@@ -46,6 +48,8 @@ pub(super) struct Thread {
 
 #[derive(Deserialize)]
 pub(super) struct MessageRow {
+    #[serde(skip)]
+    preview: std::cell::OnceCell<String>,
     key: String,
     role: String,
     body: String,
@@ -109,6 +113,7 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    expanded_activities: HashSet<String>,
     command: Option<command::Expanded>,
     pub(super) approvals: Vec<Approval>,
     pub(super) approval_menu: Option<String>,
@@ -357,7 +362,11 @@ impl Workspace {
             LiveUpdate::Append { index, key, text }
                 if !pane.needs_reload && pane.rows.get(index).is_some_and(|row| row.key == key) =>
             {
-                pane.rows[index].body.push_str(&text);
+                let row = &mut pane.rows[index];
+                if row.body.len() < activity::PREVIEW_SOURCE_BYTES {
+                    row.preview.take();
+                }
+                row.body.push_str(&text);
                 pane.sequence = Some(sequence);
             }
             LiveUpdate::Splice {
@@ -438,6 +447,7 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            expanded_activities: HashSet::new(),
             command: None,
             approval_menu: None,
             approvals: vec![],
@@ -1116,6 +1126,16 @@ fn timeline(
                 let theme = &colors;
                 let message = &s.workspace.conversation.as_ref().unwrap().rows[i];
                 if let Some(caption) = &message.caption {
+                    if message.role != "command" {
+                        return activity::row_view(
+                            s,
+                            message,
+                            caption,
+                            theme,
+                            &message_kit,
+                            &style,
+                        );
+                    }
                     return command::row_view(s, message, caption, theme, &message_kit);
                 }
                 let mut content = col().gap(6.0);
@@ -1356,6 +1376,7 @@ mod tests {
                 index: 0,
                 remove: 0,
                 rows: vec![MessageRow {
+                    preview: Default::default(),
                     key: "msg".into(),
                     role: "assistant".into(),
                     body: "hello".into(),
@@ -1415,6 +1436,7 @@ mod tests {
         desktop.open_thread("thread");
         let workspace = &mut desktop.workspace;
         let message = |key: &str| MessageRow {
+            preview: Default::default(),
             key: key.into(),
             role: "user".into(),
             body: key.into(),
