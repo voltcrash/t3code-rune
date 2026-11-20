@@ -8,6 +8,9 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rune = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143", features = [
+  "markdown",
+] }
 
 # Cargo applies Rune's platform patches only from the root manifest.
 [patch.crates-io]

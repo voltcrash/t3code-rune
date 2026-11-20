@@ -1,6 +1,6 @@
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
-import { pairWithEnvironment, readProjects } from "../src/native/projects.ts";
+import { pairWithEnvironment, readWorkspace, readThread } from "../src/native/projects.ts";
 
 let session;
 let localSession;
@@ -59,18 +59,25 @@ try {
           localSession = undefined;
         }
         reply({ type: "connected", label: session.label });
+      } else if (request.type === "thread" && session) {
+        reading = session;
+        const pane = await readThread(reading, request);
+        if (session === reading) reply(pane);
+        continue;
       } else if (request.type !== "refresh" || !session) {
         throw new Error("Invalid request");
       }
       reading = session;
-      const projects = await readProjects(reading);
-      if (session === reading) reply({ type: "projects", projects });
+      const workspace = await readWorkspace(reading);
+      if (session === reading) reply({ type: "workspace", ...workspace });
     } catch (error) {
       if (reading && session !== reading) continue;
       reply({
         type: "error",
         message: session
-          ? "Couldn’t load projects. Check the connection and try again."
+          ? request?.type === "thread"
+            ? "Couldn’t load this conversation. Try again."
+            : "Couldn’t load this workspace. Check the connection and try again."
           : request?.type === "local"
             ? isLocalServerStartupError(error)
               ? error.message

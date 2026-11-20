@@ -2,24 +2,36 @@
 #![forbid(unsafe_code)]
 
 use rune::{
-    App, AppSpec, Cx, El, ScrollSpec, TextEdit, TextStyle, col, el, row, text, text_input, tok,
+    App, AppSpec, Cx, El, TextEdit, TextStyle, Titlebar, col, el, row, text, text_input, tok,
 };
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
-#[derive(Deserialize)]
-struct Project {
-    title: String,
-    path: String,
-    archived: bool,
-}
+mod workspace;
+use workspace::{MessageRow, Project, Thread, Workspace};
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
-    Connected { label: String },
-    Projects { projects: Vec<Project> },
-    Error { message: String },
+    Connected {
+        label: String,
+    },
+    Workspace {
+        projects: Vec<Project>,
+        threads: Vec<Thread>,
+    },
+    Thread {
+        thread: String,
+        rows: Vec<MessageRow>,
+        cursor: Option<String>,
+        older: bool,
+        sequence: u64,
+        earlier_pages: usize,
+    },
+    Error {
+        message: String,
+    },
+    Unchanged,
     Disconnected,
     LocalClosed,
 }
@@ -42,8 +54,17 @@ struct ClientMessage<'a> {
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
     Local,
-    Pair { link: &'a str },
+    Pair {
+        link: &'a str,
+    },
     Refresh,
+    Thread {
+        thread: String,
+        cursor: Option<String>,
+        sequence: Option<u64>,
+        oldest: Option<String>,
+        earlier_pages: usize,
+    },
     Disconnect,
 }
 
@@ -51,7 +72,7 @@ struct Desktop {
     output: Option<std::process::ChildStdin>,
     link: TextEdit,
     environment: Option<String>,
-    projects: Vec<Project>,
+    workspace: Workspace,
     request_id: u64,
     pending: bool,
     starting_local: bool,
@@ -64,7 +85,7 @@ impl Desktop {
             output: None,
             link: TextEdit::new("").secure(),
             environment: None,
-            projects: Vec::new(),
+            workspace: Workspace::new(),
             request_id: 0,
             pending: false,
             starting_local: false,
@@ -125,7 +146,23 @@ impl Desktop {
                 self.environment = Some(label);
                 self.pending = true;
             }
-            Reply::Projects { projects } => self.projects = projects,
+            Reply::Workspace { projects, threads } => self.workspace.replace(projects, threads),
+            Reply::Thread {
+                thread,
+                rows,
+                cursor,
+                older,
+                sequence,
+                earlier_pages,
+            } => self.workspace.update_conversation(
+                thread,
+                rows,
+                cursor,
+                older,
+                sequence,
+                earlier_pages,
+            ),
+            Reply::Unchanged => {}
             Reply::Error { message } => self.error = Some(message),
             Reply::Disconnected | Reply::LocalClosed => {
                 let lost = matches!(message.reply, Reply::LocalClosed);
@@ -186,59 +223,8 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
         panel = panel
             .child(title("The desktop connection closed"))
             .child(text("Relaunch T3 Code to reconnect.").color(theme.text_secondary));
-    } else if let Some(environment) = &s.environment {
-        panel = panel
-            .h_full()
-            .child(title("Projects"))
-            .child(text(environment).color(theme.text_secondary))
-            .child(
-                row()
-                    .gap(8.0)
-                    .child(button("Refresh", !s.pending, &theme, |s| {
-                        s.send(Request::Refresh)
-                    }))
-                    .child(button("Disconnect", !s.pending, &theme, |s| {
-                        s.send(Request::Disconnect)
-                    })),
-            );
-        let mut list = col()
-            .w_full()
-            .grow(1.0)
-            .shrink()
-            .gap(8.0)
-            .scroll(ScrollSpec {
-                stick_bottom: false,
-            });
-        for project in &s.projects {
-            let mut heading = row().center_y().gap(8.0).child(
-                text(&project.title)
-                    .font(TextStyle::new(14.0, 600.0))
-                    .color(theme.text)
-                    .truncate(),
-            );
-            if project.archived {
-                heading = heading.child(text("Archived").color(theme.text_secondary));
-            }
-            list = list.child(
-                col()
-                    .key(&project.path)
-                    .w_full()
-                    .gap(4.0)
-                    .padding(12.0)
-                    .radius(8.0)
-                    .border(1.0, theme.separator)
-                    .child(heading)
-                    .child(
-                        text(&project.path)
-                            .color(theme.text_secondary)
-                            .truncate_middle(),
-                    ),
-            );
-        }
-        if !s.pending && s.error.is_none() && s.projects.is_empty() {
-            list = list.child(text("No projects").color(theme.text_secondary));
-        }
-        panel = panel.child(list);
+    } else if s.environment.is_some() {
+        return workspace::view(s, cx, &theme);
     } else if s.starting_local {
         panel = panel.child(title("T3 Code"));
     } else {
@@ -313,8 +299,17 @@ fn start() -> io::Result<()> {
         .spawn()?;
     let output = child.stdin.take();
     let input = BufReader::new(child.stdout.take().unwrap());
-    let app =
-        App::new(AppSpec::new("T3 Code", (1100.0, 780.0), Desktop::new, view)).init(move || {
+    let spec = AppSpec {
+        min_size: Some((400.0, 360.0)),
+        families: (
+            "system-ui, Segoe UI, sans-serif",
+            "ui-monospace, Menlo, Consolas, monospace",
+        ),
+        ..AppSpec::new("T3 Code", (1100.0, 780.0), Desktop::new, view)
+    };
+    let app = App::new(spec)
+        .titlebar(Titlebar::new(40.0).traffic_lights(16.0, 19.0))
+        .init(move || {
             let mut desktop = Desktop {
                 output,
                 ..Desktop::new()
