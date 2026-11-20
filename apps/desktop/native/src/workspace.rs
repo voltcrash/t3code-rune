@@ -47,6 +47,7 @@ pub(super) struct MessageRow {
 
 #[derive(Deserialize)]
 pub(super) struct ConversationWindow {
+    active_run: Option<String>,
     rows: Vec<MessageRow>,
     cursor: Option<String>,
     sequence: u64,
@@ -81,10 +82,16 @@ pub(super) enum LiveUpdate {
     Status {
         state: LiveStatus,
     },
+    Run {
+        run: Option<String>,
+    },
     Deleted,
 }
 
 pub(super) struct Conversation {
+    pub(super) stop_operation: Option<String>,
+    pub(super) stop_feedback: Option<composer::StopFeedback>,
+    pub(super) active_run: Option<String>,
     pub id: String,
     pub rows: Vec<MessageRow>,
     pub cursor: Option<String>,
@@ -98,6 +105,7 @@ pub(super) struct Conversation {
 
 impl Conversation {
     pub fn replace(&mut self, window: ConversationWindow) {
+        self.set_active_run(window.active_run);
         self.rows = window.rows;
         self.sequence = Some(window.sequence);
         self.earlier_pages = window.earlier_pages;
@@ -261,6 +269,10 @@ impl Workspace {
             return;
         }
         match update {
+            LiveUpdate::Run { run } => {
+                pane.set_active_run(run);
+                pane.sequence = Some(sequence);
+            }
             LiveUpdate::Deleted => {
                 self.conversation = None;
                 self.drafts.remove(id);
@@ -354,6 +366,9 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            stop_operation: None,
+            stop_feedback: None,
+            active_run: None,
             id: id.to_owned(),
             rows: Vec::new(),
             cursor: None,
@@ -1191,7 +1206,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && pane.sequence.is_some()
         && s.can_operate
     {
-        main = main.child(composer::view(s, &thread.id, &thread.model, theme));
+        main = main.child(composer::view(
+            s,
+            &thread.id,
+            &thread.model,
+            theme,
+            cx.system_dark(),
+        ));
     }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     if s.workspace.sidebar {
@@ -1248,6 +1269,13 @@ mod tests {
                 }],
             },
         );
+        receive(
+            7,
+            LiveUpdate::Run {
+                run: Some("current".into()),
+            },
+        );
+        receive(6, LiveUpdate::Run { run: None });
         receive(6, LiveUpdate::Deleted);
         receive(
             7,
@@ -1272,6 +1300,7 @@ mod tests {
             },
         );
         let pane = app.workspace.conversation.as_ref().unwrap();
+        assert_eq!(pane.active_run.as_deref(), Some("current"));
         assert_eq!(pane.rows[0].body, "hello world");
         assert!(matches!(
             pane.refresh(),
@@ -1297,6 +1326,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .replace(ConversationWindow {
+                active_run: None,
                 rows: vec![message("earlier"), message("latest")],
                 sequence: 10,
                 earlier_pages: 1,

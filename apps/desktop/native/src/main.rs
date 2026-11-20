@@ -39,6 +39,12 @@ enum Reply {
     Error {
         message: String,
     },
+    StopResult {
+        operation: String,
+        thread: String,
+        run: String,
+        error: Option<String>,
+    },
     MessageSent {
         thread: String,
         operation: String,
@@ -75,7 +81,7 @@ struct WorkerMessage {
 
 #[derive(Serialize)]
 struct ClientMessage<'a> {
-    id: u64,
+    id: Option<u64>,
     #[serde(flatten)]
     request: Request<'a>,
 }
@@ -98,6 +104,11 @@ enum Request<'a> {
         text: String,
         operation: String,
         base: Option<String>,
+    },
+    StopRun {
+        thread: String,
+        run: String,
+        operation: String,
     },
     SendMessage {
         thread: String,
@@ -157,30 +168,32 @@ impl Desktop {
         }
     }
 
-    fn send(&mut self, request: Request<'_>) {
-        if self.pending {
-            return;
-        }
+    fn write_request(&mut self, id: Option<u64>, request: Request<'_>) -> bool {
         let Some(mut output) = self.output.as_mut() else {
-            return;
+            return false;
         };
-        self.request_id += 1;
-        let starting_local = matches!(request, Request::Local);
-        let message = ClientMessage {
-            id: self.request_id,
-            request,
-        };
+        let message = ClientMessage { id, request };
         let sent = serde_json::to_writer(&mut output, &message).is_ok()
             && output
                 .write_all(b"\n")
                 .and_then(|()| output.flush())
                 .is_ok();
-        if sent {
+        if !sent {
+            *self = Self::new();
+        }
+        sent
+    }
+
+    fn send(&mut self, request: Request<'_>) {
+        if self.pending || self.output.is_none() {
+            return;
+        }
+        self.request_id += 1;
+        let starting_local = matches!(request, Request::Local);
+        if self.write_request(Some(self.request_id), request) {
             self.starting_local = starting_local;
             self.pending = true;
             self.error = None;
-        } else {
-            *self = Self::new();
         }
     }
 
@@ -195,6 +208,28 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::StopResult {
+            thread,
+            run,
+            operation,
+            error,
+        } = message.reply
+        {
+            if let Some(pane) = self.workspace.conversation.as_mut()
+                && pane.id == thread
+                && pane.active_run.as_deref() == Some(run.as_str())
+                && pane.stop_operation.as_deref() == Some(operation.as_str())
+            {
+                pane.stop_operation = None;
+                if let Some(message) = error {
+                    pane.stop_feedback = Some(composer::StopFeedback::Retry);
+                    self.error = Some(message);
+                } else if pane.status == LiveStatus::Paused && !self.pending {
+                    self.refresh_thread();
+                }
+            }
+            return;
+        }
         if let Reply::Live {
             watch,
             thread,
@@ -294,7 +329,7 @@ impl Desktop {
                     pane.begin_watch(self.request_id);
                 }
             }
-            Reply::Live { .. } => unreachable!(),
+            Reply::Live { .. } | Reply::StopResult { .. } => unreachable!(),
             Reply::Error { message } => self.error = Some(message),
             Reply::Disconnected | Reply::LocalClosed => {
                 let lost = matches!(message.reply, Reply::LocalClosed);
@@ -456,6 +491,7 @@ fn start() -> io::Result<()> {
     let input = BufReader::new(child.stdout.take().unwrap());
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
+        poll: Some(Desktop::poll_stop),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
                 if !tx.key_repeat() {

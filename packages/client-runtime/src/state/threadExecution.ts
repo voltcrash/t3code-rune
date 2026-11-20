@@ -99,7 +99,7 @@ export function deriveProviderExtensionStatuses(
 }
 
 function latestMatchingRun(
-  projection: ThreadStructure,
+  projection: Pick<ThreadStructure, "runs">,
   predicate: (run: OrchestrationV2ThreadProjection["runs"][number]) => boolean,
 ): OrchestrationV2ThreadProjection["runs"][number] | null {
   return projection.runs.reduce<OrchestrationV2ThreadProjection["runs"][number] | null>(
@@ -180,10 +180,12 @@ export function deriveLatestThreadRun(projection: ThreadStructure): ThreadRunSum
   return run === null ? null : summarizeThreadRun(projection, run);
 }
 
+export function activeThreadRun(projection: Pick<ThreadStructure, "runs">) {
+  return latestMatchingRun(projection, (run) => ACTIVITY_RUN_STATUSES.has(run.status));
+}
+
 export function deriveThreadActivityRun(projection: ThreadStructure): ThreadRunSummary | null {
-  const run =
-    latestMatchingRun(projection, (candidate) => ACTIVITY_RUN_STATUSES.has(candidate.status)) ??
-    presentedLatestRun(projection);
+  const run = activeThreadRun(projection) ?? presentedLatestRun(projection);
   return run === null ? null : summarizeThreadRun(projection, run);
 }
 
@@ -389,9 +391,7 @@ export function deriveThreadStructureRuntime(
   const usageLimitedRun = presentedUsageLimitRun(projection);
   const latestRunProjection = presentedLatestRun(projection);
   const activityRun = deriveThreadActivityRun(projection);
-  const liveActivityRun = latestMatchingRun(projection, (run) =>
-    ACTIVITY_RUN_STATUSES.has(run.status),
-  );
+  const liveActivityRun = activeThreadRun(projection);
   const backgroundWorkHoldsRun = backgroundWorkHoldsCompletion(
     derivePendingBackgroundWork({
       latestRun: latestRunProjection,
