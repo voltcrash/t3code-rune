@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
 mod composer;
+mod new_thread;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
@@ -41,6 +42,20 @@ enum Reply {
         thread: String,
         operation: String,
     },
+    LaunchOptions {
+        project: String,
+        choices: Vec<new_thread::Choice>,
+        base: String,
+        worktree: bool,
+    },
+    ThreadLaunched {
+        thread: Thread,
+    },
+    LaunchFailed {
+        project: String,
+        uncertain: bool,
+        message: String,
+    },
     ProjectSaved {
         added: bool,
     },
@@ -69,6 +84,17 @@ enum Request<'a> {
     Local,
     Pair {
         link: &'a str,
+    },
+    PrepareThread {
+        project: String,
+    },
+    LaunchThread {
+        project: String,
+        runtime: String,
+        model: String,
+        text: String,
+        operation: String,
+        base: Option<String>,
     },
     SendMessage {
         thread: String,
@@ -101,6 +127,7 @@ struct Desktop {
     can_operate: bool,
     project_path: Option<TextEdit>,
     workspace: Workspace,
+    new_threads: new_thread::NewThreads,
     request_id: u64,
     pending: bool,
     starting_local: bool,
@@ -117,6 +144,7 @@ impl Desktop {
             can_operate: false,
             project_path: None,
             workspace: Workspace::new(),
+            new_threads: Default::default(),
             request_id: 0,
             pending: false,
             starting_local: false,
@@ -210,7 +238,33 @@ impl Desktop {
                 self.environment = Some(label);
                 self.pending = true;
             }
-            Reply::Workspace { projects, threads } => self.workspace.replace(projects, threads),
+            Reply::Workspace { projects, threads } => {
+                self.replace_workspace(projects, threads);
+            }
+            Reply::LaunchOptions {
+                project,
+                choices,
+                base,
+                worktree,
+            } => {
+                self.new_threads
+                    .configure(project, choices, worktree, &base);
+                self.workspace.show_projects = false;
+            }
+            Reply::ThreadLaunched { thread } => {
+                let id = thread.id.clone();
+                self.new_threads.forget(&thread.project);
+                self.workspace.insert_launched(thread);
+                self.open_thread(&id);
+            }
+            Reply::LaunchFailed {
+                project,
+                uncertain,
+                message,
+            } => {
+                self.new_threads.mark_unconfirmed(&project, uncertain);
+                self.error = Some(message);
+            }
             Reply::Thread { thread, window } => {
                 if let Some(pane) = &mut self.workspace.conversation
                     && pane.id == thread
@@ -363,6 +417,15 @@ fn start() -> io::Result<()> {
     let input = BufReader::new(child.stdout.take().unwrap());
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
+        on_key: Some(|s: &mut Desktop, ev, tx| {
+            if s.can_operate && !ev.mods.alt && !ev.mods.shift && ev.is_command('n') {
+                if !tx.key_repeat() {
+                    s.new_thread_in_workspace();
+                }
+                return true;
+            }
+            false
+        }),
         families: (
             "system-ui, Segoe UI, sans-serif",
             "ui-monospace, Menlo, Consolas, monospace",
@@ -383,10 +446,18 @@ fn start() -> io::Result<()> {
     std::thread::spawn(move || {
         for line in input.lines() {
             let Ok(line) = line else { break };
-            let Ok(reply) = serde_json::from_str(&line) else {
+            let Ok(reply) = serde_json::from_str::<WorkerMessage>(&line) else {
                 break;
             };
-            handle.update(move |s, _| s.receive(reply));
+            handle.update(move |s, tx| {
+                let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
+                    && s.pending
+                    && reply.id == Some(s.request_id);
+                s.receive(reply);
+                if focus {
+                    tx.focus("new-thread-prompt", true);
+                }
+            });
         }
         handle.update(|s, _| *s = Desktop::new());
     });
