@@ -1,6 +1,12 @@
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
-import { pairWithEnvironment, readWorkspace, readThread } from "../src/native/projects.ts";
+import {
+  HomePathNeedsBrowseAccess,
+  changeProject,
+  pairWithEnvironment,
+  readWorkspace,
+  readThread,
+} from "../src/native/projects.ts";
 
 let session;
 let localSession;
@@ -40,6 +46,7 @@ try {
     if (lifetime.signal.aborted) break;
     let request;
     let reading;
+    let editing = false;
     const reply = (value) => write({ id: request?.id, ...value });
     try {
       request = JSON.parse(line);
@@ -58,12 +65,25 @@ try {
           session = await pairWithEnvironment(request.link, lifetime.signal);
           localSession = undefined;
         }
-        reply({ type: "connected", label: session.label });
+        reply({
+          type: "connected",
+          label: session.label,
+          local: Boolean(localSession),
+          can_edit_projects: session.canEditProjects,
+        });
       } else if (request.type === "thread" && session) {
         reading = session;
         const pane = await readThread(reading, request);
         if (session === reading) reply(pane);
         continue;
+      } else if ((request.type === "addproject" || request.type === "archiveproject") && session) {
+        editing = true;
+        reading = session;
+        if (!reading.canEditProjects) throw new Error("Read-only session");
+        await changeProject(reading, request);
+        if (session !== reading) continue;
+        reply({ type: "projectsaved", added: request.type === "addproject" });
+        editing = false;
       } else if (request.type !== "refresh" || !session) {
         throw new Error("Invalid request");
       }
@@ -74,15 +94,22 @@ try {
       if (reading && session !== reading) continue;
       reply({
         type: "error",
-        message: session
-          ? request?.type === "thread"
-            ? "Couldn’t load this conversation. Try again."
-            : "Couldn’t load this workspace. Check the connection and try again."
-          : request?.type === "local"
-            ? isLocalServerStartupError(error)
-              ? error.message
-              : "Couldn’t start the local environment. Try again or paste a pairing link."
-            : "Couldn’t pair with this environment. Check the pairing link and try again.",
+        message:
+          error instanceof HomePathNeedsBrowseAccess
+            ? "Enter the full folder path. This connection cannot look up the environment’s home folder."
+            : editing
+              ? request.type === "addproject"
+                ? "Couldn’t add the project. Check that the folder exists on this environment and that you have permission."
+                : "Couldn’t update the project. Refresh and try again."
+              : session
+                ? request?.type === "thread"
+                  ? "Couldn’t load this conversation. Try again."
+                  : "Couldn’t load this workspace. Check the connection and try again."
+                : request?.type === "local"
+                  ? isLocalServerStartupError(error)
+                    ? error.message
+                    : "Couldn’t start the local environment. Try again or paste a pairing link."
+                  : "Couldn’t pair with this environment. Check the pairing link and try again.",
       });
     }
   }

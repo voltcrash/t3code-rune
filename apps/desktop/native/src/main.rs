@@ -15,6 +15,8 @@ use workspace::{MessageRow, Project, Thread, Workspace};
 enum Reply {
     Connected {
         label: String,
+        local: bool,
+        can_edit_projects: bool,
     },
     Workspace {
         projects: Vec<Project>,
@@ -30,6 +32,9 @@ enum Reply {
     },
     Error {
         message: String,
+    },
+    ProjectSaved {
+        added: bool,
     },
     Unchanged,
     Disconnected,
@@ -57,6 +62,13 @@ enum Request<'a> {
     Pair {
         link: &'a str,
     },
+    AddProject {
+        path: String,
+    },
+    ArchiveProject {
+        project: String,
+        archived: bool,
+    },
     Refresh,
     Thread {
         thread: String,
@@ -72,6 +84,9 @@ struct Desktop {
     output: Option<std::process::ChildStdin>,
     link: TextEdit,
     environment: Option<String>,
+    local: bool,
+    can_edit_projects: bool,
+    project_path: Option<TextEdit>,
     workspace: Workspace,
     request_id: u64,
     pending: bool,
@@ -85,6 +100,9 @@ impl Desktop {
             output: None,
             link: TextEdit::new("").secure(),
             environment: None,
+            local: false,
+            can_edit_projects: false,
+            project_path: None,
             workspace: Workspace::new(),
             request_id: 0,
             pending: false,
@@ -142,7 +160,19 @@ impl Desktop {
         self.starting_local = false;
         self.error = None;
         match message.reply {
-            Reply::Connected { label } => {
+            Reply::ProjectSaved { added } => {
+                if added {
+                    self.project_path = None;
+                }
+                self.pending = true;
+            }
+            Reply::Connected {
+                label,
+                local,
+                can_edit_projects,
+            } => {
+                self.local = local;
+                self.can_edit_projects = can_edit_projects;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -344,6 +374,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn archiving_preserves_the_open_folder_draft() {
+        let mut desktop = Desktop {
+            project_path: Some(TextEdit::new("/shared/repo")),
+            pending: true,
+            ..Desktop::new()
+        };
+        desktop.receive(WorkerMessage {
+            id: Some(0),
+            reply: Reply::ProjectSaved { added: false },
+        });
+        assert_eq!(desktop.project_path.as_ref().unwrap().text, "/shared/repo");
+        desktop.receive(WorkerMessage {
+            id: Some(0),
+            reply: Reply::ProjectSaved { added: true },
+        });
+        assert!(desktop.project_path.is_none());
+    }
+
+    #[test]
     fn an_old_reply_cannot_finish_reconnection_after_the_local_server_exits() {
         let mut desktop = Desktop {
             environment: Some("This computer".into()),
@@ -373,6 +422,8 @@ mod tests {
             id: Some(5),
             reply: Reply::Connected {
                 label: "This computer".into(),
+                local: true,
+                can_edit_projects: true,
             },
         });
         assert_eq!(desktop.environment.as_deref(), Some("This computer"));

@@ -1,7 +1,7 @@
 use super::{Desktop, Request};
 use rune::{
-    Cx, El, GrowthSpec, ScrollSpec, TextEdit, TextStyle, col, el, icon, row, spacer, text,
-    text_input, tok,
+    Cx, El, FileDialogOptions, GrowthSpec, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row,
+    spacer, text, text_input, tok,
 };
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 use serde::Deserialize;
@@ -230,6 +230,15 @@ fn action(
     enabled: bool,
     run: impl Fn(&mut Desktop) + 'static,
 ) -> El {
+    action_with_tx(caption, theme, enabled, move |s, _| run(s))
+}
+
+fn action_with_tx(
+    caption: &str,
+    theme: &tok::Theme,
+    enabled: bool,
+    run: impl Fn(&mut Desktop, &mut Tx) + 'static,
+) -> El {
     let base = el()
         .key(caption)
         .label(caption)
@@ -241,7 +250,7 @@ fn action(
         .center()
         .child(label(caption, 12.0, 500.0, theme.text_secondary));
     if enabled {
-        base.hover(theme.separator).focusable(true).on_press(run)
+        base.hover(theme.separator).focusable(true).on_press_tx(run)
     } else {
         base.disabled(true).opacity(0.5)
     }
@@ -464,6 +473,52 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
     )
 }
 
+fn add_project(s: &mut Desktop, tx: &mut Tx) {
+    if !s.can_edit_projects || s.pending {
+        return;
+    }
+    if !s.local {
+        s.project_path = Some(TextEdit::new(""));
+        tx.focus("project-path", true);
+        return;
+    }
+    let request_id = s.request_id;
+    tx.open_folder(
+        FileDialogOptions {
+            title: "Add project".into(),
+            ..Default::default()
+        },
+        move |s: &mut Desktop, result, _| {
+            if !s.local || !s.can_edit_projects || s.request_id != request_id {
+                return;
+            }
+            match result {
+                Ok(Some(path)) => match path.into_os_string().into_string() {
+                    Ok(path) => s.send(Request::AddProject { path }),
+                    Err(_) => {
+                        s.error = Some("This folder name cannot be displayed as text.".into())
+                    }
+                },
+                Ok(None) => {}
+                Err(_) => s.error = Some("Couldn’t open the folder picker.".into()),
+            }
+        },
+    );
+}
+
+fn submit_project_path(s: &mut Desktop) {
+    if !s.can_edit_projects || s.local {
+        return;
+    }
+    if let Some(field) = &s.project_path
+        && !field.text.trim().is_empty()
+    {
+        s.send(Request::AddProject {
+            path: field.text.trim().to_owned(),
+        });
+    }
+}
+
 fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
     let colors = *theme;
     let list = col()
@@ -478,10 +533,27 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
                 let p = &s.workspace.projects[i];
                 let theme = &colors;
                 let mut title = row()
+                    .w_full()
+                    .center_y()
                     .gap(8.0)
-                    .child(label(&p.title, 14.0, 600.0, theme.text));
+                    .child(label(&p.title, 14.0, 600.0, theme.text).truncate().shrink());
                 if p.archived {
                     title = title.child(label("Archived", 12.0, 400.0, theme.text_secondary));
+                }
+                if s.can_edit_projects {
+                    let id = p.id.clone();
+                    let archived = !p.archived;
+                    title = title.child(spacer()).child(action(
+                        if archived { "Archive" } else { "Restore" },
+                        theme,
+                        !s.pending,
+                        move |s| {
+                            s.send(Request::ArchiveProject {
+                                project: id.clone(),
+                                archived,
+                            });
+                        },
+                    ));
                 }
                 col()
                     .key(&p.id)
@@ -505,6 +577,41 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
     }
     if let Some(environment) = &s.environment {
         area = area.child(label(environment, 13.0, 400.0, theme.text_secondary).py(8.0));
+    }
+    if let Some(field) = &s.project_path {
+        let input = text_input(field, TextStyle::new(14.0, 400.0))
+            .key("project-path")
+            .label("Folder path on this environment")
+            .single_line()
+            .grow(1.0)
+            .min_w(0.0)
+            .h(32.0)
+            .px(8.0)
+            .radius(5.0)
+            .border(1.0, theme.separator)
+            .color(theme.text)
+            .placeholder("Folder path on this environment", theme.text_secondary)
+            .disabled(s.pending)
+            .on_edit(|s: &mut Desktop| s.project_path.as_mut().unwrap())
+            .on_submit(|s: &mut Desktop, _| submit_project_path(s));
+        area = area.child(
+            row()
+                .w_full()
+                .center_y()
+                .gap(6.0)
+                .py(5.0)
+                .child(input)
+                .child(action(
+                    "Add",
+                    theme,
+                    !s.pending && !field.text.trim().is_empty(),
+                    submit_project_path,
+                ))
+                .child(action("Cancel", theme, !s.pending, |s| {
+                    s.project_path = None;
+                    s.error = None;
+                })),
+        );
     }
     area.child(list)
 }
@@ -637,6 +744,17 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         header = header.child(label("Projects", 14.0, 500.0, theme.text));
     }
     header = header.child(spacer());
+    if (s.workspace.show_projects || s.workspace.conversation.is_none())
+        && s.project_path.is_none()
+        && s.can_edit_projects
+    {
+        header = header.child(action_with_tx(
+            "Add project",
+            theme,
+            !s.pending,
+            add_project,
+        ));
+    }
     if s.pending {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
