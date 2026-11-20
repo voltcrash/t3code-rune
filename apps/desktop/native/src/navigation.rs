@@ -147,10 +147,10 @@ pub(super) fn header(s: &Desktop, theme: &tok::Theme, compact: bool) -> El {
             row()
                 .center_y()
                 .gap(4.)
-                .child(icon(&WORDMARK, 18.).color(theme.text))
+                .child(icon(&WORDMARK, 17.).color(theme.text))
                 .child(
                     text("Code")
-                        .font(TextStyle::new(14., 500.))
+                        .font(TextStyle::new(14., 500.).tracking(-0.35))
                         .color(theme.text_secondary),
                 ),
         );

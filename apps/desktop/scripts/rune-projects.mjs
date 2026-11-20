@@ -1,3 +1,8 @@
+import desktopPackage from "../package.json" with { type: "json" };
+import {
+  isNightlyDesktopVersion,
+  resolveDesktopAppStageLabel,
+} from "../src/updates/updateChannels.ts";
 import * as Effect from "effect/Effect";
 import { respondToApproval, respondToQuestion } from "../src/native/runtimeRequests.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
@@ -13,6 +18,12 @@ import {
   pairWithEnvironment,
   readWorkspace,
 } from "../src/native/projects.ts";
+
+const packaged = process.argv[2] === "--packaged";
+const buildStage = resolveDesktopAppStageLabel({
+  isDevelopment: !packaged,
+  appVersion: desktopPackage.version,
+}).toLowerCase();
 
 let session;
 let localSession;
@@ -117,7 +128,6 @@ async function interruptRun(owner, request, reply) {
 
 function localServer() {
   if (!server) {
-    const packaged = process.argv[2] === "--packaged";
     const cwd = NodePath.resolve(import.meta.dirname, packaged ? "server" : "../../server");
     const started = startLocalServer({
       cwd,
@@ -204,6 +214,7 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         local: Boolean(localSession),
         can_operate: session.canOperate,
+        stage: isNightlyDesktopVersion(session.serverVersion) ? "nightly" : buildStage,
       });
     } else if (
       request.type === "preparescratch" ||

@@ -56,6 +56,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   const scopes = parseOAuthScope(session.scope) ?? [];
   return {
     label: descriptor.label,
+    serverVersion: descriptor.serverVersion,
     platform: descriptor.platform.os,
     httpBaseUrl: target.httpBaseUrl,
     token: session.access_token,

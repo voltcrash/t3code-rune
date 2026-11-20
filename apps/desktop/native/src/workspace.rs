@@ -507,8 +507,14 @@ fn action_with_tx(
     }
 }
 
-fn toggle_sidebar(show: bool, theme: &tok::Theme) -> El {
-    let caption = if show { "Show sidebar" } else { "Hide sidebar" };
+const CLOSE_SIDEBAR: rune::Icon = rune::Icon {
+    name: "panel-left-close",
+    view: 24.,
+    body: r#"<g stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m7-6-3-3 3-3"/></g>"#,
+};
+
+fn hide_sidebar(theme: &tok::Theme) -> El {
+    let caption = "Hide sidebar";
     el().key(caption)
         .role("button")
         .label(caption)
@@ -519,8 +525,8 @@ fn toggle_sidebar(show: bool, theme: &tok::Theme) -> El {
         .radius(5.0)
         .hover(theme.separator)
         .focusable(true)
-        .child(icon(&rune_kit::shell::SIDEBAR, 16.0).color(theme.text_secondary))
-        .on_press(move |s: &mut Desktop| s.workspace.sidebar = show)
+        .child(icon(&CLOSE_SIDEBAR, 16.0).color(theme.text))
+        .on_press(|s: &mut Desktop| s.workspace.sidebar = false)
 }
 
 fn project_badge(title: &str, theme: &tok::Theme) -> El {
@@ -612,7 +618,14 @@ static NEW_THREAD_ICON: rune::Icon = rune::Icon {
     body: r#"<path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6 M15.5 5.5l3 3 M9 15l1-4 8-8a2 2 0 0 1 3 3l-8 8-4 1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
+fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme, dark: bool) -> El {
+    let compact = width - inset < 174.;
+    let mut on_art = *theme;
+    if s.stage.has_art() {
+        on_art.text = rune::Color::WHITE;
+        on_art.text_secondary = rune::Color::WHITE.alpha(0.76);
+        on_art.separator = rune::Color::WHITE.alpha(0.14);
+    }
     let search = text_input(&s.workspace.search, TextStyle::new(13.0, 400.0))
         .key("thread-search")
         .label("Search threads")
@@ -707,12 +720,12 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
             row()
                 .h(52.0)
                 .w_full()
-                .pl(inset)
+                .pl(if compact { inset } else { inset + 7. })
                 .center_y()
                 .window_drag()
-                .gap(4.0)
-                .child(toggle_sidebar(false, theme))
-                .child(navigation::header(s, theme, width - inset < 162.)),
+                .gap(if compact { 2. } else { 9. })
+                .child(hide_sidebar(&on_art))
+                .child(navigation::header(s, &on_art, compact)),
         )
         .child(
             row()
@@ -752,7 +765,7 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
             .self_start(),
         );
     }
-    sidebar.child(
+    let content = sidebar.child(
         row()
             .w_full()
             .child(action(
@@ -765,7 +778,13 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
             .child(action("Disconnect", theme, !s.pending, |s| {
                 s.send(Request::Disconnect)
             })),
-    )
+    );
+    col()
+        .w(width)
+        .h_full()
+        .clip_rounded(0.)
+        .children(s.stage.backdrop(dark))
+        .child(content)
 }
 
 fn add_project(s: &mut Desktop, tx: &mut Tx) {
@@ -1281,6 +1300,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 inset.leading,
                 if narrow { 176.0 } else { 256.0 },
                 theme,
+                cx.system_dark(),
             ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
