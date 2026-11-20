@@ -6,3 +6,9 @@ export function parseUrl(value: string, base?: string): URL | null {
     return null;
   }
 }
+
+export function resolveExternalWebLink(href: string | null | undefined): URL | null {
+  if (!href) return null;
+  const url = parseUrl(href.startsWith("//") ? `https:${href}` : href);
+  return url?.protocol === "http:" || url?.protocol === "https:" ? url : null;
+}

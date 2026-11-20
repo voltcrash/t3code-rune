@@ -2,6 +2,8 @@
 mod activity;
 #[path = "command.rs"]
 mod command;
+#[path = "tool.rs"]
+pub(crate) mod tool;
 #[path = "turn_folds.rs"]
 mod turn_folds;
 use turn_folds::VisibleRow;
@@ -61,6 +63,7 @@ pub(super) struct MessageRow {
     attachments: Vec<String>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
+    tool: Option<tool::Tool>,
     exit_code: Option<i32>,
     #[serde(default)]
     failed: bool,
@@ -129,6 +132,7 @@ pub(super) struct Conversation {
     project_root: Option<String>,
     expanded_activities: HashSet<String>,
     command: Option<command::Expanded>,
+    tools: HashMap<String, tool::Open>,
     pub(super) approvals: Vec<Approval>,
     pub(super) approval_menu: Option<String>,
     pub(super) stop_operation: Option<String>,
@@ -483,6 +487,7 @@ impl Desktop {
                 .and_then(|i| self.workspace.project(&self.workspace.threads[*i].project))
                 .map(|p| p.path.clone()),
             expanded_activities: HashSet::new(),
+            tools: HashMap::new(),
             command: None,
             approval_menu: None,
             approvals: vec![],
@@ -508,8 +513,7 @@ impl Desktop {
     }
 
     pub(super) fn show_projects(&mut self) {
-        self.close_command();
-        self.close_diff();
+        self.close_conversation_inspectors();
         self.history.visit(Page::Home);
         self.new_threads.active = None;
         self.workspace.show_projects = true;
@@ -1168,6 +1172,9 @@ fn timeline(
                     VisibleRow::Message(index) => &pane.rows[index],
                 };
                 if let Some(caption) = &message.caption {
+                    if let Some(tool) = &message.tool {
+                        return tool::row_view(s, message, tool, caption, theme, &message_kit);
+                    }
                     if message.role != "command" {
                         return activity::row_view(
                             s,
@@ -1447,6 +1454,7 @@ mod tests {
                     role: "assistant".into(),
                     body: "hello".into(),
                     attachments: vec![],
+                    tool: None,
                     file: None,
                     caption: None,
                     exit_code: None,
@@ -1508,6 +1516,7 @@ mod tests {
             role: "user".into(),
             body: key.into(),
             attachments: Vec::new(),
+            tool: None,
             file: None,
             caption: None,
             exit_code: None,

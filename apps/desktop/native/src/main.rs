@@ -48,6 +48,12 @@ enum Reply {
     Error {
         message: String,
     },
+    ToolDetail {
+        key: String,
+        operation: String,
+        #[serde(flatten)]
+        detail: workspace::tool::Detail,
+    },
     FileDiff {
         operation: String,
         #[serde(flatten)]
@@ -141,6 +147,12 @@ enum Request<'a> {
         version: String,
         decision: String,
         operation: String,
+    },
+    InspectTool {
+        watch: u64,
+        key: String,
+        operation: String,
+        open: bool,
     },
     InspectFile {
         watch: u64,
@@ -243,8 +255,7 @@ impl Desktop {
             return;
         }
         if matches!(request, Request::Thread { .. }) {
-            self.close_command();
-            self.close_diff();
+            self.close_conversation_inspectors();
         }
         self.answer_advance = None;
         self.request_id += 1;
@@ -267,6 +278,15 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::ToolDetail {
+            key,
+            operation,
+            detail,
+        } = message.reply
+        {
+            self.update_tool(&key, &operation, detail);
+            return;
+        }
         if let Reply::FileDiff {
             operation,
             recorded,
@@ -396,8 +416,7 @@ impl Desktop {
                 base,
                 worktree,
             } => {
-                self.close_command();
-                self.close_diff();
+                self.close_conversation_inspectors();
                 self.history
                     .visit(navigation::Page::NewThread(project.clone()));
                 self.workspace.upsert_project(record);
@@ -444,6 +463,7 @@ impl Desktop {
             Reply::Live { .. }
             | Reply::StopResult { .. }
             | Reply::CommandOutput { .. }
+            | Reply::ToolDetail { .. }
             | Reply::FileDiff { .. } => {
                 unreachable!()
             }
