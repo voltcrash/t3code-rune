@@ -269,6 +269,13 @@ export function followWindow(
               state.rows[0]?.key,
               state.earlier_pages,
             );
+            if (
+              fresh.projection.thread.deletedAt !== null ||
+              fresh.projection.thread.archivedAt !== null
+            ) {
+              emit({ kind: "deleted" });
+              return;
+            }
             Object.assign(state, fresh);
             emit({ kind: "window", ...windowReply(state) });
             return;

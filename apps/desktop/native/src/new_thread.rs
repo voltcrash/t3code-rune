@@ -32,6 +32,14 @@ struct LaunchDraft {
 }
 
 impl NewThreads {
+    pub(super) fn has_draft(&self, project: &str) -> bool {
+        self.drafts.contains_key(project)
+    }
+    pub(super) fn reopen(&mut self, project: String) {
+        self.active = Some(project);
+        self.project_picker = ComboboxState::default();
+        self.current().picker = ComboboxState::default();
+    }
     pub fn configure(&mut self, project: String, choices: Vec<Choice>, worktree: bool, base: &str) {
         let draft = self
             .drafts

@@ -1,6 +1,7 @@
 #[path = "palette.rs"]
 pub(super) mod palette;
 
+use super::navigation::{self, Page};
 use super::questions::{self, Forms, Prompt};
 use super::{
     Desktop, Request,
@@ -278,6 +279,9 @@ impl Workspace {
             .collect();
         self.filter_revision += 1;
     }
+    pub(super) fn has_thread(&self, id: &str) -> bool {
+        self.by_thread.contains_key(id)
+    }
     pub(super) fn thread_count(&self) -> usize {
         self.threads.len()
     }
@@ -285,6 +289,22 @@ impl Workspace {
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }
+    pub fn remove_thread(&mut self, id: &str) {
+        if self.conversation.as_ref().is_some_and(|pane| pane.id == id) {
+            self.conversation = None;
+        }
+        self.drafts.remove(id);
+        self.questions.remove(id);
+        if let Some(index) = self.by_thread.remove(id) {
+            let removed = self.threads.remove(index);
+            self.settled_count -= usize::from(removed.settled);
+            for i in index..self.threads.len() {
+                self.by_thread.insert(self.threads[i].id.clone(), i);
+            }
+            self.filter();
+        }
+    }
+
     pub fn apply_live(&mut self, watch: u64, id: &str, sequence: u64, update: LiveUpdate) {
         let Some(pane) = &mut self.conversation else {
             return;
@@ -305,19 +325,7 @@ impl Workspace {
                 pane.set_active_run(run);
                 pane.sequence = Some(sequence);
             }
-            LiveUpdate::Deleted => {
-                self.conversation = None;
-                self.drafts.remove(id);
-                self.questions.remove(id);
-                if let Some(index) = self.by_thread.remove(id) {
-                    let removed = self.threads.remove(index);
-                    self.settled_count -= usize::from(removed.settled);
-                    for i in index..self.threads.len() {
-                        self.by_thread.insert(self.threads[i].id.clone(), i);
-                    }
-                    self.filter();
-                }
-            }
+            LiveUpdate::Deleted => self.remove_thread(id),
             LiveUpdate::Window { window } => pane.replace(window, &mut self.questions),
             LiveUpdate::Status { state } if !pane.needs_reload => pane.set_status(state),
             LiveUpdate::Append { index, key, text }
@@ -351,6 +359,7 @@ impl Desktop {
         self.workspace.replace(projects, threads);
         self.new_threads
             .retain(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
+        self.history.retain(&self.workspace, &self.new_threads);
     }
     pub(super) fn prepare_scratch(&mut self) {
         if self.can_operate && self.workspace.scratch_available && !self.pending {
@@ -379,14 +388,14 @@ impl Desktop {
         if let Some(id) = project.or_else(|| single.map(|p| p.id.clone())) {
             self.prepare_thread(&id);
         } else {
-            self.workspace.show_projects = true;
-            self.new_threads.active = None;
+            self.show_projects();
         }
     }
     pub(super) fn open_thread(&mut self, id: &str) {
         if self.pending {
             return;
         }
+        self.history.visit(Page::Thread(id.into()));
         self.new_threads.active = None;
         self.workspace.show_projects = false;
         if self
@@ -421,7 +430,8 @@ impl Desktop {
         self.workspace.sidebar = !self.workspace.sidebar;
     }
 
-    fn show_projects(&mut self) {
+    pub(super) fn show_projects(&mut self) {
+        self.history.visit(Page::Home);
         self.new_threads.active = None;
         self.workspace.show_projects = true;
     }
@@ -702,7 +712,7 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
                 .window_drag()
                 .gap(4.0)
                 .child(toggle_sidebar(false, theme))
-                .child(label("T3 Code", 14.0, 600.0, theme.text)),
+                .child(navigation::header(s, theme, width - inset < 162.)),
         )
         .child(
             row()

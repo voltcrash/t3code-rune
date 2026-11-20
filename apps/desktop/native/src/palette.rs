@@ -14,6 +14,8 @@ enum Action {
     Scratch,
     AddProject,
     Projects,
+    Back,
+    Forward,
     ToggleSidebar,
     Refresh,
     Project(usize),
@@ -32,6 +34,8 @@ impl Action {
             Self::Scratch => "scratch".into(),
             Self::AddProject => "add-project".into(),
             Self::Projects => "projects".into(),
+            Self::Back => "go-back".into(),
+            Self::Forward => "go-forward".into(),
             Self::ToggleSidebar => "toggle-sidebar".into(),
             Self::Refresh => "refresh".into(),
         }
@@ -44,6 +48,8 @@ impl Action {
             Self::Scratch => "New thread without a project",
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
+            Self::Back => "Go back",
+            Self::Forward => "Go forward",
             Self::ToggleSidebar => "Toggle sidebar",
             Self::Refresh => "Refresh",
             Self::Project(i) | Self::StartInProject(i) => &ws.projects[i].title,
@@ -57,6 +63,10 @@ impl Action {
             Self::PickProject | Self::Project(_) => "›",
             Self::Scratch if cfg!(target_os = "macos") => "⌥⌘N",
             Self::Scratch => "Ctrl+Alt+N",
+            Self::Back if cfg!(target_os = "macos") => "⌘[",
+            Self::Back => "Ctrl+[",
+            Self::Forward if cfg!(target_os = "macos") => "⌘]",
+            Self::Forward => "Ctrl+]",
             Self::ToggleSidebar if cfg!(target_os = "macos") => "⌘B",
             Self::ToggleSidebar => "Ctrl+B",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
@@ -69,6 +79,8 @@ impl Action {
             Self::NewThread(_) | Self::StartInProject(_) | Self::PickProject => &NEW_THREAD_ICON,
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
+            Self::Back => &crate::navigation::BACK,
+            Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
             Self::Refresh => &REFRESH,
         }
@@ -129,7 +141,14 @@ impl Palette {
         }
     }
 
-    fn filter(&mut self, ws: &Workspace, active: Option<&str>, write: bool, keep_selection: bool) {
+    fn filter(
+        &mut self,
+        ws: &Workspace,
+        active: Option<&str>,
+        write: bool,
+        history: &crate::navigation::History,
+        keep_selection: bool,
+    ) {
         let query = self.query.text.trim().to_lowercase();
         let mut items = Vec::new();
         let mut command = |action: Action| {
@@ -160,6 +179,12 @@ impl Palette {
                         command(Action::Scratch);
                     }
                     command(Action::AddProject);
+                }
+                if history.available(false) {
+                    command(Action::Back);
+                }
+                if history.available(true) {
+                    command(Action::Forward);
                 }
                 command(Action::Projects);
                 command(Action::ToggleSidebar);
@@ -240,7 +265,13 @@ impl Desktop {
                 .map(|&i| self.workspace.threads[i].project.as_str())
         });
         if let Some(palette) = self.palette.as_mut() {
-            palette.filter(&self.workspace, active, self.can_operate, keep_selection);
+            palette.filter(
+                &self.workspace,
+                active,
+                self.can_operate,
+                &self.history,
+                keep_selection,
+            );
         }
     }
 
@@ -275,6 +306,8 @@ impl Desktop {
             }
             Action::Scratch => self.prepare_scratch(),
             Action::Thread(i) => self.open_thread(&self.workspace.threads[i].id.clone()),
+            Action::Back => self.go(false),
+            Action::Forward => self.go(true),
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::Refresh => self.refresh_visible(),
             Action::AddProject => {
