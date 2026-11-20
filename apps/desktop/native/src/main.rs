@@ -9,7 +9,7 @@ use std::io::{self, BufRead, BufReader, Write};
 
 mod composer;
 mod workspace;
-use workspace::{MessageRow, Project, Thread, Workspace};
+use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -25,11 +25,14 @@ enum Reply {
     },
     Thread {
         thread: String,
-        rows: Vec<MessageRow>,
-        cursor: Option<String>,
-        older: bool,
+        #[serde(flatten)]
+        window: ConversationWindow,
+    },
+    Live {
+        watch: u64,
+        thread: String,
         sequence: u64,
-        earlier_pages: usize,
+        update: LiveUpdate,
     },
     Error {
         message: String,
@@ -159,6 +162,16 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::Live {
+            watch,
+            thread,
+            sequence,
+            update,
+        } = message.reply
+        {
+            self.workspace.apply_live(watch, &thread, sequence, update);
+            return;
+        }
         if matches!(message.reply, Reply::LocalClosed) {
             if self.environment.is_none() {
                 return;
@@ -171,7 +184,13 @@ impl Desktop {
         self.error = None;
         match message.reply {
             Reply::MessageSent { thread, operation } => {
-                if self.workspace.finish_message(&thread, &operation) {
+                if self.workspace.finish_message(&thread, &operation)
+                    && self
+                        .workspace
+                        .conversation
+                        .as_ref()
+                        .is_some_and(|p| p.status == LiveStatus::Paused)
+                {
                     self.refresh_thread();
                 }
             }
@@ -192,22 +211,20 @@ impl Desktop {
                 self.pending = true;
             }
             Reply::Workspace { projects, threads } => self.workspace.replace(projects, threads),
-            Reply::Thread {
-                thread,
-                rows,
-                cursor,
-                older,
-                sequence,
-                earlier_pages,
-            } => self.workspace.update_conversation(
-                thread,
-                rows,
-                cursor,
-                older,
-                sequence,
-                earlier_pages,
-            ),
-            Reply::Unchanged => {}
+            Reply::Thread { thread, window } => {
+                if let Some(pane) = &mut self.workspace.conversation
+                    && pane.id == thread
+                {
+                    pane.replace(window);
+                    pane.begin_watch(self.request_id);
+                }
+            }
+            Reply::Unchanged => {
+                if let Some(pane) = &mut self.workspace.conversation {
+                    pane.begin_watch(self.request_id);
+                }
+            }
+            Reply::Live { .. } => unreachable!(),
             Reply::Error { message } => self.error = Some(message),
             Reply::Disconnected | Reply::LocalClosed => {
                 let lost = matches!(message.reply, Reply::LocalClosed);

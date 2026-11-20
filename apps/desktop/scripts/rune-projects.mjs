@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { sendThreadMessage } from "../src/native/messages.ts";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
@@ -7,18 +8,19 @@ import {
   changeProject,
   pairWithEnvironment,
   readWorkspace,
-  readThread,
 } from "../src/native/projects.ts";
 
 let session;
 let localSession;
 let server;
+let watching;
 const lifetime = new AbortController();
 const input = NodeReadline.createInterface({ input: process.stdin, terminal: false });
 const write = (value) => {
   if (!lifetime.signal.aborted) process.stdout.write(JSON.stringify(value) + "\n");
 };
 const close = () => {
+  stopWatching();
   lifetime.abort();
   void server?.stop();
 };
@@ -28,6 +30,44 @@ process.stdout.once("error", () => {
   input.close();
 });
 
+function stopWatching() {
+  const prior = watching;
+  watching = undefined;
+  prior?.controller.abort();
+  return prior;
+}
+
+function watch(owner, thread, id, state) {
+  const controller = new AbortController();
+  const record = { owner, thread, id, state, controller };
+  watching = record;
+  const signal = AbortSignal.any([owner.signal, controller.signal]);
+  void followWindow(owner, state, signal, (update) => {
+    if (watching !== record || signal.aborted) return;
+    write({ type: "live", watch: id, thread, sequence: state.sequence, update });
+    if (update.kind === "deleted") stopWatching();
+  });
+}
+
+async function openThread(owner, request, reply) {
+  const prior = stopWatching();
+  const same = prior?.owner === owner && prior.thread === request.thread ? prior : undefined;
+  try {
+    const state = await readWindow(owner, request, same?.state);
+    if (session !== owner || lifetime.signal.aborted) return;
+    if (!request.cursor && state === same?.state && request.sequence === state.sequence) {
+      reply({ type: "unchanged" });
+    } else {
+      reply({ type: "thread", thread: request.thread, ...windowReply(state) });
+    }
+    watch(owner, request.thread, request.id, state);
+  } catch (error) {
+    if (same && session === owner && !lifetime.signal.aborted)
+      watch(owner, same.thread, same.id, same.state);
+    throw error;
+  }
+}
+
 function localServer() {
   if (!server) {
     const started = startLocalServer();
@@ -36,6 +76,7 @@ function localServer() {
       if (server !== started) return;
       server = undefined;
       if (!localSession) return;
+      stopWatching();
       session = localSession = undefined;
       write({ type: "localclosed" });
     });
@@ -78,6 +119,7 @@ try {
     try {
       request = JSON.parse(line);
       if (request.type === "disconnect") {
+        stopWatching();
         session = localSession = undefined;
         reply({ type: "disconnected" });
         continue;
@@ -92,6 +134,7 @@ try {
           session = await pairWithEnvironment(request.link, lifetime.signal);
           localSession = undefined;
         }
+        stopWatching();
         reply({
           type: "connected",
           label: session.label,
@@ -100,8 +143,7 @@ try {
         });
       } else if (request.type === "thread" && session) {
         reading = session;
-        const pane = await readThread(reading, request);
-        if (session === reading) reply(pane);
+        await openThread(reading, request, reply);
         continue;
       } else if (request.type === "sendmessage" && session) {
         reading = session;
@@ -130,7 +172,11 @@ try {
       }
       reading = session;
       const workspace = await readWorkspace(reading);
-      if (session === reading) reply({ type: "workspace", ...workspace });
+      if (session === reading) {
+        if (watching && !workspace.threads.some((thread) => thread.id === watching.thread))
+          stopWatching();
+        reply({ type: "workspace", ...workspace });
+      }
     } catch (error) {
       if (reading && session !== reading) continue;
       reply({ type: "error", message: requestError(error, request?.type, editing) });
