@@ -19,6 +19,15 @@ impl Default for Draft {
 }
 
 impl Draft {
+    pub(super) fn preserve_answer(&mut self, value: &str) {
+        let combined = if self.editor.text.is_empty() {
+            value.to_owned()
+        } else {
+            format!("{}\n\n{value}", self.editor.text)
+        };
+        self.editor = TextEdit::new(&combined);
+        self.operation = None;
+    }
     fn submission(&mut self, thread: &str) -> Option<Request<'static>> {
         if self.editor.text.trim().is_empty() {
             return None;
@@ -131,6 +140,9 @@ impl Desktop {
         if matches!(pane.stop_feedback, Some(StopFeedback::Landed(_))) {
             return;
         }
+        if self.workspace.questions.contains_key(&pane.id) {
+            return;
+        }
         let Some(draft) = self.workspace.drafts.get_mut(&pane.id) else {
             return;
         };
@@ -144,20 +156,27 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
     let draft = &s.workspace.drafts[id];
     let input_id = id.to_owned();
     let edit_id = id.to_owned();
-    let field = text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
-        .key("message-input")
-        .label("Message")
-        .w_full()
-        .color(theme.text)
-        .placeholder("Ask anything...", theme.text_secondary)
-        .disabled(s.pending)
-        .on_edit(move |s: &mut Desktop| &mut s.workspace.drafts.get_mut(&input_id).unwrap().editor)
-        .on_input_change(move |s: &mut Desktop, _| {
-            if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
-                draft.operation = None;
-            }
-        })
-        .on_submit(|s: &mut Desktop, _| s.send_message());
+    let asking = s.workspace.questions.contains_key(id);
+    let field = if asking {
+        super::questions::input(s, id, theme)
+    } else {
+        text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
+            .key("message-input")
+            .label("Message")
+            .w_full()
+            .color(theme.text)
+            .placeholder("Ask anything...", theme.text_secondary)
+            .disabled(s.pending)
+            .on_edit(move |s: &mut Desktop| {
+                &mut s.workspace.drafts.get_mut(&input_id).unwrap().editor
+            })
+            .on_input_change(move |s: &mut Desktop, _| {
+                if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
+                    draft.operation = None;
+                }
+            })
+            .on_submit(|s: &mut Desktop, _| s.send_message())
+    };
     let pane = s
         .workspace
         .conversation
@@ -176,8 +195,12 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
             .color(theme.text_secondary)
             .truncate(),
     );
-    let show_stop = pane.active_run.is_some() && (empty || pane.stop_feedback.is_some());
-    if !show_stop || !empty {
+    let show_stop = s.can_operate
+        && pane.active_run.is_some()
+        && (asking || empty || pane.stop_feedback.is_some());
+    if asking {
+        controls = controls.child(super::questions::controls(s, id, theme));
+    } else if !show_stop || !empty {
         controls = controls.child(send);
     }
     if show_stop && let Some(run) = &pane.active_run {

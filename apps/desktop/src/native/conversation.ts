@@ -19,7 +19,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
-import { pendingApprovals } from "./approvals.ts";
+import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
@@ -39,7 +39,7 @@ const messages = (items: readonly OrchestrationV2ProjectedTurnItem[]) =>
 type Window = {
   projection: OrchestrationV2ThreadProjection;
   activeRun: string | null;
-  approvals: ReturnType<typeof pendingApprovals>;
+  requests: ReturnType<typeof pendingRequests>;
   sequence: number;
   watermark: number | null;
   rows: Row[];
@@ -53,7 +53,7 @@ type Update =
   | ({ kind: "window" } & ReturnType<typeof windowReply>)
   | { kind: "status"; state: "live" | "reconnecting" | "paused" }
   | { kind: "run"; run: string | null }
-  | { kind: "approvals"; approvals: Window["approvals"] }
+  | ({ kind: "requests" } & Window["requests"])
   | { kind: "deleted" };
 
 const indexRows = (rows: Row[]) => new Map(rows.map((row, i) => [row.key, i]));
@@ -97,7 +97,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
   const projection = boundedSnapshotProjection(snapshot);
   const state: Window = {
     projection,
-    approvals: [],
+    requests: { approvals: [], questions: [] },
     activeRun: activeThreadRun(projection)?.id ?? null,
     sequence: snapshot.snapshotSequence,
     watermark: snapshot.latestLocalTurnOrdinal ?? null,
@@ -117,7 +117,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
     lastPage = page.items;
   }
   windowRows(state);
-  state.approvals = pendingApprovals(state.projection);
+  state.requests = pendingRequests(state.projection);
   return state;
 });
 
@@ -138,7 +138,7 @@ const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
     const page = yield* readPage(session, request.thread, request.cursor);
     earlier(previous, page);
     windowRows(previous);
-    previous.approvals = pendingApprovals(previous.projection);
+    previous.requests = pendingRequests(previous.projection);
     return previous;
   }
   const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
@@ -163,7 +163,7 @@ export function windowReply(state: Window) {
   return {
     rows: state.rows,
     active_run: state.activeRun,
-    approvals: state.approvals,
+    ...state.requests,
     cursor: state.cursor,
     earlier_pages: state.earlier_pages,
     sequence: state.sequence,
@@ -296,10 +296,11 @@ export function followWindow(
           if (
             previousRequests !== state.projection.runtimeRequests ||
             (item.event.type === "turn-item.updated" &&
-              item.event.payload.type === "approval_request")
+              (item.event.payload.type === "approval_request" ||
+                item.event.payload.type === "user_input_request"))
           ) {
-            state.approvals = pendingApprovals(state.projection);
-            emit({ kind: "approvals", approvals: state.approvals });
+            state.requests = pendingRequests(state.projection);
+            emit({ kind: "requests", ...state.requests });
           }
           if (update) emit(update);
         }),

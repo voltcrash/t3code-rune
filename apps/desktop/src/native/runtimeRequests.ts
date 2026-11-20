@@ -1,6 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off -- The synchronous conversation reducer keys native controls by the content of the displayed provider request.
 import * as NodeCrypto from "node:crypto";
 import {
+  buildPendingUserInputAnswers,
+  type PendingUserInputDraftAnswer,
+} from "@t3tools/client-runtime/state/pending-user-input";
+import {
+  type ThreadPendingUserInput,
   derivePendingThreadRequests,
   fullAccessOverrideExplanation,
 } from "@t3tools/client-runtime/state/thread-requests";
@@ -23,17 +28,19 @@ const defaults: readonly ProviderApprovalOption[] = [
   { decision: "accept", label: "Approve" },
 ];
 
-export function pendingApprovals(projection: OrchestrationV2ThreadProjection) {
-  return derivePendingThreadRequests(projection).approvals.map((approval) => {
+const requestVersion = (request: unknown) =>
+  NodeCrypto.createHash("sha256").update(JSON.stringify(request)).digest("hex");
+
+export function pendingRequests(projection: OrchestrationV2ThreadProjection) {
+  const pending = derivePendingThreadRequests(projection);
+  const approvals = pending.approvals.map((approval) => {
     const present = projection.turnItems.some(
       (item) => item.type === "approval_request" && item.requestId === approval.requestId,
     );
     const options = present ? (approval.options ?? defaults) : [];
     return {
       id: approval.requestId,
-      version: NodeCrypto.createHash("sha256")
-        .update(JSON.stringify([approval, present]))
-        .digest("hex"),
+      version: requestVersion([approval, present]),
       kind: approval.requestKind,
       detail: approval.detail,
       reason: approval.reason,
@@ -46,6 +53,11 @@ export function pendingApprovals(projection: OrchestrationV2ThreadProjection) {
       options,
     };
   });
+  const questions = pending.userInputs.map((prompt) => ({
+    ...prompt,
+    version: requestVersion(prompt),
+  }));
+  return { approvals, questions };
 }
 
 type Response = {
@@ -68,4 +80,37 @@ export const respondToApproval = Effect.fn("nativeDesktop.respondToApproval")(fu
     requestId: RuntimeRequestId.make(response.request),
     decision: response.decision,
   });
+});
+
+export const respondToQuestion = Effect.fn("nativeDesktop.respondToQuestion")(function* (
+  session: Parameters<typeof openEnvironmentRpc>[0],
+  prompt: ThreadPendingUserInput,
+  response: {
+    thread: string;
+    operation: string;
+    drafts: Record<string, PendingUserInputDraftAnswer> | null;
+  },
+) {
+  const common = {
+    commandId: CommandId.make(response.operation),
+    threadId: ThreadId.make(response.thread),
+    requestId: prompt.requestId,
+  };
+  const answers =
+    response.drafts === null
+      ? null
+      : buildPendingUserInputAnswers(prompt.questions, response.drafts);
+  if (
+    response.drafts === null
+      ? !prompt.dismissible
+      : !answers || prompt.responseCapability === "not_resumable"
+  )
+    return false;
+  const rpc = yield* openEnvironmentRpc(session);
+  yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+    answers === null
+      ? { type: "thread.user-input.dismiss", ...common }
+      : { type: "runtime-request.respond", ...common, answers },
+  );
+  return true;
 });
