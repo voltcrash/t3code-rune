@@ -71,7 +71,7 @@ impl Desktop {
     }
 }
 
-const TERMINAL: Icon = Icon {
+pub(super) const TERMINAL: Icon = Icon {
     name: "terminal",
     view: 24.,
     body: r#"<path d="m4 6 6 6-6 6m9 0h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,

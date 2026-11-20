@@ -1,5 +1,6 @@
 use super::{Conversation, Desktop, MessageRow, Request};
-use rune::{El, ScrollSpec, TextStyle, col, row, text, tok};
+use rune::{El, ScrollSpec, TextStyle, col, el, icon, rich, row, text, tok};
+use rune_kit::{Kit, glyphs, syntax};
 use uuid::Uuid;
 
 pub(super) struct Expanded {
@@ -66,7 +67,13 @@ impl Desktop {
     }
 }
 
-pub(super) fn row_view(app: &Desktop, item: &MessageRow, caption: &str, theme: &tok::Theme) -> El {
+pub(super) fn row_view(
+    app: &Desktop,
+    item: &MessageRow,
+    caption: &str,
+    theme: &tok::Theme,
+    kit: &Kit,
+) -> El {
     let pane = app.workspace.conversation.as_ref().unwrap();
     let open = pane.command.as_ref().filter(|c| c.key == item.key);
     let key = item.key.clone();
@@ -75,17 +82,37 @@ pub(super) fn row_view(app: &Desktop, item: &MessageRow, caption: &str, theme: &
         .role("button")
         .label(caption)
         .expanded(open.is_some())
-        .self_start()
+        .w_full()
+        .px(2.)
+        .radius(6.)
+        .hover(theme.hover)
         .center_y()
         .gap(6.)
-        .py(3.)
-        .child(super::label(
-            if open.is_some() { "⌄" } else { "›" },
-            14.,
-            500.,
-            theme.text_secondary,
-        ))
-        .child(super::label(caption, 13., 500., theme.text_secondary));
+        .min_h(24.)
+        .child(
+            el().size(24., 24.)
+                .center()
+                .child(icon(&super::approval::TERMINAL, 16.).color(if item.failed {
+                    kit.c.danger.icon
+                } else {
+                    theme.text_secondary
+                })),
+        )
+        .child(
+            super::label(caption, 14., 400., theme.text_secondary)
+                .truncate()
+                .grow(1.)
+                .min_w(0.),
+        )
+        .child(
+            icon(&glyphs::CHEVRON_DOWN, 14.)
+                .color(theme.text_secondary)
+                .rotate(if open.is_some() {
+                    0.
+                } else {
+                    -std::f32::consts::FRAC_PI_2
+                }),
+        );
     if let Some(watch) = pane.watch
         && !app.pending
     {
@@ -95,7 +122,7 @@ pub(super) fn row_view(app: &Desktop, item: &MessageRow, caption: &str, theme: &
     } else {
         toggle = toggle.disabled(true);
     }
-    let mut content = col().w_full().py(4.).gap(4.).child(toggle);
+    let mut content = col().w_full().pb(8.).gap(2.).child(toggle);
     if let Some(command) = open {
         let line = |s: &str| {
             text(s)
@@ -104,23 +131,25 @@ pub(super) fn row_view(app: &Desktop, item: &MessageRow, caption: &str, theme: &
                 .wrap_anywhere()
                 .selectable(true)
         };
-        let mut details = col()
-            .w_full()
-            .gap(6.)
-            .px(8.)
-            .py(8.)
-            .radius(6.)
-            .border(1., theme.separator)
-            .child(line(&item.body))
-            .child(
-                col()
-                    .key(format!("output-{}", item.key))
-                    .max_h(320.)
-                    .scroll(ScrollSpec { stick_bottom: true })
-                    .child(line(&command.text)),
-            );
+        let language = item.language.as_deref().unwrap_or("shellscript");
+        let tokens = syntax::highlight(Some(language), &item.body);
+        let source = rich(
+            item.body.clone(),
+            syntax::SyntaxTheme::from_kit(kit).spans(&tokens, 0),
+        )
+        .font(TextStyle::new(12., 400.).mono().lh(18.))
+        .color(theme.text)
+        .wrap_anywhere()
+        .selectable(true);
+        let mut details = col().w_full().gap(6.).pb(8.).child(source).child(
+            col()
+                .key(format!("output-{}", item.key))
+                .max_h(320.)
+                .scroll(ScrollSpec { stick_bottom: true })
+                .child(line(&command.text)),
+        );
         if let Some(code) = item.exit_code.filter(|code| *code != 0) {
-            details = details.child(line(&format!("exit {code}")));
+            details = details.child(line(&format!("exit {code}")).color(kit.c.danger.fg));
         }
         content = content.child(details);
     }

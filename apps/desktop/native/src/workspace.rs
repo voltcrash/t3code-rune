@@ -52,6 +52,9 @@ pub(super) struct MessageRow {
     attachments: Vec<String>,
     caption: Option<String>,
     exit_code: Option<i32>,
+    #[serde(default)]
+    failed: bool,
+    language: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1113,7 +1116,7 @@ fn timeline(
                 let theme = &colors;
                 let message = &s.workspace.conversation.as_ref().unwrap().rows[i];
                 if let Some(caption) = &message.caption {
-                    return command::row_view(s, message, caption, theme);
+                    return command::row_view(s, message, caption, theme, &message_kit);
                 }
                 let mut content = col().gap(6.0);
                 if message.role == "user" {
@@ -1359,6 +1362,8 @@ mod tests {
                     attachments: vec![],
                     caption: None,
                     exit_code: None,
+                    failed: false,
+                    language: None,
                 }],
             },
         );
@@ -1416,6 +1421,8 @@ mod tests {
             attachments: Vec::new(),
             caption: None,
             exit_code: None,
+            failed: false,
+            language: None,
         };
         workspace.conversation.as_mut().unwrap().replace(
             ConversationWindow {
