@@ -102,6 +102,8 @@ function localServer() {
 
 function requestError(error, type, editing) {
   if (error instanceof NewThreadUnavailable) return error.message;
+  if (type === "preparescratch")
+    return "Couldn’t open the scratch workspace on this environment. Try again.";
   if (type === "preparethread") return "Couldn’t load models for this project. Try again.";
   if (type === "launchthread" && error?._tag === "OrchestrationV2ThreadLaunchError")
     return error.message;
@@ -165,16 +167,19 @@ try {
           local: Boolean(localSession),
           can_operate: session.canOperate,
         });
-      } else if (request.type === "preparethread" || request.type === "launchthread") {
+      } else if (
+        request.type === "preparescratch" ||
+        request.type === "preparethread" ||
+        request.type === "launchthread"
+      ) {
         reading = session;
         if (!reading?.canOperate) throw new Error("Read-only session");
-        if (request.type === "preparethread") {
+        if (request.type !== "launchthread") {
           const options = await Effect.runPromise(
-            readLaunchOptions(reading, request.project).pipe(
-              Effect.timeout("20 seconds"),
-              Effect.scoped,
-              Effect.provide(reading.http),
-            ),
+            readLaunchOptions(
+              reading,
+              request.type === "preparescratch" ? null : request.project,
+            ).pipe(Effect.timeout("20 seconds"), Effect.scoped, Effect.provide(reading.http)),
             { signal: reading.signal },
           );
           if (reading === session) reply({ type: "launchoptions", ...options });
