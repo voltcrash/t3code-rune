@@ -1,5 +1,7 @@
 #[path = "palette.rs"]
 pub(super) mod palette;
+#[path = "sidebar_header.rs"]
+mod sidebar_header;
 
 use super::navigation::{self, Page};
 use super::questions::{self, Forms, Prompt};
@@ -166,6 +168,8 @@ pub(super) struct Workspace {
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
     search: TextEdit,
+    search_target: Option<String>,
+    project_scope: sidebar_header::ProjectScope,
     pub(super) show_projects: bool,
     sidebar: bool,
     show_settled: bool,
@@ -186,6 +190,8 @@ impl Workspace {
             drafts: HashMap::new(),
             questions: HashMap::new(),
             search: TextEdit::new(""),
+            search_target: None,
+            project_scope: Default::default(),
             show_projects: false,
             sidebar: true,
             show_settled: false,
@@ -218,7 +224,7 @@ impl Workspace {
         self.questions
             .retain(|id, _| self.by_thread.contains_key(id));
         self.drafts.retain(|id, _| self.by_thread.contains_key(id));
-        self.settled_count = threads.iter().filter(|t| t.settled).count();
+        self.project_scope.update(&projects);
         self.projects = projects;
         self.threads = threads;
         self.filter();
@@ -248,7 +254,6 @@ impl Workspace {
             .enumerate()
             .map(|(i, t)| (t.id.clone(), i))
             .collect();
-        self.settled_count = self.threads.iter().filter(|t| t.settled).count();
         self.filter();
     }
     pub(super) fn launch_projects(&self) -> Vec<rune_kit::ComboboxOption> {
@@ -261,11 +266,16 @@ impl Workspace {
 
     fn filter(&mut self) {
         let query = self.search.text.trim().to_lowercase();
+        let mut settled = 0;
         self.filtered = self
             .threads
             .iter()
             .enumerate()
             .filter_map(|(i, t)| {
+                if !self.project_scope.includes(&t.project) {
+                    return None;
+                }
+                settled += usize::from(t.settled);
                 let matches = if query.is_empty() {
                     self.show_settled || !t.settled
                 } else {
@@ -277,6 +287,15 @@ impl Workspace {
                 matches.then_some(i)
             })
             .collect();
+        self.settled_count = settled;
+        if let Some(id) = &self.search_target
+            && !self
+                .by_thread
+                .get(id)
+                .is_some_and(|i| self.filtered.contains(i))
+        {
+            self.search_target = None;
+        }
         self.filter_revision += 1;
     }
     pub(super) fn has_thread(&self, id: &str) -> bool {
@@ -296,8 +315,7 @@ impl Workspace {
         self.drafts.remove(id);
         self.questions.remove(id);
         if let Some(index) = self.by_thread.remove(id) {
-            let removed = self.threads.remove(index);
-            self.settled_count -= usize::from(removed.settled);
+            self.threads.remove(index);
             for i in index..self.threads.len() {
                 self.by_thread.insert(self.threads[i].id.clone(), i);
             }
@@ -382,10 +400,14 @@ impl Desktop {
                     .and_then(|c| self.workspace.by_thread.get(&c.id))
                     .map(|i| self.workspace.threads[*i].project.clone())
             })
-            .filter(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
+            .filter(|id| {
+                self.workspace.project(id).is_some_and(|p| !p.archived)
+                    && self.workspace.project_scope.includes(id)
+            });
         let mut active = self.workspace.projects.iter().filter(|p| !p.archived);
         let single = active.next().filter(|_| active.next().is_none());
-        if let Some(id) = project.or_else(|| single.map(|p| p.id.clone())) {
+        let scoped = self.workspace.project_scope.single().map(str::to_owned);
+        if let Some(id) = scoped.or(project).or_else(|| single.map(|p| p.id.clone())) {
             self.prepare_thread(&id);
         } else {
             self.show_projects();
@@ -427,6 +449,7 @@ impl Desktop {
     }
 
     pub(super) fn toggle_sidebar(&mut self) {
+        self.workspace.project_scope.close();
         self.workspace.sidebar = !self.workspace.sidebar;
     }
 
@@ -526,7 +549,7 @@ fn hide_sidebar(theme: &tok::Theme) -> El {
         .hover(theme.separator)
         .focusable(true)
         .child(icon(&CLOSE_SIDEBAR, 16.0).color(theme.text))
-        .on_press(|s: &mut Desktop| s.workspace.sidebar = false)
+        .on_press(Desktop::toggle_sidebar)
 }
 
 fn project_badge(title: &str, theme: &tok::Theme) -> El {
@@ -608,7 +631,7 @@ fn thread_row(
     } else {
         base.hover(theme.separator)
             .focusable(true)
-            .on_press(move |s: &mut Desktop| s.open_thread(&id))
+            .on_press(move |s: &mut Desktop| s.select_sidebar_thread(&id))
     }
 }
 
@@ -618,7 +641,14 @@ static NEW_THREAD_ICON: rune::Icon = rune::Icon {
     body: r#"<path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6 M15.5 5.5l3 3 M9 15l1-4 8-8a2 2 0 0 1 3 3l-8 8-4 1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme, dark: bool) -> El {
+fn sidebar(
+    s: &Desktop,
+    inset: f32,
+    width: f32,
+    theme: &tok::Theme,
+    dark: bool,
+    overlays: &mut Vec<El>,
+) -> El {
     let compact = width - inset < 174.;
     let mut on_art = *theme;
     if s.stage.has_art() {
@@ -626,17 +656,6 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme, dark: bool) 
         on_art.text_secondary = rune::Color::WHITE.alpha(0.76);
         on_art.separator = rune::Color::WHITE.alpha(0.14);
     }
-    let search = text_input(&s.workspace.search, TextStyle::new(13.0, 400.0))
-        .key("thread-search")
-        .label("Search threads")
-        .w_full()
-        .h(34.0)
-        .px(10.0)
-        .color(theme.text)
-        .placeholder("Search", theme.text_secondary)
-        .single_line()
-        .on_edit(|s: &mut Desktop| &mut s.workspace.search)
-        .on_input_change(|s: &mut Desktop, _| s.workspace.filter());
     let query_empty = s.workspace.search.text.trim().is_empty();
     let count = s.workspace.filtered.len();
     let colors = *theme;
@@ -659,12 +678,16 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme, dark: bool) 
                     .workspace
                     .project(&t.project)
                     .map_or("", |p| p.title.as_str());
-                let selected = s.new_threads.active.is_none()
-                    && !s.workspace.show_projects
-                    && s.workspace
-                        .conversation
-                        .as_ref()
-                        .is_some_and(|p| p.id == t.id);
+                let selected = if query_empty {
+                    s.new_threads.active.is_none()
+                        && !s.workspace.show_projects
+                        && s.workspace
+                            .conversation
+                            .as_ref()
+                            .is_some_and(|p| p.id == t.id)
+                } else {
+                    s.workspace.search_target.as_ref() == Some(&t.id)
+                };
                 thread_row(t, project, selected, s.pending, &colors)
             },
         )
@@ -727,34 +750,7 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme, dark: bool) 
                 .child(hide_sidebar(&on_art))
                 .child(navigation::header(s, &on_art, compact)),
         )
-        .child(
-            row()
-                .h(48.0)
-                .w_full()
-                .center_y()
-                .px(7.0)
-                .gap(4.0)
-                .child(icon(&rune_kit::glyphs::SEARCH, 16.0).color(theme.text_secondary))
-                .child(search.shrink())
-                .children(s.can_operate.then(|| {
-                    let item = el()
-                        .key("new-thread")
-                        .label("New thread")
-                        .role("button")
-                        .help("New thread")
-                        .size(26.0, 26.0)
-                        .radius(5.0)
-                        .center()
-                        .child(icon(&NEW_THREAD_ICON, 16.0).color(theme.text_secondary));
-                    if s.pending {
-                        item.disabled(true)
-                    } else {
-                        item.focusable(true)
-                            .hover(theme.separator)
-                            .on_press(Desktop::new_thread_in_workspace)
-                    }
-                })),
-        )
+        .child(sidebar_header::view(s, theme, dark, overlays))
         .child(list);
     if settled > 0 && query_empty {
         sidebar = sidebar.child(
@@ -1301,6 +1297,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 if narrow { 176.0 } else { 256.0 },
                 theme,
                 cx.system_dark(),
+                &mut overlays,
             ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
