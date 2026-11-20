@@ -483,6 +483,14 @@
       "types": "./src/filePathDisplay.ts",
       "default": "./src/filePathDisplay.ts"
     },
+    "./work-log/timeline": {
+      "types": "./src/work-log/timeline.ts",
+      "default": "./src/work-log/timeline.ts"
+    },
+    "./work-log/turn-folds": {
+      "types": "./src/work-log/turnFolds.ts",
+      "default": "./src/work-log/turnFolds.ts"
+    },
     "./work-log/item-detail": {
       "types": "./src/work-log/itemDetail.ts",
       "default": "./src/work-log/itemDetail.ts"

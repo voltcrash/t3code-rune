@@ -9,7 +9,10 @@ import {
   withVisibleControlCharacters,
   commandProgramName,
 } from "@t3tools/client-runtime/work-log/command-label";
-import { activeThreadRun } from "@t3tools/client-runtime/state/thread-execution";
+import {
+  activeThreadRun,
+  deriveRunlessWorkStartedAt,
+} from "@t3tools/client-runtime/state/thread-execution";
 import { mergeOlderHistoryIntoProjection } from "@t3tools/client-runtime/state/thread-history-merge";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
@@ -31,6 +34,8 @@ import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
 import { fileChangeRow } from "./fileChange.ts";
+import * as NodeUtil from "node:util";
+import { nativeTurnFolds } from "./turnFolds.ts";
 
 type Row = {
   key: string;
@@ -99,10 +104,13 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   };
 }
 
+type Folds = ReturnType<typeof nativeTurnFolds>;
 type Window = {
+  folds: Folds;
   projectRoot: string | undefined;
   projection: OrchestrationV2ThreadProjection;
   activeRun: string | null;
+  runlessWorkActive: boolean;
   requests: ReturnType<typeof pendingRequests>;
   sequence: number;
   watermark: number | null;
@@ -112,7 +120,8 @@ type Window = {
   earlier_pages: number;
 };
 type Update =
-  | { kind: "splice"; index: number; remove: number; rows: Row[] }
+  | { kind: "folds"; folds: Folds }
+  | { kind: "splice"; index: number; remove: number; rows: Row[]; folds?: Folds }
   | { kind: "append"; index: number; key: string; text: string }
   | ({ kind: "window" } & ReturnType<typeof windowReply>)
   | { kind: "status"; state: "live" | "reconnecting" | "paused" }
@@ -167,10 +176,12 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
     projection,
     requests: { approvals: [], questions: [] },
     activeRun: activeThreadRun(projection)?.id ?? null,
+    runlessWorkActive: deriveRunlessWorkStartedAt(projection) !== null,
     sequence: snapshot.snapshotSequence,
     watermark: snapshot.latestLocalTurnOrdinal ?? null,
     cursor: snapshot.hasMoreHistory ? (snapshot.historyCursor ?? null) : null,
     earlier_pages: 0,
+    folds: [],
     rows: [],
     indices: new Map(),
   };
@@ -188,6 +199,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
     lastPage = page.items;
   }
   windowRows(state);
+  state.folds = nativeTurnFolds(state.projection, state.indices);
   state.requests = pendingRequests(state.projection);
   return state;
 });
@@ -210,6 +222,7 @@ const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
     const page = yield* readPage(session, request.thread, request.cursor);
     earlier(previous, page);
     windowRows(previous);
+    previous.folds = nativeTurnFolds(previous.projection, previous.indices);
     previous.requests = pendingRequests(previous.projection);
     return previous;
   }
@@ -240,6 +253,7 @@ export function readWindow(session: Session, request: ReadRequest, previous?: Wi
 export function windowReply(state: Window) {
   return {
     rows: state.rows,
+    folds: state.folds,
     active_run: state.activeRun,
     ...state.requests,
     cursor: state.cursor,
@@ -377,7 +391,8 @@ export function followWindow(
             emit({ kind: "deleted" });
             return;
           }
-          const previousRuns = state.projection.runs;
+          const before = state.projection;
+          const previousRuns = before.runs;
           const previousRequests = state.projection.runtimeRequests;
           const update = applyEvent(state, item.event);
           state.sequence = item.sequence;
@@ -397,7 +412,40 @@ export function followWindow(
             state.requests = pendingRequests(state.projection);
             emit({ kind: "requests", ...state.requests });
           }
-          if (update) emit(update);
+          const wasRunlessActive = state.runlessWorkActive;
+          if (before.nodes !== state.projection.nodes || before.thread !== state.projection.thread)
+            state.runlessWorkActive = deriveRunlessWorkStartedAt(state.projection) !== null;
+          const liveItem =
+            item.event.type === "turn-item.updated" &&
+            (state.activeRun !== null || (state.runlessWorkActive && update?.kind === "append")) &&
+            item.event.payload.runId === state.activeRun;
+          const structureChanged =
+            before.runs !== state.projection.runs ||
+            before.attempts !== state.projection.attempts ||
+            before.subagents !== state.projection.subagents ||
+            wasRunlessActive !== state.runlessWorkActive;
+          const rowsChanged = before.visibleTurnItems !== state.projection.visibleTurnItems;
+          let changedFolds: Folds | undefined;
+          if (
+            structureChanged ||
+            (rowsChanged &&
+              (!liveItem ||
+                (update?.kind === "splice" &&
+                  state.folds.some(
+                    (fold) =>
+                      update.index <= fold.at || update.index < (fold.ranges.at(-1)?.[1] ?? 0),
+                  ))))
+          ) {
+            const folds = nativeTurnFolds(state.projection, state.indices);
+            if (!NodeUtil.isDeepStrictEqual(state.folds, folds)) {
+              state.folds = changedFolds = folds;
+            }
+          }
+          if (update?.kind === "splice" && changedFolds) emit({ ...update, folds: changedFolds });
+          else {
+            if (update) emit(update);
+            if (changedFolds) emit({ kind: "folds", folds: changedFolds });
+          }
           if (
             item.event.type === "turn-item.updated" &&
             item.event.payload.type === "command_execution"
