@@ -3,6 +3,7 @@ pub(super) mod palette;
 
 use super::{
     Desktop, Request,
+    approval::{self, Approval},
     composer::{self, Draft},
 };
 use rune::{
@@ -47,6 +48,8 @@ pub(super) struct MessageRow {
 
 #[derive(Deserialize)]
 pub(super) struct ConversationWindow {
+    #[serde(default)]
+    approvals: Vec<Approval>,
     active_run: Option<String>,
     rows: Vec<MessageRow>,
     cursor: Option<String>,
@@ -65,6 +68,9 @@ pub(super) enum LiveStatus {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(super) enum LiveUpdate {
+    Approvals {
+        approvals: Vec<Approval>,
+    },
     Splice {
         index: usize,
         remove: usize,
@@ -89,6 +95,8 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    pub(super) approvals: Vec<Approval>,
+    pub(super) approval_menu: Option<String>,
     pub(super) stop_operation: Option<String>,
     pub(super) stop_feedback: Option<composer::StopFeedback>,
     pub(super) active_run: Option<String>,
@@ -105,6 +113,7 @@ pub(super) struct Conversation {
 
 impl Conversation {
     pub fn replace(&mut self, window: ConversationWindow) {
+        self.replace_approvals(window.approvals);
         self.set_active_run(window.active_run);
         self.rows = window.rows;
         self.sequence = Some(window.sequence);
@@ -115,7 +124,13 @@ impl Conversation {
     }
     pub fn begin_watch(&mut self, id: u64) {
         self.watch = Some(id);
-        self.status = LiveStatus::Reconnecting;
+        self.set_status(LiveStatus::Reconnecting);
+    }
+    fn set_status(&mut self, status: LiveStatus) {
+        if status != LiveStatus::Live {
+            self.approval_menu = None;
+        }
+        self.status = status;
     }
     fn refresh(&self) -> Request<'static> {
         Request::Thread {
@@ -269,6 +284,10 @@ impl Workspace {
             return;
         }
         match update {
+            LiveUpdate::Approvals { approvals } => {
+                pane.replace_approvals(approvals);
+                pane.sequence = Some(sequence);
+            }
             LiveUpdate::Run { run } => {
                 pane.set_active_run(run);
                 pane.sequence = Some(sequence);
@@ -286,7 +305,7 @@ impl Workspace {
                 }
             }
             LiveUpdate::Window { window } => pane.replace(window),
-            LiveUpdate::Status { state } if !pane.needs_reload => pane.status = state,
+            LiveUpdate::Status { state } if !pane.needs_reload => pane.set_status(state),
             LiveUpdate::Append { index, key, text }
                 if !pane.needs_reload && pane.rows.get(index).is_some_and(|row| row.key == key) =>
             {
@@ -307,7 +326,7 @@ impl Workspace {
             }
             _ => {
                 pane.needs_reload = true;
-                pane.status = LiveStatus::Paused;
+                pane.set_status(LiveStatus::Paused);
             }
         }
     }
@@ -366,6 +385,8 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            approval_menu: None,
+            approvals: vec![],
             stop_operation: None,
             stop_feedback: None,
             active_run: None,
@@ -989,7 +1010,13 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
     area.child(list)
 }
 
-fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) -> El {
+fn timeline(
+    s: &Desktop,
+    pane: &Conversation,
+    theme: &tok::Theme,
+    dark: bool,
+    overlays: &mut Vec<El>,
+) -> El {
     let kit = Kit::neutral(dark);
     let style = MarkdownStyle::from_kit(&kit)
         .body_font(TextStyle::new(14.0, 400.0).lh(22.0))
@@ -1022,6 +1049,7 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
             content.child(label("No messages", 14.0, 400.0, theme.text_secondary).key("empty"));
     }
     let colors = *theme;
+    let message_kit = kit.clone();
     let list = col()
         .key("message-rows")
         .w_full()
@@ -1057,7 +1085,7 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
                         Markdown::new(&message.body)
                             .style(style.clone())
                             .selectable(true)
-                            .build(&kit),
+                            .build(&message_kit),
                     );
                 }
                 for file in &message.attachments {
@@ -1067,6 +1095,10 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
             },
         )
         .virtual_rows_version((&pane.id, pane.revision));
+    content = content.child(list);
+    for request in &pane.approvals {
+        content = content.child(approval::view(s, request, &kit, theme, overlays));
+    }
     col()
         .key(format!("timeline-{}", pane.id))
         .grow(1.0)
@@ -1074,7 +1106,7 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
         .w_full()
         .px(24.0)
         .scroll(ScrollSpec { stick_bottom: true })
-        .child(content.child(list))
+        .child(content)
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
@@ -1190,7 +1222,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
-            timeline(s, pane, theme, cx.system_dark())
+            timeline(s, pane, theme, cx.system_dark(), &mut overlays)
         } else {
             if empty {
                 empty_home(s, theme, narrow)
@@ -1242,7 +1274,12 @@ mod tests {
         use super::super::{Reply, WorkerMessage};
         let mut app = Desktop::new();
         app.open_thread("thread");
-        app.workspace.conversation.as_mut().unwrap().begin_watch(7);
+        let pane = app.workspace.conversation.as_mut().unwrap();
+        pane.approval_menu = Some("on-previous-watch".into());
+        pane.begin_watch(7);
+        assert!(pane.approval_menu.is_none());
+        pane.status = LiveStatus::Live;
+        pane.approval_menu = Some("current".into());
         app.request_id = 8;
         app.pending = true;
         let mut receive = |watch, update| {
@@ -1307,6 +1344,7 @@ mod tests {
             Request::Thread { sequence: None, .. }
         ));
         assert!(pane.status == LiveStatus::Paused);
+        assert!(pane.approval_menu.is_none());
         assert!(app.pending);
     }
 
@@ -1326,6 +1364,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .replace(ConversationWindow {
+                approvals: vec![],
                 active_run: None,
                 rows: vec![message("earlier"), message("latest")],
                 sequence: 10,
