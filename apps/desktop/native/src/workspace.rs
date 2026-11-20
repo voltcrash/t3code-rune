@@ -1,3 +1,5 @@
+#[path = "command.rs"]
+mod command;
 #[path = "palette.rs"]
 pub(super) mod palette;
 #[path = "sidebar_header.rs"]
@@ -48,6 +50,8 @@ pub(super) struct MessageRow {
     role: String,
     body: String,
     attachments: Vec<String>,
+    caption: Option<String>,
+    exit_code: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -102,6 +106,7 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    command: Option<command::Expanded>,
     pub(super) approvals: Vec<Approval>,
     pub(super) approval_menu: Option<String>,
     pub(super) stop_operation: Option<String>,
@@ -430,6 +435,7 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            command: None,
             approval_menu: None,
             approvals: vec![],
             stop_operation: None,
@@ -454,6 +460,7 @@ impl Desktop {
     }
 
     pub(super) fn show_projects(&mut self) {
+        self.close_command();
         self.history.visit(Page::Home);
         self.new_threads.active = None;
         self.workspace.show_projects = true;
@@ -1105,6 +1112,9 @@ fn timeline(
             move |s: &Desktop, i| {
                 let theme = &colors;
                 let message = &s.workspace.conversation.as_ref().unwrap().rows[i];
+                if let Some(caption) = &message.caption {
+                    return command::row_view(s, message, caption, theme);
+                }
                 let mut content = col().gap(6.0);
                 if message.role == "user" {
                     content = content
@@ -1347,6 +1357,8 @@ mod tests {
                     role: "assistant".into(),
                     body: "hello".into(),
                     attachments: vec![],
+                    caption: None,
+                    exit_code: None,
                 }],
             },
         );
@@ -1402,6 +1414,8 @@ mod tests {
             role: "user".into(),
             body: key.into(),
             attachments: Vec::new(),
+            caption: None,
+            exit_code: None,
         };
         workspace.conversation.as_mut().unwrap().replace(
             ConversationWindow {

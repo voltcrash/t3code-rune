@@ -2,6 +2,11 @@ import {
   applyOrchestrationV2ProjectionEvent,
   getProjectionArrayReplacementIndex,
 } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
+import {
+  commandDisplayText,
+  commandProgramName,
+} from "@t3tools/client-runtime/work-log/command-label";
 import { activeThreadRun } from "@t3tools/client-runtime/state/thread-execution";
 import { mergeOlderHistoryIntoProjection } from "@t3tools/client-runtime/state/thread-history-merge";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
@@ -23,19 +28,41 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
-function message(row: OrchestrationV2ProjectedTurnItem) {
+function timelineRow(row: OrchestrationV2ProjectedTurnItem) {
   const item = row.item;
+  const key = JSON.stringify([row.sourceThreadId, row.sourceItemId]);
+  if (item.type === "command_execution" && !turnItemIsWorkspacePreparation(item)) {
+    const failed =
+      item.status === "failed" ||
+      (item.exitCode !== undefined ? item.exitCode !== 0 : item.outputIndicatesFailure);
+    const verb =
+      item.status === "interrupted" || item.status === "cancelled"
+        ? "Stopped"
+        : failed
+          ? "Failed"
+          : item.status === "completed"
+            ? "Ran"
+            : "Running";
+    return {
+      key,
+      role: "command",
+      body: commandDisplayText(item.input),
+      attachments: [],
+      caption: verb + " " + (commandProgramName(item.input) ?? "command"),
+      exit_code: item.exitCode,
+    };
+  }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
   return {
-    key: JSON.stringify([row.sourceThreadId, row.sourceItemId]),
+    key,
     role: item.type === "user_message" ? "user" : "assistant",
     body: item.text,
     attachments: (item.attachments ?? []).map((a) => a.name),
   };
 }
-type Row = NonNullable<ReturnType<typeof message>>;
-const messages = (items: readonly OrchestrationV2ProjectedTurnItem[]) =>
-  items.flatMap((row) => message(row) ?? []);
+type Row = NonNullable<ReturnType<typeof timelineRow>>;
+const timelineRows = (items: readonly OrchestrationV2ProjectedTurnItem[]) =>
+  items.flatMap((row) => timelineRow(row) ?? []);
 type Window = {
   projection: OrchestrationV2ThreadProjection;
   activeRun: string | null;
@@ -58,7 +85,7 @@ type Update =
 
 const indexRows = (rows: Row[]) => new Map(rows.map((row, i) => [row.key, i]));
 function windowRows(state: Window) {
-  state.rows = messages(state.projection.visibleTurnItems);
+  state.rows = timelineRows(state.projection.visibleTurnItems);
   state.indices = indexRows(state.rows);
 }
 function earlier(
@@ -110,7 +137,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
   while (
     state.cursor &&
     state.earlier_pages < depth &&
-    !lastPage.some((row) => oldest !== undefined && message(row)?.key === oldest)
+    !lastPage.some((row) => oldest !== undefined && timelineRow(row)?.key === oldest)
   ) {
     const page = yield* readPage(session, projection.thread.id, state.cursor);
     earlier(state, page);
@@ -175,6 +202,8 @@ function sameRow(a: Row, b: Row) {
     a.key === b.key &&
     a.role === b.role &&
     a.body === b.body &&
+    a.caption === b.caption &&
+    a.exit_code === b.exit_code &&
     a.attachments.length === b.attachments.length &&
     a.attachments.every((value, i) => value === b.attachments[i])
   );
@@ -198,7 +227,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
   if (changed !== undefined) {
     const oldItem = previous.visibleTurnItems[changed]!;
     const newItem = next.visibleTurnItems[changed]!;
-    const row = message(newItem);
+    const row = timelineRow(newItem);
     const key = JSON.stringify([oldItem.sourceThreadId, oldItem.sourceItemId]);
     const i = state.indices.get(key);
     if (!row && i === undefined) return;
@@ -207,6 +236,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
       if (sameRow(old, row)) return;
       state.rows[i] = row;
       if (
+        row.role !== "command" &&
         row.role === old.role &&
         row.attachments.length === 0 &&
         old.attachments.length === 0 &&
@@ -240,6 +270,7 @@ export function followWindow(
   state: Window,
   signal: AbortSignal,
   emit: (update: Update) => void,
+  commandChanged?: (threadId: string, itemId: string) => void,
 ) {
   const id = state.projection.thread.id;
   let consecutiveFailures = 0;
@@ -310,6 +341,12 @@ export function followWindow(
             emit({ kind: "requests", ...state.requests });
           }
           if (update) emit(update);
+          if (
+            item.event.type === "turn-item.updated" &&
+            item.event.payload.type === "command_execution"
+          ) {
+            commandChanged?.(item.event.payload.threadId, item.event.payload.id);
+          }
         }),
       ),
     );

@@ -57,6 +57,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   return {
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
+    streamsCommandOutput: descriptor.capabilities.commandOutputStreaming === true,
     platform: descriptor.platform.os,
     httpBaseUrl: target.httpBaseUrl,
     token: session.access_token,
