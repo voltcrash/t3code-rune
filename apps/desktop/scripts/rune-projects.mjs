@@ -1,3 +1,5 @@
+import { readImage } from "../src/native/images.ts";
+import * as Semaphore from "effect/Semaphore";
 import * as NodeTimersPromises from "node:timers/promises";
 import { turnItemNeedsDetailFetch } from "@t3tools/client-runtime/work-log/item-detail";
 import desktopPackage from "../package.json" with { type: "json" };
@@ -35,6 +37,8 @@ let localSession;
 let server;
 let watching;
 const pendingLaunches = new Map();
+const imageReads = Semaphore.makeUnsafe(3);
+const sentImages = new Map();
 const lifetime = new AbortController();
 const input = NodeReadline.createInterface({ input: process.stdin, terminal: false });
 const write = (value) => {
@@ -44,6 +48,7 @@ const close = () => {
   stopWatching();
   pendingLaunches.clear();
   lifetime.abort();
+  for (const sent of sentImages.values()) sent.handled.resolve();
   void server?.stop();
 };
 input.once("close", close);
@@ -61,7 +66,16 @@ function stopWatching() {
 
 function watch(owner, thread, id, state) {
   const controller = new AbortController();
-  const record = { owner, thread, id, state, controller, tools: new Map(), synchronized: false };
+  const record = {
+    owner,
+    thread,
+    id,
+    state,
+    controller,
+    tools: new Map(),
+    images: new Map(),
+    synchronized: false,
+  };
   watching = record;
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(
@@ -218,6 +232,55 @@ function refreshDetail(record, detail, updated) {
       detail.fetch = undefined;
       if (detail.again) refreshDetail(record, detail, "resync");
     });
+}
+
+async function inspectImage(request) {
+  const record = watching;
+  if (!record || record.id !== request.watch) return;
+  record.images.get(request.operation)?.abort();
+  if (!request.open) return;
+  const controller = new AbortController();
+  record.images.set(request.operation, controller);
+  const signal = AbortSignal.any([
+    record.owner.signal,
+    record.controller.signal,
+    controller.signal,
+  ]);
+  const result = {
+    type: "image",
+    watch: request.watch,
+    key: request.key,
+    operation: request.operation,
+    full: request.full,
+  };
+  try {
+    const [resource] = JSON.parse(request.key);
+    if (resource._tag !== "attachment" && resource._tag !== "tool-output-image") return;
+    await Effect.runPromise(
+      Effect.uninterruptibleMask((restore) =>
+        restore(
+          readImage(record.owner, resource).pipe(Effect.scoped, Effect.timeout("20 seconds")),
+        ).pipe(
+          Effect.flatMap((data) => {
+            if (signal.aborted) return Effect.void;
+            // Bytes already sent occupy a decoder slot across watch changes until Rust acknowledges them.
+            const sent = { watch: request.watch, handled: Promise.withResolvers() };
+            sentImages.set(request.operation, sent);
+            write({ ...result, data });
+            return Effect.promise(() => sent.handled.promise).pipe(
+              Effect.ensuring(Effect.sync(() => sentImages.delete(request.operation))),
+            );
+          }),
+        ),
+      ).pipe(imageReads.withPermit, Effect.provide(record.owner.http)),
+      { signal },
+    );
+  } catch {
+    if (!signal.aborted) write(result);
+  } finally {
+    if (record.images.get(request.operation) === controller)
+      record.images.delete(request.operation);
+  }
 }
 
 function inspectDetail(request) {
@@ -541,6 +604,11 @@ try {
     const reply = (value) => write({ id: request?.id, ...value });
     if (request?.type === "inspectcommand") {
       void inspectCommand(request);
+    } else if (request?.type === "imagehandled") {
+      const sent = sentImages.get(request.operation);
+      if (sent?.watch === request.watch) sent.handled.resolve();
+    } else if (request?.type === "inspectimage") {
+      void inspectImage(request);
     } else if (request?.type === "inspectfile" || request?.type === "inspecttool") {
       inspectDetail(request);
     } else if (request?.type === "stoprun") {

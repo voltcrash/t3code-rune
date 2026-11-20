@@ -2,6 +2,8 @@
 mod activity;
 #[path = "command.rs"]
 mod command;
+#[path = "images.rs"]
+mod images;
 #[path = "tool.rs"]
 pub(crate) mod tool;
 #[path = "turn_folds.rs"]
@@ -60,7 +62,7 @@ pub(super) struct MessageRow {
     key: String,
     role: String,
     body: String,
-    attachments: Vec<String>,
+    attachments: Vec<images::Attachment>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
     tool: Option<tool::Tool>,
@@ -133,6 +135,7 @@ pub(super) struct Conversation {
     expanded_activities: HashSet<String>,
     command: Option<command::Expanded>,
     tools: HashMap<String, tool::Open>,
+    images: images::Images,
     pub(super) approvals: Vec<Approval>,
     pub(super) approval_menu: Option<String>,
     pub(super) stop_operation: Option<String>,
@@ -163,6 +166,7 @@ impl Conversation {
         self.revision += 1;
     }
     pub fn begin_watch(&mut self, id: u64) {
+        self.images = Default::default();
         self.watch = Some(id);
         self.set_status(LiveStatus::Reconnecting);
     }
@@ -488,6 +492,7 @@ impl Desktop {
                 .map(|p| p.path.clone()),
             expanded_activities: HashSet::new(),
             tools: HashMap::new(),
+            images: Default::default(),
             command: None,
             approval_menu: None,
             approvals: vec![],
@@ -1187,22 +1192,27 @@ fn timeline(
                     }
                     return command::row_view(s, message, caption, theme, &message_kit);
                 }
-                let mut content = col().gap(6.0);
-                if message.role == "user" {
-                    content = content
-                        .max_w(640.0)
+                let user = message.role == "user";
+                let mut content = col().gap(4.);
+                let mut body = col().gap(6.);
+                if user {
+                    content = content.max_w(640.).self_end();
+                    body = body
                         .self_end()
-                        .px(14.0)
-                        .py(9.0)
-                        .radius(14.0)
-                        .fill(theme.text.alpha(0.08))
-                        .child(
-                            label(&message.body, 14.0, 400.0, theme.text)
+                        .px(14.)
+                        .py(9.)
+                        .radius(14.)
+                        .fill(theme.text.alpha(0.08));
+                    if !message.body.is_empty() {
+                        body = body.child(
+                            label(&message.body, 14., 400., theme.text)
                                 .wrap()
                                 .selectable(true),
                         );
+                    }
                 } else {
-                    content = content.w_full().child(
+                    content = content.w_full();
+                    body = body.w_full().child(
                         Markdown::new(&message.body)
                             .style(style.clone())
                             .selectable(true)
@@ -1210,7 +1220,22 @@ fn timeline(
                     );
                 }
                 for file in &message.attachments {
-                    content = content.child(label(file, 12.0, 500.0, theme.text_secondary));
+                    if let Some(key) = &file.image {
+                        let thumb = images::thumbnail(s, key, &file.name, theme, 192.);
+                        if user {
+                            content = content.child(thumb.self_end());
+                        } else {
+                            body = body.child(thumb);
+                        }
+                    } else {
+                        body = body.child(label(&file.name, 12., 500., theme.text_secondary));
+                    }
+                }
+                if !user
+                    || !message.body.is_empty()
+                    || message.attachments.iter().any(|a| a.image.is_none())
+                {
+                    content = content.child(body);
                 }
                 col().w_full().py(10.0).child(content)
             },
@@ -1411,6 +1436,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.palette.is_some() {
         workspace = workspace.blur(3.0);
     }
+    images::overlay(s, theme, &mut overlays);
     rune_kit::root(workspace, overlays)
 }
 

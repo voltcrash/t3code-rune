@@ -21,6 +21,8 @@ struct Block {
 pub(crate) struct Detail {
     #[serde(default)]
     blocks: Vec<Block>,
+    #[serde(default)]
+    images: Vec<String>,
     message: Option<String>,
 }
 
@@ -41,6 +43,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_conversation_inspectors(&mut self) {
+        self.close_image();
         self.close_command();
         self.close_diff();
         let Some(pane) = &mut self.workspace.conversation else {
@@ -151,6 +154,15 @@ pub(super) fn row_view(
             .scroll(ScrollSpec {
                 stick_bottom: false,
             });
+        for key in &open.detail.images {
+            content = content.child(super::images::thumbnail(
+                app,
+                key,
+                "Tool output image",
+                theme,
+                256.,
+            ));
+        }
         for block in &open.detail.blocks {
             if let Some(title) = &block.title {
                 let mut heading = label(title, 12., 500., theme.text_secondary).wrap();

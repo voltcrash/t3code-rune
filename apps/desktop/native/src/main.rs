@@ -9,6 +9,7 @@ use std::io::{self, BufRead, BufReader, Write};
 
 mod approval;
 mod composer;
+mod image_decode;
 mod navigation;
 mod new_thread;
 mod questions;
@@ -47,6 +48,14 @@ enum Reply {
     },
     Error {
         message: String,
+    },
+    Image {
+        watch: u64,
+        key: String,
+        operation: String,
+        data: Option<String>,
+        #[serde(default)]
+        full: bool,
     },
     ToolDetail {
         key: String,
@@ -147,6 +156,17 @@ enum Request<'a> {
         version: String,
         decision: String,
         operation: String,
+    },
+    ImageHandled {
+        watch: u64,
+        operation: String,
+    },
+    InspectImage {
+        full: bool,
+        watch: u64,
+        key: String,
+        operation: String,
+        open: bool,
     },
     InspectTool {
         watch: u64,
@@ -463,6 +483,7 @@ impl Desktop {
             Reply::Live { .. }
             | Reply::StopResult { .. }
             | Reply::CommandOutput { .. }
+            | Reply::Image { .. }
             | Reply::ToolDetail { .. }
             | Reply::FileDiff { .. } => {
                 unreachable!()
@@ -639,6 +660,9 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
+            if ev.key == rune::Key::Escape && s.close_image() {
+                return true;
+            }
             if s.palette.is_some() {
                 return false;
             }
@@ -703,12 +727,35 @@ fn start() -> io::Result<()> {
             desktop
         });
     let handle = app.handle();
+    let images = image_decode::start(handle.clone());
     std::thread::spawn(move || {
         for line in input.lines() {
             let Ok(line) = line else { break };
             let Ok(reply) = serde_json::from_str::<WorkerMessage>(&line) else {
                 break;
             };
+            if let Reply::Image {
+                watch,
+                key,
+                operation,
+                data,
+                full,
+            } = reply.reply
+            {
+                if images
+                    .send(image_decode::Job {
+                        watch,
+                        key,
+                        operation,
+                        data,
+                        full,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
             handle.update(move |s, tx| {
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
                     && s.pending
