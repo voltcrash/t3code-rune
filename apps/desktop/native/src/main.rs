@@ -12,6 +12,7 @@ mod composer;
 mod navigation;
 mod new_thread;
 mod questions;
+mod stage;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
@@ -20,6 +21,8 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 enum Reply {
     Connected {
         label: String,
+        #[serde(default)]
+        stage: stage::Stage,
         local: bool,
         can_operate: bool,
     },
@@ -163,6 +166,7 @@ struct Desktop {
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
     environment: Option<String>,
+    stage: stage::Stage,
     local: bool,
     can_operate: bool,
     project_path: Option<TextEdit>,
@@ -183,6 +187,7 @@ impl Desktop {
             answer_advance: None,
             link: TextEdit::new("").secure(),
             environment: None,
+            stage: Default::default(),
             local: false,
             can_operate: false,
             project_path: None,
@@ -328,9 +333,11 @@ impl Desktop {
             }
             Reply::Connected {
                 label,
+                stage,
                 local,
                 can_operate,
             } => {
+                self.stage = stage;
                 self.local = local;
                 self.can_operate = can_operate;
                 self.environment = Some(label);
@@ -719,6 +726,7 @@ mod tests {
             id: Some(5),
             reply: Reply::Connected {
                 label: "This computer".into(),
+                stage: stage::Stage::Dev,
                 local: true,
                 can_operate: true,
             },
