@@ -1,4 +1,7 @@
-use super::{Desktop, Request};
+use super::{
+    Desktop, Request,
+    composer::{self, Draft},
+};
 use rune::{
     Cx, El, FileDialogOptions, GrowthSpec, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row,
     spacer, text, text_input, tok,
@@ -26,6 +29,7 @@ pub(super) struct Thread {
     search_title: String,
     branch: Option<String>,
     status: String,
+    model: String,
     settled: bool,
 }
 
@@ -69,7 +73,8 @@ pub(super) struct Workspace {
     filtered: Vec<usize>,
     filter_revision: u64,
     settled_count: usize,
-    conversation: Option<Conversation>,
+    pub(super) conversation: Option<Conversation>,
+    pub(super) drafts: HashMap<String, Draft>,
     search: TextEdit,
     show_projects: bool,
     sidebar: bool,
@@ -87,6 +92,7 @@ impl Workspace {
             filter_revision: 0,
             settled_count: 0,
             conversation: None,
+            drafts: HashMap::new(),
             search: TextEdit::new(""),
             show_projects: false,
             sidebar: true,
@@ -117,6 +123,7 @@ impl Workspace {
         {
             self.conversation = None;
         }
+        self.drafts.retain(|id, _| self.by_thread.contains_key(id));
         self.settled_count = threads.iter().filter(|t| t.settled).count();
         self.projects = projects;
         self.threads = threads;
@@ -185,6 +192,7 @@ impl Desktop {
         {
             return;
         }
+        self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
             id: id.to_owned(),
             rows: Vec::new(),
@@ -195,7 +203,7 @@ impl Desktop {
         self.refresh_thread();
     }
 
-    fn refresh_thread(&mut self) {
+    pub(super) fn refresh_thread(&mut self) {
         let Some(pane) = &self.workspace.conversation else {
             return;
         };
@@ -474,7 +482,7 @@ fn sidebar(s: &Desktop, inset: f32, theme: &tok::Theme) -> El {
 }
 
 fn add_project(s: &mut Desktop, tx: &mut Tx) {
-    if !s.can_edit_projects || s.pending {
+    if !s.can_operate || s.pending {
         return;
     }
     if !s.local {
@@ -489,7 +497,7 @@ fn add_project(s: &mut Desktop, tx: &mut Tx) {
             ..Default::default()
         },
         move |s: &mut Desktop, result, _| {
-            if !s.local || !s.can_edit_projects || s.request_id != request_id {
+            if !s.local || !s.can_operate || s.request_id != request_id {
                 return;
             }
             match result {
@@ -507,7 +515,7 @@ fn add_project(s: &mut Desktop, tx: &mut Tx) {
 }
 
 fn submit_project_path(s: &mut Desktop) {
-    if !s.can_edit_projects || s.local {
+    if !s.can_operate || s.local {
         return;
     }
     if let Some(field) = &s.project_path
@@ -540,7 +548,7 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
                 if p.archived {
                     title = title.child(label("Archived", 12.0, 400.0, theme.text_secondary));
                 }
-                if s.can_edit_projects {
+                if s.can_operate {
                     let id = p.id.clone();
                     let archived = !p.archived;
                     title = title.child(spacer()).child(action(
@@ -746,7 +754,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     header = header.child(spacer());
     if (s.workspace.show_projects || s.workspace.conversation.is_none())
         && s.project_path.is_none()
-        && s.can_edit_projects
+        && s.can_operate
     {
         header = header.child(action_with_tx(
             "Add project",
@@ -784,6 +792,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             projects_view(s, theme)
         },
     );
+    if !s.workspace.show_projects
+        && let Some(thread) = thread
+        && let Some(pane) = &s.workspace.conversation
+        && pane.sequence.is_some()
+        && s.can_operate
+    {
+        main = main.child(composer::view(s, &thread.id, &thread.model, theme));
+    }
     let mut root = row().w_full().h_full().fill(theme.bg);
     if s.workspace.sidebar {
         root = root

@@ -1,3 +1,5 @@
+import * as Effect from "effect/Effect";
+import { sendThreadMessage } from "../src/native/messages.ts";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
 import {
@@ -41,6 +43,31 @@ function localServer() {
   return server;
 }
 
+function requestError(error, type, editing) {
+  if (error instanceof HomePathNeedsBrowseAccess) {
+    return "Enter the full folder path. This connection cannot look up the environment’s home folder.";
+  }
+  if (type === "sendmessage") {
+    if (error?._tag === "EnvironmentAuthorizationError")
+      return "This connection does not have permission to send messages.";
+    if (error?._tag === "OrchestrationV2DispatchCommandError" && error.detail) return error.detail;
+    return "Couldn’t confirm that the message was sent. Retry to check delivery.";
+  }
+  if (editing)
+    return type === "addproject"
+      ? "Couldn’t add the project. Check that the folder exists on this environment and that you have permission."
+      : "Couldn’t update the project. Refresh and try again.";
+  if (session)
+    return type === "thread"
+      ? "Couldn’t load this conversation. Try again."
+      : "Couldn’t load this workspace. Check the connection and try again.";
+  if (type === "local")
+    return isLocalServerStartupError(error)
+      ? error.message
+      : "Couldn’t start the local environment. Try again or paste a pairing link.";
+  return "Couldn’t pair with this environment. Check the pairing link and try again.";
+}
+
 try {
   for await (const line of input) {
     if (lifetime.signal.aborted) break;
@@ -69,17 +96,31 @@ try {
           type: "connected",
           label: session.label,
           local: Boolean(localSession),
-          can_edit_projects: session.canEditProjects,
+          can_operate: session.canOperate,
         });
       } else if (request.type === "thread" && session) {
         reading = session;
         const pane = await readThread(reading, request);
         if (session === reading) reply(pane);
         continue;
+      } else if (request.type === "sendmessage" && session) {
+        reading = session;
+        if (!reading.canOperate) throw new Error("Read-only session");
+        await Effect.runPromise(
+          sendThreadMessage(reading, request).pipe(
+            Effect.scoped,
+            Effect.timeout("60 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        if (session === reading)
+          reply({ type: "messagesent", thread: request.thread, operation: request.operation });
+        continue;
       } else if ((request.type === "addproject" || request.type === "archiveproject") && session) {
         editing = true;
         reading = session;
-        if (!reading.canEditProjects) throw new Error("Read-only session");
+        if (!reading.canOperate) throw new Error("Read-only session");
         await changeProject(reading, request);
         if (session !== reading) continue;
         reply({ type: "projectsaved", added: request.type === "addproject" });
@@ -92,25 +133,7 @@ try {
       if (session === reading) reply({ type: "workspace", ...workspace });
     } catch (error) {
       if (reading && session !== reading) continue;
-      reply({
-        type: "error",
-        message:
-          error instanceof HomePathNeedsBrowseAccess
-            ? "Enter the full folder path. This connection cannot look up the environment’s home folder."
-            : editing
-              ? request.type === "addproject"
-                ? "Couldn’t add the project. Check that the folder exists on this environment and that you have permission."
-                : "Couldn’t update the project. Refresh and try again."
-              : session
-                ? request?.type === "thread"
-                  ? "Couldn’t load this conversation. Try again."
-                  : "Couldn’t load this workspace. Check the connection and try again."
-                : request?.type === "local"
-                  ? isLocalServerStartupError(error)
-                    ? error.message
-                    : "Couldn’t start the local environment. Try again or paste a pairing link."
-                  : "Couldn’t pair with this environment. Check the pairing link and try again.",
-      });
+      reply({ type: "error", message: requestError(error, request?.type, editing) });
     }
   }
 } finally {
