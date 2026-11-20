@@ -4,7 +4,8 @@ import {
 } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 import {
-  commandDisplayText,
+  commandHighlightLanguage,
+  withVisibleControlCharacters,
   commandProgramName,
 } from "@t3tools/client-runtime/work-log/command-label";
 import { activeThreadRun } from "@t3tools/client-runtime/state/thread-execution";
@@ -43,13 +44,16 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem) {
           : item.status === "completed"
             ? "Ran"
             : "Running";
+    const body = withVisibleControlCharacters(item.input.trim());
     return {
       key,
       role: "command",
-      body: commandDisplayText(item.input),
+      body,
+      language: commandHighlightLanguage(body),
       attachments: [],
       caption: verb + " " + (commandProgramName(item.input) ?? "command"),
       exit_code: item.exitCode,
+      failed: verb === "Failed",
     };
   }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
@@ -204,6 +208,7 @@ function sameRow(a: Row, b: Row) {
     a.body === b.body &&
     a.caption === b.caption &&
     a.exit_code === b.exit_code &&
+    a.failed === b.failed &&
     a.attachments.length === b.attachments.length &&
     a.attachments.every((value, i) => value === b.attachments[i])
   );
