@@ -3320,6 +3320,8 @@ dependencies = [
 name = "t3-code"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "image",
  "pulldown-cmark",
  "rune",
  "rune-kit",

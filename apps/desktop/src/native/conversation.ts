@@ -33,6 +33,7 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
+import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
 import * as NodeUtil from "node:util";
@@ -42,7 +43,7 @@ type Row = {
   key: string;
   role: "command" | "reasoning" | "tasks" | "file" | "tool" | "user" | "assistant";
   body: string;
-  attachments: string[];
+  attachments: Array<{ name: string; image?: string }>;
   caption?: string;
   language?: string;
   exit_code?: number | undefined;
@@ -104,7 +105,12 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     key,
     role: item.type === "user_message" ? "user" : "assistant",
     body: item.text,
-    attachments: (item.attachments ?? []).map((a) => a.name),
+    attachments: (item.attachments ?? []).map((a) => ({
+      name: a.name,
+      ...(a.type === "image"
+        ? { image: imageKey({ _tag: "attachment", attachmentId: a.id }) }
+        : {}),
+    })),
   };
 }
 
@@ -280,7 +286,10 @@ function sameRow(a: Row, b: Row) {
     a.file?.added === b.file?.added &&
     a.file?.removed === b.file?.removed &&
     a.attachments.length === b.attachments.length &&
-    a.attachments.every((value, i) => value === b.attachments[i])
+    a.attachments.every(
+      (value, i) =>
+        value.name === b.attachments[i]?.name && value.image === b.attachments[i]?.image,
+    )
   );
 }
 function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | undefined {

@@ -1,3 +1,5 @@
+import * as DateTime from "effect/DateTime";
+import { imageKey } from "./images.ts";
 import { formatWorkspaceRelativePath } from "@t3tools/client-runtime/file-path-display";
 import { resolveExternalWebLink } from "@t3tools/shared/url";
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
@@ -82,10 +84,15 @@ export const readToolDetail = Effect.fn("nativeDesktop.readToolDetail")(function
         text: call.argsText,
         language: isJsonToolText(call.argsText) ? "json" : undefined,
       });
+    const revision = DateTime.formatIso(item.updatedAt);
+    const images = turnItemOutputImages(item).map((resource) =>
+      imageKey({ ...resource, ...input }, revision),
+    );
     const output = turnItemOutputText(item);
     if (output)
       blocks.push({ text: output, language: isJsonToolText(output) ? "json" : undefined });
-    else if (fetch && !turnItemOutputImages(item).length) return { blocks, message: "No output." };
+    else if (fetch && !images.length) return { blocks, message: "No output." };
+    return { blocks, images };
   } else if (item.type === "file_search") {
     if (item.pattern?.trim()) blocks.push({ text: item.pattern });
     for (const result of item.results ?? []) {
