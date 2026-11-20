@@ -1,0 +1,17 @@
+[package]
+name = "t3-code"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+
+# Cargo applies Rune's platform patches only from the root manifest.
+[patch.crates-io]
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "01096f25021fb356b867c1b1868363467deb5143" }
