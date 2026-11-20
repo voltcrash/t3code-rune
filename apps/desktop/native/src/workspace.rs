@@ -2,6 +2,9 @@
 mod activity;
 #[path = "command.rs"]
 mod command;
+#[path = "turn_folds.rs"]
+mod turn_folds;
+use turn_folds::VisibleRow;
 #[path = "file_diff.rs"]
 pub(crate) mod file_diff;
 #[path = "palette.rs"]
@@ -67,6 +70,8 @@ pub(super) struct MessageRow {
 #[derive(Deserialize)]
 pub(super) struct ConversationWindow {
     #[serde(default)]
+    folds: Vec<turn_folds::Fold>,
+    #[serde(default)]
     questions: Vec<Prompt>,
     #[serde(default)]
     approvals: Vec<Approval>,
@@ -88,11 +93,15 @@ pub(super) enum LiveStatus {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(super) enum LiveUpdate {
+    Folds {
+        folds: Vec<turn_folds::Fold>,
+    },
     Requests {
         questions: Vec<Prompt>,
         approvals: Vec<Approval>,
     },
     Splice {
+        folds: Option<Vec<turn_folds::Fold>>,
         index: usize,
         remove: usize,
         rows: Vec<MessageRow>,
@@ -116,6 +125,7 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    folds: turn_folds::Layout,
     project_root: Option<String>,
     expanded_activities: HashSet<String>,
     command: Option<command::Expanded>,
@@ -141,6 +151,7 @@ impl Conversation {
         self.replace_approvals(window.approvals);
         self.set_active_run(window.active_run);
         self.rows = window.rows;
+        self.folds.update(self.rows.len(), Some(window.folds));
         self.sequence = Some(window.sequence);
         self.earlier_pages = window.earlier_pages;
         self.cursor = window.cursor;
@@ -378,7 +389,13 @@ impl Workspace {
                 row.body.push_str(&text);
                 pane.sequence = Some(sequence);
             }
+            LiveUpdate::Folds { folds } if !pane.needs_reload => {
+                pane.folds.update(pane.rows.len(), Some(folds));
+                pane.sequence = Some(sequence);
+                pane.revision += 1;
+            }
             LiveUpdate::Splice {
+                folds,
                 index,
                 remove,
                 rows,
@@ -386,7 +403,9 @@ impl Workspace {
                 && index <= pane.rows.len()
                 && remove <= pane.rows.len() - index =>
             {
+                let old_len = pane.rows.len();
                 pane.rows.splice(index..index + remove, rows);
+                pane.folds.resize(old_len, pane.rows.len(), folds);
                 pane.sequence = Some(sequence);
                 pane.revision += 1;
             }
@@ -456,6 +475,7 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            folds: Default::default(),
             project_root: self
                 .workspace
                 .by_thread
@@ -1131,17 +1151,22 @@ fn timeline(
         .w_full()
         .growth(GrowthSpec::default())
         .virtual_rows(
-            pane.rows.len(),
+            pane.folds.len(pane.rows.len()),
             100.0,
             |s: &Desktop, i| {
-                s.workspace.conversation.as_ref().unwrap().rows[i]
-                    .key
-                    .as_str()
-                    .into()
+                let pane = s.workspace.conversation.as_ref().unwrap();
+                match pane.folds.row(i) {
+                    VisibleRow::Header(group) => pane.folds.key(group).into(),
+                    VisibleRow::Message(index) => pane.rows[index].key.as_str().into(),
+                }
             },
             move |s: &Desktop, i| {
                 let theme = &colors;
-                let message = &s.workspace.conversation.as_ref().unwrap().rows[i];
+                let pane = s.workspace.conversation.as_ref().unwrap();
+                let message = match pane.folds.row(i) {
+                    VisibleRow::Header(group) => return pane.folds.header(group, &pane.id, theme),
+                    VisibleRow::Message(index) => &pane.rows[index],
+                };
                 if let Some(caption) = &message.caption {
                     if message.role != "command" {
                         return activity::row_view(
@@ -1413,6 +1438,7 @@ mod tests {
         receive(
             7,
             LiveUpdate::Splice {
+                folds: None,
                 index: 0,
                 remove: 0,
                 rows: vec![MessageRow {
@@ -1490,6 +1516,7 @@ mod tests {
         };
         workspace.conversation.as_mut().unwrap().replace(
             ConversationWindow {
+                folds: vec![],
                 questions: vec![],
                 approvals: vec![],
                 active_run: None,
