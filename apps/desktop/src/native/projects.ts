@@ -12,11 +12,8 @@ import {
   CommandId,
   ProjectId,
   isListedThreadLineage,
-  ThreadId,
-  type OrchestrationV2ProjectedTurnItem,
 } from "@t3tools/contracts";
 import { withOrchestrationProtocolHeader } from "@t3tools/client-runtime/state/environmentHttpAuth";
-import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2BoundedSnapshot";
 import {
   findProjectByPath,
   inferProjectTitleFromPath,
@@ -79,9 +76,9 @@ export function pairWithEnvironment(link: string, signal: AbortSignal) {
   return pairWithTarget(target, signal, remoteHttp);
 }
 
-type Session = Awaited<ReturnType<typeof pairWithEnvironment>>;
+export type Session = Awaited<ReturnType<typeof pairWithEnvironment>>;
 
-const headersFor = (session: Session) =>
+export const headersFor = (session: Session) =>
   withOrchestrationProtocolHeader({ authorization: `Bearer ${session.token}` });
 
 const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: Session) {
@@ -121,86 +118,6 @@ const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: S
 export const readWorkspace = (session: Session) =>
   Effect.runPromise(
     loadWorkspace(session).pipe(Effect.timeout("20 seconds"), Effect.provide(session.http)),
-    { signal: session.signal },
-  );
-
-function conversationRows(items: readonly OrchestrationV2ProjectedTurnItem[]) {
-  return items.flatMap(({ item, sourceItemId, sourceThreadId }) => {
-    if (item.type !== "user_message" && item.type !== "assistant_message") return [];
-    return [
-      {
-        key: JSON.stringify([sourceThreadId, sourceItemId]),
-        role: item.type === "user_message" ? "user" : "assistant",
-        body: item.text,
-        attachments: (item.attachments ?? []).map((attachment) => attachment.name),
-      },
-    ];
-  });
-}
-
-const loadThread = Effect.fn("nativeDesktop.thread")(function* (
-  session: Session,
-  request: Readonly<{
-    thread: string;
-    cursor?: string;
-    sequence?: number;
-    oldest?: string;
-    earlier_pages: number;
-  }>,
-) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
-  const params = { threadId: ThreadId.make(request.thread) };
-  const headers = headersFor(session);
-  const pageBefore = (cursor: string) =>
-    client.threadHistoryPage({
-      headers,
-      params,
-      query: { cursor, view: "conversation", deferWork: "1" },
-    });
-  if (request.cursor) {
-    const page = yield* pageBefore(request.cursor);
-    return {
-      type: "thread",
-      thread: request.thread,
-      sequence: page.snapshotSequence,
-      older: true,
-      earlier_pages: 1,
-      rows: conversationRows(page.items),
-      cursor: page.hasMoreHistory ? page.nextCursor : null,
-    };
-  }
-  const bounded = yield* client.threadBoundedSnapshot({
-    headers,
-    params,
-    query: { deferWork: "1", dedupeBodies: "1", compactTurnItems: "1" },
-  });
-  if (bounded.snapshotSequence === request.sequence) return { type: "unchanged" };
-
-  const pages = [conversationRows(boundedSnapshotProjection(bounded).visibleTurnItems)];
-  let cursor = bounded.hasMoreHistory ? bounded.historyCursor : null;
-  while (
-    cursor &&
-    pages.length <= request.earlier_pages &&
-    !pages[pages.length - 1]?.some((row) => row.key === request.oldest)
-  ) {
-    const page = yield* pageBefore(cursor);
-    pages.push(conversationRows(page.items));
-    cursor = page.hasMoreHistory ? page.nextCursor : null;
-  }
-  return {
-    type: "thread",
-    thread: request.thread,
-    sequence: bounded.snapshotSequence,
-    older: false,
-    earlier_pages: pages.length - 1,
-    rows: pages.reverse().flat(),
-    cursor,
-  };
-});
-
-export const readThread = (session: Session, request: Parameters<typeof loadThread>[1]) =>
-  Effect.runPromise(
-    loadThread(session, request).pipe(Effect.timeout("20 seconds"), Effect.provide(session.http)),
     { signal: session.signal },
   );
 

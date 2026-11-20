@@ -41,20 +41,75 @@ pub(super) struct MessageRow {
     attachments: Vec<String>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct ConversationWindow {
+    rows: Vec<MessageRow>,
+    cursor: Option<String>,
+    sequence: u64,
+    earlier_pages: usize,
+}
+
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum LiveStatus {
+    Live,
+    Reconnecting,
+    Paused,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub(super) enum LiveUpdate {
+    Splice {
+        index: usize,
+        remove: usize,
+        rows: Vec<MessageRow>,
+    },
+    Append {
+        index: usize,
+        key: String,
+        text: String,
+    },
+    Window {
+        #[serde(flatten)]
+        window: ConversationWindow,
+    },
+    Status {
+        state: LiveStatus,
+    },
+    Deleted,
+}
+
 pub(super) struct Conversation {
     pub id: String,
     pub rows: Vec<MessageRow>,
     pub cursor: Option<String>,
     pub sequence: Option<u64>,
     pub earlier_pages: usize,
+    watch: Option<u64>,
+    pub status: LiveStatus,
+    needs_reload: bool,
+    revision: u64,
 }
 
 impl Conversation {
+    pub fn replace(&mut self, window: ConversationWindow) {
+        self.rows = window.rows;
+        self.sequence = Some(window.sequence);
+        self.earlier_pages = window.earlier_pages;
+        self.cursor = window.cursor;
+        self.needs_reload = false;
+        self.revision += 1;
+    }
+    pub fn begin_watch(&mut self, id: u64) {
+        self.watch = Some(id);
+        self.status = LiveStatus::Reconnecting;
+    }
     fn refresh(&self) -> Request<'static> {
         Request::Thread {
             thread: self.id.clone(),
             cursor: None,
-            sequence: self.sequence,
+            sequence: self.sequence.filter(|_| !self.needs_reload),
             earlier_pages: self.earlier_pages,
             oldest: if self.earlier_pages > 0 {
                 self.rows.first().map(|row| row.key.clone())
@@ -153,27 +208,50 @@ impl Workspace {
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }
-    pub fn update_conversation(
-        &mut self,
-        id: String,
-        mut rows: Vec<MessageRow>,
-        cursor: Option<String>,
-        older: bool,
-        sequence: u64,
-        earlier_pages: usize,
-    ) {
-        if let Some(pane) = &mut self.conversation
-            && pane.id == id
-        {
-            if older {
-                rows.append(&mut pane.rows);
-                pane.earlier_pages += 1;
-            } else {
-                pane.sequence = Some(sequence);
-                pane.earlier_pages = earlier_pages;
+    pub fn apply_live(&mut self, watch: u64, id: &str, sequence: u64, update: LiveUpdate) {
+        let Some(pane) = &mut self.conversation else {
+            return;
+        };
+        if pane.id != id || pane.watch != Some(watch) {
+            return;
+        }
+        match update {
+            LiveUpdate::Deleted => {
+                self.conversation = None;
+                self.drafts.remove(id);
+                if let Some(index) = self.by_thread.remove(id) {
+                    let removed = self.threads.remove(index);
+                    self.settled_count -= usize::from(removed.settled);
+                    for i in index..self.threads.len() {
+                        self.by_thread.insert(self.threads[i].id.clone(), i);
+                    }
+                    self.filter();
+                }
             }
-            pane.rows = rows;
-            pane.cursor = cursor;
+            LiveUpdate::Window { window } => pane.replace(window),
+            LiveUpdate::Status { state } if !pane.needs_reload => pane.status = state,
+            LiveUpdate::Append { index, key, text }
+                if !pane.needs_reload && pane.rows.get(index).is_some_and(|row| row.key == key) =>
+            {
+                pane.rows[index].body.push_str(&text);
+                pane.sequence = Some(sequence);
+            }
+            LiveUpdate::Splice {
+                index,
+                remove,
+                rows,
+            } if !pane.needs_reload
+                && index <= pane.rows.len()
+                && remove <= pane.rows.len() - index =>
+            {
+                pane.rows.splice(index..index + remove, rows);
+                pane.sequence = Some(sequence);
+                pane.revision += 1;
+            }
+            _ => {
+                pane.needs_reload = true;
+                pane.status = LiveStatus::Paused;
+            }
         }
     }
 }
@@ -199,6 +277,10 @@ impl Desktop {
             cursor: None,
             sequence: None,
             earlier_pages: 0,
+            watch: None,
+            status: LiveStatus::Reconnecting,
+            needs_reload: false,
+            revision: 0,
         });
         self.refresh_thread();
     }
@@ -700,7 +782,8 @@ fn timeline(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bool) ->
                 }
                 col().w_full().py(10.0).child(content)
             },
-        );
+        )
+        .virtual_rows_version((&pane.id, pane.revision));
     col()
         .key(format!("timeline-{}", pane.id))
         .grow(1.0)
@@ -763,6 +846,20 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             add_project,
         ));
     }
+    if !s.pending
+        && !s.workspace.show_projects
+        && let Some(pane) = &s.workspace.conversation
+        && pane.watch.is_some()
+    {
+        let status = match pane.status {
+            LiveStatus::Live => None,
+            LiveStatus::Reconnecting => Some("Connecting…"),
+            LiveStatus::Paused => Some("Live updates paused. Refresh to reconnect."),
+        };
+        if let Some(status) = status {
+            header = header.child(label(status, 12.0, 400.0, theme.text_secondary));
+        }
+    }
     if s.pending {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
@@ -814,6 +911,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_patches_belong_to_one_watch_and_do_not_complete_a_request() {
+        use super::super::{Reply, WorkerMessage};
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        app.workspace.conversation.as_mut().unwrap().begin_watch(7);
+        app.request_id = 8;
+        app.pending = true;
+        let mut receive = |watch, update| {
+            app.receive(WorkerMessage {
+                id: None,
+                reply: Reply::Live {
+                    watch,
+                    thread: "thread".into(),
+                    sequence: 12,
+                    update,
+                },
+            })
+        };
+        receive(
+            7,
+            LiveUpdate::Splice {
+                index: 0,
+                remove: 0,
+                rows: vec![MessageRow {
+                    key: "msg".into(),
+                    role: "assistant".into(),
+                    body: "hello".into(),
+                    attachments: vec![],
+                }],
+            },
+        );
+        receive(6, LiveUpdate::Deleted);
+        receive(
+            7,
+            LiveUpdate::Append {
+                index: 0,
+                key: "msg".into(),
+                text: " world".into(),
+            },
+        );
+        receive(
+            7,
+            LiveUpdate::Append {
+                index: 0,
+                key: "wrong".into(),
+                text: "stale".into(),
+            },
+        );
+        receive(
+            7,
+            LiveUpdate::Status {
+                state: LiveStatus::Live,
+            },
+        );
+        let pane = app.workspace.conversation.as_ref().unwrap();
+        assert_eq!(pane.rows[0].body, "hello world");
+        assert!(matches!(
+            pane.refresh(),
+            Request::Thread { sequence: None, .. }
+        ));
+        assert!(pane.status == LiveStatus::Paused);
+        assert!(app.pending);
+    }
+
+    #[test]
     fn refreshing_expanded_history_requests_the_oldest_loaded_row() {
         let mut desktop = Desktop::new();
         desktop.open_thread("thread");
@@ -824,15 +986,16 @@ mod tests {
             body: key.into(),
             attachments: Vec::new(),
         };
-        workspace.update_conversation(
-            "thread".into(),
-            vec![message("latest")],
-            Some("previous".into()),
-            false,
-            10,
-            0,
-        );
-        workspace.update_conversation("thread".into(), vec![message("earlier")], None, true, 11, 1);
+        workspace
+            .conversation
+            .as_mut()
+            .unwrap()
+            .replace(ConversationWindow {
+                rows: vec![message("earlier"), message("latest")],
+                sequence: 10,
+                earlier_pages: 1,
+                cursor: None,
+            });
         desktop.open_thread("thread");
         let pane = desktop.workspace.conversation.as_ref().unwrap();
         let Request::Thread {
