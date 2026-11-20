@@ -131,6 +131,7 @@ struct Desktop {
     project_path: Option<TextEdit>,
     workspace: Workspace,
     new_threads: new_thread::NewThreads,
+    palette: Option<workspace::palette::Palette>,
     request_id: u64,
     pending: bool,
     starting_local: bool,
@@ -148,6 +149,7 @@ impl Desktop {
             project_path: None,
             workspace: Workspace::new(),
             new_threads: Default::default(),
+            palette: None,
             request_id: 0,
             pending: false,
             starting_local: false,
@@ -200,7 +202,11 @@ impl Desktop {
             update,
         } = message.reply
         {
+            let thread_count = self.workspace.thread_count();
             self.workspace.apply_live(watch, &thread, sequence, update);
+            if self.palette.is_some() && thread_count != self.workspace.thread_count() {
+                self.filter_palette(true);
+            }
             return;
         }
         if matches!(message.reply, Reply::LocalClosed) {
@@ -451,6 +457,21 @@ fn start() -> io::Result<()> {
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         on_key: Some(|s: &mut Desktop, ev, tx| {
+            if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
+                if !tx.key_repeat() {
+                    s.toggle_palette(tx);
+                }
+                return true;
+            }
+            if s.palette.is_some() {
+                return false;
+            }
+            if s.environment.is_some() && !ev.mods.alt && !ev.mods.shift && ev.is_command('b') {
+                if !tx.key_repeat() {
+                    s.toggle_sidebar();
+                }
+                return true;
+            }
             if s.can_operate && !ev.mods.shift && ev.is_command('n') {
                 if ev.mods.alt {
                     if !tx.key_repeat() {
@@ -472,6 +493,13 @@ fn start() -> io::Result<()> {
         ..AppSpec::new("T3 Code", (1100.0, 780.0), Desktop::new, view)
     };
     let app = App::new(spec)
+        .menu_item(
+            rune::MenuItem::new("Command Palette…", Desktop::toggle_palette)
+                .id("command-palette")
+                .key_equivalent("mod+k".parse().expect("valid palette shortcut"))
+                .keys_first()
+                .menu("View"),
+        )
         .titlebar(Titlebar::new(40.0).traffic_lights(16.0, 19.0))
         .init(move || {
             let mut desktop = Desktop {
@@ -492,7 +520,17 @@ fn start() -> io::Result<()> {
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
                     && s.pending
                     && reply.id == Some(s.request_id);
+                let deleting = matches!(
+                    reply.reply,
+                    Reply::Live {
+                        update: LiveUpdate::Deleted,
+                        ..
+                    }
+                );
                 s.receive(reply);
+                if deleting && let Some(palette) = &s.palette {
+                    palette.reveal_selection(tx);
+                }
                 if focus {
                     tx.focus("new-thread-prompt", true);
                 }

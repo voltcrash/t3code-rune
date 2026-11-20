@@ -1,0 +1,561 @@
+use super::{Desktop, NEW_THREAD_ICON, SCRATCH_ICON, Workspace, add_project, label};
+use rune::{
+    Cx, El, GrowthSpec, Icon, Key, KeyEvent, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon,
+    row, spacer, text_input, tok,
+};
+use rune_kit::glyphs;
+use std::borrow::Cow;
+
+#[derive(Clone, Copy)]
+enum Action {
+    NewThread(usize),
+    StartInProject(usize),
+    PickProject,
+    Scratch,
+    AddProject,
+    Projects,
+    ToggleSidebar,
+    Refresh,
+    Project(usize),
+    Thread(usize),
+}
+
+impl Action {
+    fn key(self, ws: &Workspace) -> String {
+        match self {
+            Self::NewThread(i) | Self::StartInProject(i) => {
+                format!("new-thread-{}", ws.projects[i].id)
+            }
+            Self::Thread(i) => format!("thread-{}", ws.threads[i].id),
+            Self::Project(i) => format!("project-{}", ws.projects[i].id),
+            Self::PickProject => "pick-project".into(),
+            Self::Scratch => "scratch".into(),
+            Self::AddProject => "add-project".into(),
+            Self::Projects => "projects".into(),
+            Self::ToggleSidebar => "toggle-sidebar".into(),
+            Self::Refresh => "refresh".into(),
+        }
+    }
+
+    fn title(self, ws: &Workspace) -> Cow<'_, str> {
+        match self {
+            Self::NewThread(i) => return format!("New thread in {}", ws.projects[i].title).into(),
+            Self::PickProject => "New thread in...",
+            Self::Scratch => "New thread without a project",
+            Self::AddProject => "Add project",
+            Self::Projects => "Projects",
+            Self::ToggleSidebar => "Toggle sidebar",
+            Self::Refresh => "Refresh",
+            Self::Project(i) | Self::StartInProject(i) => &ws.projects[i].title,
+            Self::Thread(i) => &ws.threads[i].title,
+        }
+        .into()
+    }
+
+    fn hint(self, ws: &Workspace) -> &str {
+        match self {
+            Self::PickProject | Self::Project(_) => "›",
+            Self::Scratch if cfg!(target_os = "macos") => "⌥⌘N",
+            Self::Scratch => "Ctrl+Alt+N",
+            Self::ToggleSidebar if cfg!(target_os = "macos") => "⌘B",
+            Self::ToggleSidebar => "Ctrl+B",
+            Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
+            _ => "",
+        }
+    }
+
+    fn icon(&self) -> &'static Icon {
+        match self {
+            Self::NewThread(_) | Self::StartInProject(_) | Self::PickProject => &NEW_THREAD_ICON,
+            Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
+            Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
+            Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
+            Self::Refresh => &REFRESH,
+        }
+    }
+}
+
+static REFRESH: Icon = Icon {
+    name: "refresh-workspace",
+    view: 24.0,
+    body: r#"<path d="M20 7v5h-5 M4 17v-5h5 M5.6 8.4a7.5 7.5 0 0 1 12.6-2l1.8 2 M4 15.6l1.8 2a7.5 7.5 0 0 0 12.6-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+enum Page {
+    Root,
+    PickProject,
+    Project(String),
+}
+
+struct Item {
+    key: String,
+    group: &'static str,
+    action: Action,
+}
+
+pub(crate) struct Palette {
+    query: TextEdit,
+    page: Page,
+    parent_query: String,
+    items: Vec<Item>,
+    selected: Option<usize>,
+    pointer: Option<rune::PointerPress>,
+    revision: u64,
+}
+
+impl Palette {
+    pub(crate) fn reveal_selection(&self, tx: &mut Tx) {
+        if let Some(i) = self.selected {
+            tx.scroll_into_view(format!("palette-rows/{}", self.items[i].key));
+        }
+    }
+
+    fn action_for(&self, key: &str) -> Option<Action> {
+        self.items
+            .iter()
+            .find(|item| item.key == key)
+            .map(|item| item.action)
+    }
+
+    fn new() -> Self {
+        Self {
+            query: TextEdit::new(""),
+            page: Page::Root,
+            parent_query: String::new(),
+            items: Vec::new(),
+            selected: None,
+            pointer: None,
+            revision: 0,
+        }
+    }
+
+    fn filter(&mut self, ws: &Workspace, active: Option<&str>, write: bool, keep_selection: bool) {
+        let query = self.query.text.trim().to_lowercase();
+        let mut items = Vec::new();
+        let mut command = |action: Action| {
+            if action.title(ws).to_lowercase().contains(&query) {
+                items.push(Item {
+                    key: action.key(ws),
+                    group: "Actions",
+                    action,
+                });
+            }
+        };
+        let start_here = |id: &str| {
+            ws.by_project
+                .get(id)
+                .copied()
+                .filter(|&i| !ws.projects[i].archived)
+        };
+        match &self.page {
+            Page::Root => {
+                if write {
+                    if let Some(i) = active.and_then(start_here) {
+                        command(Action::NewThread(i));
+                    }
+                    if ws.projects.iter().any(|p| !p.archived && !p.scratch) {
+                        command(Action::PickProject);
+                    }
+                    if ws.scratch_available {
+                        command(Action::Scratch);
+                    }
+                    command(Action::AddProject);
+                }
+                command(Action::Projects);
+                command(Action::ToggleSidebar);
+                command(Action::Refresh);
+            }
+            Page::Project(id) if write => {
+                if let Some(i) = start_here(id) {
+                    command(Action::NewThread(i));
+                }
+            }
+            _ => {}
+        }
+        if !matches!(self.page, Page::Project(_)) {
+            for (i, p) in ws.projects.iter().enumerate() {
+                if !p.archived && !p.scratch && p.search_title.contains(&query) {
+                    let action = if matches!(self.page, Page::PickProject) {
+                        Action::StartInProject(i)
+                    } else {
+                        Action::Project(i)
+                    };
+                    items.push(Item {
+                        key: action.key(ws),
+                        group: "Projects",
+                        action,
+                    });
+                }
+            }
+        }
+        if !matches!(self.page, Page::PickProject) {
+            let recent = matches!(self.page, Page::Root) && query.is_empty();
+            let limit = if recent { 12 } else { usize::MAX };
+            let threads = ws.threads.iter().enumerate().filter(|(_, t)| {
+                if let Page::Project(id) = &self.page
+                    && &t.project != id
+                {
+                    return false;
+                }
+                t.search_title.contains(&query)
+                    || ws
+                        .project(&t.project)
+                        .is_some_and(|p| p.search_title.contains(&query))
+            });
+            for (i, _) in threads.take(limit) {
+                items.push(Item {
+                    key: Action::Thread(i).key(ws),
+                    group: if recent { "Recent threads" } else { "Threads" },
+                    action: Action::Thread(i),
+                });
+            }
+        }
+        self.selected = if keep_selection {
+            self.selected
+                .and_then(|i| items.iter().position(|item| item.key == self.items[i].key))
+        } else {
+            (!items.is_empty()).then_some(0)
+        };
+        self.items = items;
+        self.revision = self.revision.wrapping_add(1);
+    }
+}
+
+impl Desktop {
+    pub(crate) fn toggle_palette(&mut self, tx: &mut Tx) {
+        if self.palette.take().is_some() || self.environment.is_none() || self.pending {
+            return;
+        }
+        self.palette = Some(Palette::new());
+        self.filter_palette(false);
+        tx.focus("palette-query", true);
+    }
+
+    pub(crate) fn filter_palette(&mut self, keep_selection: bool) {
+        let active = self.new_threads.active.as_deref().or_else(|| {
+            let pane = self.workspace.conversation.as_ref()?;
+            self.workspace
+                .by_thread
+                .get(&pane.id)
+                .map(|&i| self.workspace.threads[i].project.as_str())
+        });
+        if let Some(palette) = self.palette.as_mut() {
+            palette.filter(&self.workspace, active, self.can_operate, keep_selection);
+        }
+    }
+
+    fn palette_page(&mut self, page: Page, tx: &mut Tx) {
+        let Some(p) = self.palette.as_mut() else {
+            return;
+        };
+        if matches!(page, Page::Root) {
+            p.query = TextEdit::new(std::mem::take(&mut p.parent_query));
+        } else {
+            p.parent_query = p.query.text.clone();
+            p.query = TextEdit::new("");
+        }
+        p.page = page;
+        self.filter_palette(false);
+        tx.focus("palette-query", true);
+        tx.scroll_to("palette-scroll", 0.0, 0.0);
+    }
+
+    fn choose_palette(&mut self, action: Action, tx: &mut Tx) {
+        match action {
+            Action::PickProject => return self.palette_page(Page::PickProject, tx),
+            Action::Project(i) => {
+                return self.palette_page(Page::Project(self.workspace.projects[i].id.clone()), tx);
+            }
+            _ => {}
+        }
+        self.palette = None;
+        match action {
+            Action::NewThread(i) | Action::StartInProject(i) => {
+                self.prepare_thread(&self.workspace.projects[i].id.clone())
+            }
+            Action::Scratch => self.prepare_scratch(),
+            Action::Thread(i) => self.open_thread(&self.workspace.threads[i].id.clone()),
+            Action::ToggleSidebar => self.toggle_sidebar(),
+            Action::Refresh => self.refresh_visible(),
+            Action::AddProject => {
+                self.show_projects();
+                add_project(self, tx);
+            }
+            Action::Projects => self.show_projects(),
+            Action::PickProject | Action::Project(_) => unreachable!(),
+        }
+    }
+}
+
+fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let Some(p) = s.palette.as_mut() else {
+        return false;
+    };
+    match ev.key {
+        Key::Down | Key::Up => {
+            if !p.items.is_empty() {
+                p.selected = Some(match (ev.key == Key::Down, p.selected) {
+                    (true, None) => 0,
+                    (true, Some(i)) => (i + 1) % p.items.len(),
+                    (false, None | Some(0)) => p.items.len() - 1,
+                    (false, Some(i)) => i - 1,
+                });
+                p.reveal_selection(tx);
+            }
+        }
+        Key::Enter => {
+            if !tx.key_repeat()
+                && let Some(i) = p.selected
+            {
+                let action = p.items[i].action;
+                s.choose_palette(action, tx);
+            }
+        }
+        Key::Backspace if p.query.text.is_empty() && !matches!(p.page, Page::Root) => {
+            s.palette_page(Page::Root, tx)
+        }
+        Key::Escape => s.palette = None,
+        _ => return false,
+    }
+    true
+}
+
+pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlays: &mut Vec<El>) {
+    let Some(p) = &s.palette else { return };
+    let colors = *theme;
+    let bounds = cx.layout_size("workspace").unwrap_or([1100.0, 780.0]);
+    let top = (bounds[1] * if bounds[0] < 640.0 { 0.04 } else { 0.10 }).max(48.0);
+    let mut content_height: f32 = 12.0;
+    let mut group = "";
+    for item in p.items.iter().take(11) {
+        if item.group != group {
+            content_height += 30.0;
+            group = item.group;
+        }
+        content_height += 32.0;
+    }
+    let height = (89.0 + content_height.max(52.0))
+        .min(420.0)
+        .min(bounds[1] - top - 16.0);
+    let placeholder = if matches!(p.page, Page::Root) {
+        "Search commands, projects, and threads..."
+    } else {
+        "Search..."
+    };
+    let query = text_input(&p.query, TextStyle::new(14.0, 400.0))
+        .key("palette-query")
+        .label(placeholder)
+        .placeholder(placeholder, theme.text_secondary)
+        .single_line()
+        .min_w(0.0)
+        .grow(1.0)
+        .h(20.0)
+        .color(theme.text)
+        .on_edit(|s: &mut Desktop| &mut s.palette.as_mut().unwrap().query)
+        .on_input_change(|s: &mut Desktop, tx| {
+            s.filter_palette(false);
+            tx.scroll_to("palette-scroll", 0.0, 0.0);
+        })
+        .on_input_key(key);
+    let mut header = row().w_full().h(48.0).px(16.0).gap(8.0).center_y();
+    if !matches!(p.page, Page::Root) {
+        header = header.child(
+            super::action_with_tx("‹", theme, true, |s, tx| s.palette_page(Page::Root, tx))
+                .label("Back"),
+        );
+    }
+    header = header
+        .child(icon(&glyphs::SEARCH, 16.0).color(theme.text_secondary))
+        .child(query);
+    let list = col()
+        .w_full()
+        .key("palette-rows")
+        .growth(GrowthSpec::default())
+        .virtual_rows(
+            p.items.len(),
+            32.0,
+            |s: &Desktop, i| s.palette.as_ref().unwrap().items[i].key.clone().into(),
+            move |s: &Desktop, i| {
+                let p = s.palette.as_ref().unwrap();
+                let item = &p.items[i];
+                let title = item.action.title(&s.workspace);
+                let hint = item.action.hint(&s.workspace);
+                let target = item.key.clone();
+                let mut option = row()
+                    .key("option")
+                    .role("option")
+                    .label(title.as_ref())
+                    .no_window_drag()
+                    .w_full()
+                    .h(32.0)
+                    .px(8.0)
+                    .gap(8.0)
+                    .center_y()
+                    .radius(5.0)
+                    .child(icon(item.action.icon(), 16.0).color(colors.text_secondary))
+                    .child(label(&title, 14.0, 400.0, colors.text).truncate().shrink())
+                    .child(spacer());
+                if !hint.is_empty() {
+                    option = option.child(
+                        label(hint, 12.0, 400.0, colors.text_secondary)
+                            .shrink()
+                            .truncate(),
+                    );
+                }
+                if Some(i) == p.selected {
+                    option = option.fill(colors.text.alpha(0.09)).focus_selected(true);
+                }
+                option = option
+                    .on_pointer_move_local(move |s: &mut Desktop, event, tx| {
+                        if let Some(p) = s.palette.as_mut()
+                            && p.pointer.replace(event.window()) != Some(event.window())
+                            && p.selected != Some(i)
+                        {
+                            p.selected = Some(i);
+                        } else {
+                            tx.live_only();
+                        }
+                    })
+                    .on_press_tx(move |s: &mut Desktop, tx| {
+                        if let Some(action) = s.palette.as_ref().and_then(|p| p.action_for(&target))
+                        {
+                            s.choose_palette(action, tx);
+                        }
+                    });
+                let mut block = col().w_full();
+                if i == 0 || p.items[i - 1].group != item.group {
+                    block = block.child(
+                        label(item.group, 12.0, 500.0, colors.text_secondary)
+                            .px(8.0)
+                            .pt(10.0)
+                            .pb(4.0),
+                    );
+                }
+                block.child(option)
+            },
+        )
+        .virtual_rows_version(p.revision);
+    let result = if p.items.is_empty() {
+        label("No results found.", 14.0, 400.0, theme.text_secondary).padding(16.0)
+    } else {
+        list
+    };
+    let footer = row()
+        .px(16.0)
+        .w_full()
+        .h(40.0)
+        .gap(5.0)
+        .center_y()
+        .children(
+            [("↑ ↓", "Navigate"), ("Enter", "Select"), ("Esc", "Close")]
+                .into_iter()
+                .flat_map(|(k, name)| {
+                    [
+                        label(k, 12.0, 500.0, theme.text)
+                            .px(4.0)
+                            .py(2.0)
+                            .radius(4.0)
+                            .fill(theme.text.alpha(0.08)),
+                        label(name, 13.0, 500.0, theme.text_secondary).pr(8.0),
+                    ]
+                }),
+        );
+    let panel = col()
+        .key("command-palette")
+        .role("dialog")
+        .label("Command palette")
+        .no_window_drag()
+        .w_full()
+        .max_w(576.0)
+        .h(height)
+        .radius(16.0)
+        .border(1.0, theme.separator)
+        .fill(theme.bg)
+        .child(header)
+        .child(
+            col()
+                .key("palette-scroll")
+                .role("listbox")
+                .label("Results")
+                .grow(1.0)
+                .min_h(0.0)
+                .w_full()
+                .px(8.0)
+                .py(6.0)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(result),
+        )
+        .child(el().h(1.0).w_full().fill(theme.separator))
+        .child(footer)
+        .modal(true, |s: &mut Desktop| s.palette = None)
+        .modal_click_outside(true);
+    overlays.push(
+        el().absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .fill(rune::Color::BLACK.alpha(0.4))
+            .a11y_hidden(),
+    );
+    overlays.push(
+        col()
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .items_center()
+            .px(16.0)
+            .pt(top)
+            .child(panel),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{LiveUpdate, Reply, WorkerMessage};
+
+    #[test]
+    fn removing_a_thread_above_the_selection_keeps_the_same_keyboard_and_pointer_target() {
+        let mut app = Desktop::new();
+        let threads = ["A", "B", "C", "D"].map(|id| super::super::Thread {
+            id: id.into(),
+            project: "project".into(),
+            title: format!("match {id}"),
+            search_title: String::new(),
+            branch: None,
+            status: "idle".into(),
+            model: String::new(),
+            settled: false,
+        });
+        app.workspace.replace(vec![], threads.into());
+        app.open_thread("A");
+        app.workspace.conversation.as_mut().unwrap().begin_watch(1);
+        let mut p = Palette::new();
+        p.query = TextEdit::new("match");
+        app.palette = Some(p);
+        app.filter_palette(false);
+        let pressed = app.palette.as_ref().unwrap().items[2].key.clone();
+        let removed = app.palette.as_ref().unwrap().items[0].key.clone();
+        app.palette.as_mut().unwrap().selected = Some(2);
+        app.receive(WorkerMessage {
+            id: None,
+            reply: Reply::Live {
+                watch: 1,
+                thread: "A".into(),
+                sequence: 1,
+                update: LiveUpdate::Deleted,
+            },
+        });
+        let p = app.palette.as_ref().unwrap();
+        assert_eq!(
+            p.items[p.selected.unwrap()].action.title(&app.workspace),
+            "match C"
+        );
+        assert_eq!(
+            p.action_for(&pressed).unwrap().title(&app.workspace),
+            "match C"
+        );
+        assert!(p.action_for(&removed).is_none());
+    }
+}

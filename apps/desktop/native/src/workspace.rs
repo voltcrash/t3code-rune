@@ -1,3 +1,6 @@
+#[path = "palette.rs"]
+pub(super) mod palette;
+
 use super::{
     Desktop, Request,
     composer::{self, Draft},
@@ -243,6 +246,10 @@ impl Workspace {
             .collect();
         self.filter_revision += 1;
     }
+    pub(super) fn thread_count(&self) -> usize {
+        self.threads.len()
+    }
+
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }
@@ -358,6 +365,25 @@ impl Desktop {
             revision: 0,
         });
         self.refresh_thread();
+    }
+
+    pub(super) fn toggle_sidebar(&mut self) {
+        self.workspace.sidebar = !self.workspace.sidebar;
+    }
+
+    fn show_projects(&mut self) {
+        self.new_threads.active = None;
+        self.workspace.show_projects = true;
+    }
+
+    fn refresh_visible(&mut self) {
+        if let Some(id) = self.new_threads.active.clone() {
+            self.prepare_thread(&id);
+        } else if self.workspace.conversation.is_some() && !self.workspace.show_projects {
+            self.refresh_thread();
+        } else {
+            self.send(Request::Refresh);
+        }
     }
 
     pub(super) fn refresh_thread(&mut self) {
@@ -669,10 +695,12 @@ fn sidebar(s: &Desktop, inset: f32, width: f32, theme: &tok::Theme) -> El {
     sidebar.child(
         row()
             .w_full()
-            .child(action("Projects", theme, !s.pending, |s| {
-                s.new_threads.active = None;
-                s.workspace.show_projects = true
-            }))
+            .child(action(
+                "Projects",
+                theme,
+                !s.pending,
+                Desktop::show_projects,
+            ))
             .child(spacer())
             .child(action("Disconnect", theme, !s.pending, |s| {
                 s.send(Request::Disconnect)
@@ -1117,17 +1145,12 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.pending {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
-    header = header
-        .pr(inset.trailing + 12.0)
-        .child(action("Refresh", theme, !s.pending, |s| {
-            if let Some(id) = s.new_threads.active.clone() {
-                s.prepare_thread(&id);
-            } else if s.workspace.conversation.is_some() && !s.workspace.show_projects {
-                s.refresh_thread();
-            } else {
-                s.send(Request::Refresh);
-            }
-        }));
+    header = header.pr(inset.trailing + 12.0).child(action(
+        "Refresh",
+        theme,
+        !s.pending,
+        Desktop::refresh_visible,
+    ));
     let mut main = col().grow(1.0).min_w(0.0).h_full().child(header);
     if let Some(err) = &s.error {
         main = main.child(
@@ -1181,7 +1204,12 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
-    rune_kit::root(root.child(main), overlays)
+    palette::overlay(s, cx, theme, &mut overlays);
+    let mut workspace = root.child(main);
+    if s.palette.is_some() {
+        workspace = workspace.blur(3.0);
+    }
+    rune_kit::root(workspace, overlays)
 }
 
 #[cfg(test)]
