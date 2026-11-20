@@ -1,5 +1,3 @@
-import * as NodeURL from "node:url";
-
 import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
@@ -23,9 +21,6 @@ import * as Schema from "effect/Schema";
 import { backendChildEnvPatch, runBackendProcess } from "../backend/DesktopBackendProcess.ts";
 import { pairWithTarget } from "./projects.ts";
 
-const entryPath = NodeURL.fileURLToPath(new URL("../../../server/src/bin.ts", import.meta.url));
-const t3Home = NodeURL.fileURLToPath(new URL("../../../../.t3/rune/", import.meta.url));
-
 class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError>()(
   "LocalServerStartupError",
   { message: Schema.String },
@@ -33,7 +28,12 @@ class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError
 
 export const isLocalServerStartupError = Schema.is(LocalServerStartupError);
 
-export function startLocalServer() {
+export function startLocalServer(paths: {
+  readonly entryPath: string;
+  readonly cwd: string;
+  readonly t3Home: string;
+}) {
+  const { entryPath, cwd, t3Home } = paths;
   const lifetime = new AbortController();
   const access = new AbortController();
   const ready = Promise.withResolvers<string>();
@@ -60,7 +60,7 @@ export function startLocalServer() {
     return yield* runBackendProcess({
       executablePath: process.execPath,
       entryPath,
-      cwd: NodeURL.fileURLToPath(new URL("../../../server/", import.meta.url)),
+      cwd,
       args: [entryPath, "--bootstrap-fd", "3", "--base-dir", t3Home],
       env: { ...backendChildEnvPatch(), T3CODE_HOME: t3Home, VITE_DEV_SERVER_URL: undefined },
       extendEnv: true,
@@ -125,7 +125,7 @@ export function startLocalServer() {
           error instanceof Error ? error.message : "The local server process could not run.";
       }
       process.stderr.write(
-        `[Rune desktop] ${message} See ${t3Home}userdata/logs for server diagnostics.\n`,
+        `[Rune desktop] ${message} See ${t3Home}/userdata/logs for server diagnostics.\n`,
       );
     }
     ready.reject(new LocalServerStartupError({ message }));

@@ -2503,7 +2503,7 @@ const generateMacIconSet = Effect.fn("build-desktop-artifact.generateMacIconSet"
   });
 });
 
-const stageMacIcons = Effect.fn("build-desktop-artifact.stageMacIcons")(function* (
+export const stageMacIcons = Effect.fn("build-desktop-artifact.stageMacIcons")(function* (
   stageResourcesDir: string,
   sourcePng: string,
   verbose: boolean,

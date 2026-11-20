@@ -400,16 +400,39 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     col().w_full().h_full().center().fill(theme.bg).child(panel)
 }
 
-fn start() -> io::Result<()> {
-    use std::process::{Command, Stdio};
+fn worker_command() -> io::Result<std::process::Command> {
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe()?;
+        if let Some(contents) = exe.parent().and_then(|dir| dir.parent())
+            && contents.ends_with("Contents")
+            && exe.starts_with(contents.join("MacOS"))
+        {
+            let resources = contents.join("Resources");
+            let mut command = Command::new(contents.join("Helpers/node"));
+            command
+                .arg(resources.join("rune-projects.mjs"))
+                .arg("--packaged");
+            return Ok(command);
+        }
+    }
 
     let node = std::env::var_os("T3CODE_RUNE_NODE").ok_or_else(|| {
-        io::Error::other("Launch the native desktop with vp run dev:desktop:rune.")
+        io::Error::other("Open the Rune desktop app or run vp run dev:desktop:rune.")
     })?;
     let worker = std::env::var_os("T3CODE_RUNE_WORKER")
         .ok_or_else(|| io::Error::other("Missing desktop worker path."))?;
-    let mut child = Command::new(node)
-        .arg(worker)
+    let mut command = Command::new(node);
+    command.arg(worker);
+    Ok(command)
+}
+
+fn start() -> io::Result<()> {
+    use std::process::Stdio;
+
+    let mut child = worker_command()?
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;

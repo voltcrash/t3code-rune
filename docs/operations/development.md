@@ -47,9 +47,13 @@ the two forges; in text that reaches GitHub, use the GitHub number.
 
 Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
 `dev:server` and `dev:web` start those processes separately.
-For the Rune desktop port, run `vp run dev:desktop:rune` with Rust installed. Paste a pairing link
-from a running T3 server to browse its projects. The connection lasts until you disconnect or close
-the window.
+Run `vp run dev:desktop:rune` with Rust installed for the Rune desktop client. It starts a local
+server in the checkout's `.t3/rune`. Disconnect to pair with another environment.
+
+On macOS, `vp run dist:desktop:rune` builds an app for the build machine's architecture with
+the pinned Node runtime, Rust, and the Xcode Command Line Tools. Extract the zip from `release/`
+and open **T3 Code.app**. This local build keeps its data in `~/.t3/rune`. Set `T3CODE_HOME`
+to use a different directory.
 
 See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
 
