@@ -1,3 +1,5 @@
+import { PROJECT_FAVICON_MAX_SOURCE_BYTES } from "@t3tools/client-runtime/project-favicon-cache";
+import { isProjectFaviconFallbackUrl } from "@t3tools/shared/projectFavicon";
 import * as Schema from "effect/Schema";
 import {
   type AssetResource,
@@ -20,18 +22,23 @@ export function imageKey(resource: ImageResource, revision?: string) {
 
 export const readImage = Effect.fn("nativeDesktop.readImage")(function* (
   session: Session,
-  resource: ImageResource,
+  resource: ImageResource | Extract<AssetResource, { _tag: "project-favicon" }>,
+  activeRpc?: Effect.Success<ReturnType<typeof openEnvironmentRpc>>,
 ) {
-  const rpc = yield* openEnvironmentRpc(session);
+  const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
   const signed = yield* rpc[WS_METHODS.assetsCreateUrl]({ resource });
+  const favicon = resource._tag === "project-favicon";
+  if (favicon && isProjectFaviconFallbackUrl(signed.relativeUrl)) return null;
+  const maxBytes = favicon ? PROJECT_FAVICON_MAX_SOURCE_BYTES : PROVIDER_SEND_TURN_MAX_IMAGE_BYTES;
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient);
   const response = yield* client.get(new URL(signed.relativeUrl, session.httpBaseUrl));
+  if (Number(response.headers["content-length"]) > maxBytes) return yield* new ImageTooLarge();
   const chunks: Uint8Array[] = [];
   let size = 0;
   yield* response.stream.pipe(
     Stream.runForEach((chunk) => {
       size += chunk.byteLength;
-      if (size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) return Effect.fail(new ImageTooLarge());
+      if (size > maxBytes) return Effect.fail(new ImageTooLarge());
       chunks.push(chunk);
       return Effect.void;
     }),

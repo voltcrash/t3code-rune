@@ -100,6 +100,10 @@ enum Reply {
         watch: u64,
         offset: i64,
     },
+    RefreshFavicons {
+        watch: u64,
+        projects: Option<Vec<String>>,
+    },
     WorkspacePaused {
         watch: u64,
     },
@@ -132,6 +136,10 @@ enum Reply {
         message: String,
     },
     Image {
+        #[serde(default)]
+        favicon: bool,
+        #[serde(default)]
+        retryable: bool,
         watch: u64,
         key: String,
         operation: String,
@@ -337,6 +345,13 @@ enum Request<'a> {
     },
     ImageHandled {
         watch: u64,
+        operation: String,
+    },
+    ProjectFavicon {
+        watch: u64,
+        project: String,
+        cwd: String,
+        path: Option<String>,
         operation: String,
     },
     InspectImage {
@@ -669,6 +684,12 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::RefreshFavicons { watch, projects } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.refresh_favicons(projects);
+            }
+            return;
+        }
         if let Reply::WorkspacePaused { watch } = message.reply {
             if self.workspace.feed == Some(watch) {
                 self.workspace.paused = true;
@@ -963,6 +984,7 @@ impl Desktop {
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
             | Reply::Appearance { .. }
+            | Reply::RefreshFavicons { .. }
             | Reply::WorkspacePaused { .. }
             | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
@@ -1365,6 +1387,8 @@ fn start() -> io::Result<()> {
             };
             received = true;
             if let Reply::Image {
+                favicon,
+                retryable,
                 watch,
                 key,
                 operation,
@@ -1378,7 +1402,13 @@ fn start() -> io::Result<()> {
                         key,
                         operation,
                         data,
-                        full,
+                        kind: if favicon {
+                            image_decode::Kind::Project { retryable }
+                        } else if full {
+                            image_decode::Kind::Preview
+                        } else {
+                            image_decode::Kind::Thumbnail
+                        },
                     })
                     .is_err()
                 {

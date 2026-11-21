@@ -1,7 +1,7 @@
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
-import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
@@ -76,6 +76,7 @@ export function watchWorkspace(
   emit: (changes: Changes) => void,
   paused: () => void,
   onClock: (offset: number) => void,
+  refreshFavicons: (projects?: string[]) => void,
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
@@ -166,6 +167,8 @@ export function watchWorkspace(
   let sampleOnConnect = initial.clockOffset === undefined;
   let failures = 0;
   let needSnapshot = false;
+  let retryFavicons = false;
+  let completedClones = new Map<string, string>();
   let activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined;
   const subscribe = Effect.fn("nativeDesktop.followWorkspace")(function* () {
     if (needSnapshot) {
@@ -177,6 +180,7 @@ export function watchWorkspace(
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         activeRpc = undefined;
+        retryFavicons = true;
       }),
     );
     if (sampleOnConnect) {
@@ -192,6 +196,26 @@ export function watchWorkspace(
       );
     }
     sampleOnConnect = true;
+    if (session.tracksClones) {
+      yield* rpc[WS_METHODS.subscribeProjectClones]({}).pipe(
+        Stream.runForEach((clones) =>
+          Effect.sync(() => {
+            const next = new Map<string, string>();
+            const changed: string[] = [];
+            for (const clone of clones) {
+              if (clone.phase !== "done") continue;
+              const version = clone.endedAt ?? clone.startedAt;
+              next.set(clone.projectId, version);
+              if (completedClones.get(clone.projectId) !== version) changed.push(clone.projectId);
+            }
+            completedClones = next;
+            if (changed.length) refreshFavicons(changed);
+          }),
+        ),
+        Effect.ignore,
+        Effect.forkScoped,
+      );
+    }
     const feed = rpc[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({
       afterSequence: sequence,
       ...(identities && { knownProjectIdentities: identities }),
@@ -207,6 +231,8 @@ export function watchWorkspace(
             return yield* Effect.fail("Shell snapshot required");
           }
           if (item.kind === "synchronized") {
+            if (retryFavicons) refreshFavicons();
+            retryFavicons = false;
             activeRpc = rpc;
             currentVisit()?.reconnect();
             failures = 0;
@@ -271,6 +297,16 @@ export function watchWorkspace(
   return {
     initialLanding,
     activeRpc: () => activeRpc,
+    projectFavicon(id: string) {
+      const row = projects.get(id);
+      return row?.favicon && !row.archived
+        ? {
+            _tag: "project-favicon" as const,
+            cwd: row.path,
+            ...(row.favicon.path && { path: row.favicon.path }),
+          }
+        : undefined;
+    },
     publishThrough(committed: number) {
       requestedSequence = committed;
       flush();

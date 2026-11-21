@@ -6,6 +6,8 @@ mod command;
 mod images;
 #[path = "message.rs"]
 mod message;
+#[path = "project_favicon.rs"]
+mod project_favicon;
 #[path = "tool.rs"]
 pub(crate) mod tool;
 #[path = "turn_folds.rs"]
@@ -47,18 +49,13 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct Project {
     id: String,
     icon: Option<crate::project_icon::ProjectIcon>,
+    favicon: Option<project_favicon::Target>,
     title: String,
     #[serde(skip)]
     search_title: String,
     path: String,
     archived: bool,
     pub(super) scratch: bool,
-}
-
-impl Project {
-    fn badge(&self, dark: bool) -> Option<El> {
-        self.icon.as_ref().map(|icon| icon.view(dark))
-    }
 }
 
 #[derive(Deserialize)]
@@ -283,6 +280,7 @@ pub(super) struct Workspace {
     pub questions: Forms,
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
+    favicon_cache: project_favicon::Cache,
     by_project: HashMap<String, usize>,
     threads: Vec<Thread>,
     by_thread: HashMap<String, usize>,
@@ -324,6 +322,7 @@ impl Workspace {
             explorer: None,
             scratch_available: false,
             projects: Vec::new(),
+            favicon_cache: Default::default(),
             by_project: HashMap::new(),
             threads: Vec::new(),
             by_thread: HashMap::new(),
@@ -348,6 +347,7 @@ impl Workspace {
         for t in &mut threads {
             t.search_title = t.title.to_lowercase();
         }
+        self.favicon_cache.clear();
         self.by_project = row_index(&projects, |p| &p.id);
         threads.sort_by(Thread::sidebar_order);
         self.by_thread = row_index(&threads, |t| &t.id);
@@ -417,6 +417,14 @@ impl Workspace {
     fn put_project(&mut self, mut project: Project) {
         project.search_title = project.title.to_lowercase();
         if let Some(&index) = self.by_project.get(&project.id) {
+            let previous = &mut self.projects[index];
+            if previous.path == project.path
+                && previous.archived == project.archived
+                && let (Some(old), Some(next)) = (&previous.favicon, &project.favicon)
+                && old.path == next.path
+            {
+                project.favicon = previous.favicon.take();
+            }
             self.projects[index] = project;
         } else {
             self.by_project
@@ -877,7 +885,7 @@ fn thread_row(
         .w_full()
         .center_y()
         .gap(6.)
-        .children(project.and_then(|p| p.badge(dark)));
+        .children(project.and_then(|p| p.badge(s.workspace.feed, dark)));
     if thread.pinned {
         heading = heading.child(thread_actions::pin_indicator(s, thread, theme));
     }
@@ -1323,7 +1331,7 @@ fn projects_view(s: &Desktop, theme: &tok::Theme, dark: bool) -> El {
                     .w_full()
                     .center_y()
                     .gap(8.0)
-                    .children(p.badge(dark))
+                    .children(p.badge(s.workspace.feed, dark))
                     .child(label(&p.title, 14.0, 600.0, theme.text).truncate().shrink());
                 if p.archived {
                     title = title.child(label("Archived", 12.0, 400.0, theme.text_secondary));
@@ -1552,7 +1560,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
         header = header
-            .children(project.badge(dark))
+            .children(project.badge(s.workspace.feed, dark))
             .child(label(&project.title, 13.0, 400.0, theme.text_secondary))
             .child(label("/  New thread", 14.0, 500.0, theme.text));
     } else if !s.workspace.show_projects
@@ -1560,7 +1568,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     {
         if let Some(project) = s.workspace.project(&thread.project) {
             header = header
-                .children(project.badge(dark))
+                .children(project.badge(s.workspace.feed, dark))
                 .child(label(&project.title, 13.0, 400.0, theme.text_secondary).truncate())
                 .child(label("/", 13.0, 400.0, theme.text_secondary));
         }
