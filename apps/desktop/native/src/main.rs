@@ -12,6 +12,7 @@ mod approval;
 mod attachments;
 mod composer;
 mod image_decode;
+mod launch_check;
 mod models;
 mod navigation;
 mod new_thread;
@@ -1094,6 +1095,7 @@ fn start() -> io::Result<()> {
         .as_deref()
         .and_then(|arg| arg.to_str())
         .filter(|arg| matches!(*arg, "--integrated-dev" | "--source-build"));
+    let launch_check = launch_check::LaunchCheck::requested()?;
     let mut worker = worker_command(mode)?;
     #[cfg(target_os = "windows")]
     {
@@ -1327,18 +1329,31 @@ fn start() -> io::Result<()> {
     });
     // Rune's fast exit would skip reaping the worker and its scoped backend.
     rune::orderly_exit();
+    let (app, verified) = if let Some(check) = launch_check {
+        let passed = std::rc::Rc::new(std::cell::Cell::new(false));
+        (check.observe(app, passed.clone()), Some(passed))
+    } else {
+        (app, None)
+    };
     let result = app.try_run();
     let status = reader
         .join()
         .map_err(|_| io::Error::other("The desktop worker reader stopped unexpectedly."))??;
     result.map_err(io::Error::other)?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
+    if !status.success() {
+        return Err(io::Error::other(format!(
             "The desktop worker exited with {status}."
-        )))
+        )));
     }
+    if let Some(passed) = verified {
+        if !passed.get() {
+            return Err(io::Error::other(
+                "Window closed before showing the fixture message",
+            ));
+        }
+        println!("T3 Code Rune launch check passed");
+    }
+    Ok(())
 }
 
 fn main() -> io::Result<()> {
