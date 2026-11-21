@@ -15,8 +15,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Electron from "electron";
 import { vi } from "vite-plus/test";
 
-vi.mock("electron", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("electron")>()),
+vi.mock("electron", () => ({
   session: {
     fromPartition: vi.fn(() => ({
       getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 t3code/1.2.3"),
