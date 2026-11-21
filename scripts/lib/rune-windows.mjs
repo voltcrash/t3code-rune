@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import { signTrustedWindowsFile } from "../build-cli-archive.ts";
-import { AzureTrustedSigningOptionsConfig } from "../build-desktop-artifact.ts";
+import { AzureTrustedSigningOptionsConfig } from "../desktop-packaging.ts";
 import { Data, NtExecutable, NtExecutableResource, Resource } from "resedit";
 
 export async function windowsNodeArchitecture(path, version) {

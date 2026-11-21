@@ -30,7 +30,7 @@ import {
   validatePackagedWslRuntime,
   WSL_RUNTIME_ARCHIVE_NAME,
   WSL_RUNTIME_ARCHIVE_HASH_NAME,
-} from "./build-desktop-artifact.ts";
+} from "./desktop-packaging.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
 import { publishRuneArtifacts } from "./lib/rune-artifacts.mjs";
