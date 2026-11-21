@@ -4,6 +4,8 @@ mod activity;
 mod command;
 #[path = "images.rs"]
 mod images;
+#[path = "message.rs"]
+mod message;
 #[path = "tool.rs"]
 pub(crate) mod tool;
 #[path = "turn_folds.rs"]
@@ -37,7 +39,7 @@ use rune::{
     Cx, El, FileDialogOptions, GrowthSpec, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row,
     spacer, text, text_input, tok,
 };
-use rune_kit::{Kit, Markdown, MarkdownStyle};
+use rune_kit::{Kit, MarkdownStyle};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -1417,16 +1419,21 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
     area.child(list)
 }
 
+fn chat_lane_inset(viewport_width: f32) -> f32 {
+    if viewport_width >= 640. { 48. } else { 12. }
+}
+
 fn timeline(
     s: &Desktop,
     pane: &Conversation,
     theme: &tok::Theme,
     dark: bool,
+    lane_inset: f32,
     overlays: &mut Vec<El>,
 ) -> El {
     let kit = Kit::neutral(dark);
     let style = MarkdownStyle::from_kit(&kit)
-        .body_font(TextStyle::new(14.0, 400.0).lh(22.0))
+        .body_font(TextStyle::new(14.0, 400.0).lh(22.75))
         .text(theme.text)
         .table_full_width(true)
         .table_flush_left(true)
@@ -1434,7 +1441,7 @@ fn timeline(
         .table_header_fill(rune::Color::TRANSPARENT)
         .table_outline(None)
         .table_cell_padding(10.0, 8.0);
-    let mut content = col().w_full().max_w(736.0).self_center();
+    let mut content = col().w_full().max_w(736.0).self_center().pt(16.);
     if pane.cursor.is_some() {
         content = content.child(action(
             "Load earlier messages",
@@ -1458,6 +1465,7 @@ fn timeline(
     let colors = *theme;
     plan::overlay(s, theme, &kit, overlays);
     let message_kit = kit.clone();
+    let bubble = rune::color::hex(if dark { "#1e1e1e" } else { "#ececee" }).unwrap();
     let list = col()
         .key("message-rows")
         .w_full()
@@ -1498,52 +1506,11 @@ fn timeline(
                     }
                     return command::row_view(s, message, caption, theme, &message_kit);
                 }
-                let user = message.role == "user";
-                let mut content = col().gap(4.);
-                let mut body = col().gap(6.);
-                if user {
-                    content = content.max_w(640.).self_end();
-                    body = body
-                        .self_end()
-                        .px(14.)
-                        .py(9.)
-                        .radius(14.)
-                        .fill(theme.text.alpha(0.08));
-                    if !message.body.is_empty() {
-                        body = body.child(
-                            label(&message.body, 14., 400., theme.text)
-                                .wrap()
-                                .selectable(true),
-                        );
-                    }
+                if message.role == "user" {
+                    message::prompt(s, pane, message, theme, bubble)
                 } else {
-                    content = content.w_full();
-                    body = body.w_full().child(
-                        Markdown::new(&message.body)
-                            .style(style.clone())
-                            .selectable(true)
-                            .build(&message_kit),
-                    );
+                    message::reply(s, message, theme, &message_kit, &style)
                 }
-                for file in &message.attachments {
-                    if let Some(key) = &file.image {
-                        let thumb = images::thumbnail(s, key, &file.name, theme, 192.);
-                        if user {
-                            content = content.child(thumb.self_end());
-                        } else {
-                            body = body.child(thumb);
-                        }
-                    } else {
-                        body = body.child(label(&file.name, 12., 500., theme.text_secondary));
-                    }
-                }
-                if !user
-                    || !message.body.is_empty()
-                    || message.attachments.iter().any(|a| a.image.is_none())
-                {
-                    content = content.child(body);
-                }
-                col().w_full().py(10.0).child(content)
             },
         )
         .virtual_rows_version((&pane.id, pane.revision, dark));
@@ -1556,7 +1523,7 @@ fn timeline(
         .grow(1.0)
         .min_h(0.0)
         .w_full()
-        .px(24.0)
+        .px(lane_inset)
         .scroll(ScrollSpec { stick_bottom: true })
         .child(content)
 }
@@ -1692,7 +1659,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
-            timeline(s, pane, theme, s.dark(cx), &mut overlays)
+            timeline(
+                s,
+                pane,
+                theme,
+                s.dark(cx),
+                chat_lane_inset(viewport[0]),
+                &mut overlays,
+            )
         } else if matches!(s.landing, Landing::Failed(_)) {
             col()
                 .grow(1.)
@@ -1726,7 +1700,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         if s.workspace.questions.contains_key(&thread.id) {
             main = main.child(questions::banner(s, &thread.id, theme, s.dark(cx)));
         }
-        main = main.child(composer::view(s, thread, theme, cx, &mut overlays));
+        main = main.child(composer::view(
+            s,
+            thread,
+            theme,
+            cx,
+            &mut overlays,
+            chat_lane_inset(viewport[0]),
+        ));
     }
     if let Some(drawer) = crate::terminal::view(s, theme, s.dark(cx), viewport[1]) {
         main = main.child(drawer);
