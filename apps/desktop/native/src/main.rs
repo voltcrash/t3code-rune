@@ -1235,6 +1235,44 @@ fn worker_command(
     Ok(command)
 }
 
+#[cfg(windows)]
+fn run_windows_cli(mut cli: std::process::Command) -> io::Result<()> {
+    use std::os::windows::io::{AsHandle, AsRawHandle, OwnedHandle};
+    use std::os::windows::process::CommandExt;
+    use winsafe::{AttachConsole, PidParent, co};
+
+    // Attaching a GUI executable to cmd.exe can replace redirected standard handles.
+    fn inherited(stream: impl AsHandle + AsRawHandle) -> Option<OwnedHandle> {
+        if stream.as_raw_handle().is_null() {
+            return None;
+        }
+        stream.as_handle().try_clone_to_owned().ok()
+    }
+    let stdin = inherited(io::stdin());
+    let stdout = inherited(io::stdout());
+    let stderr = inherited(io::stderr());
+    match AttachConsole(PidParent::Parent) {
+        Ok(()) | Err(co::ERROR::ACCESS_DENIED) => {
+            // The child handles Ctrl+C and Ctrl+Break while this launcher waits for its exit code.
+            ctrlc::set_handler(|| {}).map_err(io::Error::other)?;
+        }
+        Err(_) => {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cli.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+    if let Some(input) = stdin {
+        cli.stdin(input);
+    }
+    if let Some(output) = stdout {
+        cli.stdout(output);
+    }
+    if let Some(error) = stderr {
+        cli.stderr(error);
+    }
+    std::process::exit(cli.status()?.code().unwrap_or(1));
+}
+
 fn start() -> io::Result<()> {
     use std::process::Stdio;
 
@@ -1244,7 +1282,6 @@ fn start() -> io::Result<()> {
         .and_then(|arg| arg.to_str())
         .filter(|arg| matches!(*arg, "--integrated-dev" | "--source-build"));
     let package = packaged_runtime()?;
-    #[cfg(unix)]
     if let Some((node, resources)) = &package
         && std::env::var_os("ELECTRON_RUN_AS_NODE").as_deref() == Some(std::ffi::OsStr::new("1"))
     {
@@ -1253,12 +1290,19 @@ fn start() -> io::Result<()> {
         if args.next().is_some_and(|entry| {
             std::path::Path::new(&entry).ends_with("app.asar/apps/server/dist/bin.mjs")
         }) {
-            use std::os::unix::process::CommandExt;
-            return Err(std::process::Command::new(node)
-                .arg(resources.join("server/dist/bin.mjs"))
+            let mut cli = std::process::Command::new(node);
+            cli.arg(resources.join("server/dist/bin.mjs"))
                 .args(args)
-                .env_remove("ELECTRON_RUN_AS_NODE")
-                .exec());
+                .env_remove("ELECTRON_RUN_AS_NODE");
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                return Err(cli.exec());
+            }
+            #[cfg(windows)]
+            {
+                return run_windows_cli(cli);
+            }
         }
     }
     let launch_check = launch_check::LaunchCheck::requested()?;
