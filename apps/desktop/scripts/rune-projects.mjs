@@ -1,10 +1,18 @@
-import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  DEFAULT_CLIENT_SETTINGS,
+  ORCHESTRATION_V2_WS_METHODS,
+  ThreadId,
+} from "@t3tools/contracts";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
+import { readClientSettings } from "../src/settings/DesktopClientSettings.ts";
+import * as Logger from "effect/Logger";
+import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
@@ -609,6 +617,24 @@ const homes = packaged
       },
     })
   : { server: sourceHome, preferences: sourceHome };
+void Effect.runPromise(
+  FileSystem.FileSystem.use((fs) =>
+    readClientSettings(fs, NodePath.join(homes.server, "userdata", "client-settings.json")),
+  ).pipe(
+    Effect.provide(NodeFileSystem.layer),
+    Effect.provideService(Logger.LogToStderr, true),
+    Effect.catch(() => Effect.succeed(Option.none())),
+  ),
+).then((saved) => {
+  const settings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
+  write({
+    type: "typography",
+    sans: settings.fontFamilySans,
+    code: settings.fontFamilyCode,
+    smoothing: settings.fontSmoothing,
+  });
+});
+
 function readPreference(name) {
   try {
     return NodeFS.readFileSync(NodePath.join(homes.preferences, name), "utf8").trim();

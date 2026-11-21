@@ -3,6 +3,34 @@ use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
 use rune_kit::glyphs;
 use serde::{Deserialize, Serialize};
 
+pub(crate) const SANS: &str = if cfg!(target_os = "macos") {
+    r#"".SF NS", Inter, system-ui, sans-serif"#
+} else {
+    "Inter, Segoe UI, system-ui, sans-serif"
+};
+pub(crate) const MONO: &str =
+    "ui-monospace, SF Mono, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace";
+
+pub(crate) fn apply_fonts(tx: &mut Tx, sans: String, code: String, smoothing: bool) {
+    let stack = |saved: &str, fallback: &str| {
+        let saved = saved.trim();
+        if saved.is_empty() {
+            fallback.to_owned()
+        } else {
+            format!("{saved}, {fallback}")
+        }
+    };
+    tx.set_font_families(stack(&sans, SANS), stack(&code, MONO));
+    if cfg!(target_os = "macos") {
+        // Electron's checked setting uses CSS antialiased text, without CoreText dilation.
+        tx.set_font_smoothing(if smoothing {
+            rune::FontSmoothing::Off
+        } else {
+            rune::FontSmoothing::On
+        });
+    }
+}
+
 #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Mode {
