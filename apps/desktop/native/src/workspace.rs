@@ -1070,13 +1070,7 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
 
 fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
     let count = ws.settled.len().to_string();
-    let chevron = icon(&rune_kit::glyphs::CHEVRON_DOWN, 12.)
-        .rotate(if ws.show_settled {
-            0.
-        } else {
-            -std::f32::consts::FRAC_PI_2
-        })
-        .color(theme.text_secondary);
+    let chevron = crate::disclosure_chevron(ws.show_settled, 12.).color(theme.text_secondary);
     row()
         .key("settled-section")
         .role("button")

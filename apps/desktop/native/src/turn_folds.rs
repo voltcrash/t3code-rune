@@ -1,6 +1,5 @@
 use super::{Desktop, label};
-use rune::{El, col, el, icon, row, tok};
-use rune_kit::glyphs;
+use rune::{El, col, el, row, tok};
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -114,15 +113,7 @@ impl Layout {
             .radius(6.)
             .hover(theme.hover)
             .child(label(&fold.label, 14., 400., theme.text_secondary))
-            .child(
-                icon(&glyphs::CHEVRON_DOWN, 14.)
-                    .rotate(if open {
-                        0.
-                    } else {
-                        -std::f32::consts::FRAC_PI_2
-                    })
-                    .color(theme.text_secondary),
-            )
+            .child(crate::disclosure_chevron(open, 14.).color(theme.text_secondary))
             .on_press(move |s: &mut Desktop| {
                 if let Some(pane) = &mut s.workspace.conversation
                     && pane.id == thread

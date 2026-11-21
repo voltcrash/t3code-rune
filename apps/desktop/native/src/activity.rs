@@ -44,15 +44,7 @@ pub(super) fn disclosure(
                 .grow(1.)
                 .min_w(0.),
         )
-        .child(
-            icon(&glyphs::CHEVRON_DOWN, 14.)
-                .color(theme.text_secondary)
-                .rotate(if open {
-                    0.
-                } else {
-                    -std::f32::consts::FRAC_PI_2
-                }),
-        )
+        .child(crate::disclosure_chevron(open, 14.).color(theme.text_secondary))
 }
 
 pub(super) const PREVIEW_SOURCE_BYTES: usize = 8192;
