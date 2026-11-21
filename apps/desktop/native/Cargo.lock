@@ -3376,6 +3376,7 @@ dependencies = [
  "serde_json",
  "uuid",
  "winsafe",
+ "x11rb",
 ]
 
 [[package]]
@@ -4385,6 +4386,7 @@ dependencies = [
  "once_cell",
  "rustix 1.1.6",
  "x11rb-protocol",
+ "xcursor",
 ]
 
 [[package]]
