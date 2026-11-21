@@ -15,6 +15,7 @@ mod navigation;
 mod new_thread;
 mod questions;
 mod stage;
+mod terminal;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
@@ -27,6 +28,10 @@ enum Reply {
         stage: stage::Stage,
         local: bool,
         can_operate: bool,
+        #[serde(default)]
+        terminal_read: bool,
+        #[serde(default)]
+        terminal_write: bool,
     },
     Workspace {
         scratch_available: bool,
@@ -68,6 +73,12 @@ enum Reply {
         operation: String,
         #[serde(flatten)]
         recorded: workspace::file_diff::Recorded,
+    },
+    Terminal {
+        watch: u64,
+        operation: String,
+        #[serde(flatten)]
+        frame: terminal::Frame,
     },
     CommandOutput {
         operation: String,
@@ -128,6 +139,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    Terminal {
+        watch: u64,
+        operation: String,
+        #[serde(flatten)]
+        input: terminal::Input,
+    },
     Local,
     Pair {
         link: &'a str,
@@ -224,6 +241,9 @@ struct Desktop {
     stage: stage::Stage,
     local: bool,
     can_operate: bool,
+    terminal_read: bool,
+    terminal_write: bool,
+    terminal: Option<terminal::Panel>,
     project_path: Option<TextEdit>,
     workspace: Workspace,
     history: navigation::History,
@@ -245,6 +265,9 @@ impl Desktop {
             stage: Default::default(),
             local: false,
             can_operate: false,
+            terminal_read: false,
+            terminal_write: false,
+            terminal: None,
             project_path: None,
             workspace: Workspace::new(),
             history: Default::default(),
@@ -318,6 +341,15 @@ impl Desktop {
             self.workspace.diff.receive(&operation, recorded);
             return;
         }
+        if let Reply::Terminal {
+            watch,
+            operation,
+            frame,
+        } = message.reply
+        {
+            self.terminal_frame(watch, &operation, frame);
+            return;
+        }
         if let Reply::CommandOutput { operation, text } = message.reply {
             if let Some(pane) = &mut self.workspace.conversation {
                 pane.update_output(&operation, text);
@@ -355,6 +387,7 @@ impl Desktop {
         {
             let thread_count = self.workspace.thread_count();
             self.workspace.apply_live(watch, &thread, sequence, update);
+            self.close_stale_terminal();
             if thread_count != self.workspace.thread_count() {
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
@@ -417,10 +450,14 @@ impl Desktop {
                 stage,
                 local,
                 can_operate,
+                terminal_read,
+                terminal_write,
             } => {
                 self.stage = stage;
                 self.local = local;
                 self.can_operate = can_operate;
+                self.terminal_read = terminal_read;
+                self.terminal_write = terminal_write;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -485,6 +522,7 @@ impl Desktop {
             }
             Reply::Live { .. }
             | Reply::StopResult { .. }
+            | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
             | Reply::Image { .. }
             | Reply::ToolDetail { .. }
@@ -505,6 +543,7 @@ impl Desktop {
                 };
             }
         }
+        self.close_stale_terminal();
     }
 }
 
@@ -720,6 +759,12 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
+            if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
+                if !tx.key_repeat() {
+                    s.toggle_terminal(tx);
+                }
+                return true;
+            }
             if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
                 s.close_diff();
                 return true;
@@ -913,6 +958,8 @@ mod tests {
                 stage: stage::Stage::Dev,
                 local: true,
                 can_operate: true,
+                terminal_read: true,
+                terminal_write: true,
             },
         });
         assert_eq!(desktop.environment.as_deref(), Some("This computer"));

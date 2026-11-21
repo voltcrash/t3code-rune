@@ -17,6 +17,7 @@ enum Action {
     Back,
     Forward,
     ToggleSidebar,
+    ToggleTerminal,
     Refresh,
     Project(usize),
     Thread(usize),
@@ -38,6 +39,7 @@ impl Action {
             Self::Forward => "go-forward".into(),
             Self::ToggleSidebar => "toggle-sidebar".into(),
             Self::Refresh => "refresh".into(),
+            Self::ToggleTerminal => "toggle-terminal".into(),
         }
     }
 
@@ -52,6 +54,7 @@ impl Action {
             Self::Forward => "Go forward",
             Self::ToggleSidebar => "Toggle sidebar",
             Self::Refresh => "Refresh",
+            Self::ToggleTerminal => "Toggle terminal drawer",
             Self::Project(i) | Self::StartInProject(i) => &ws.projects[i].title,
             Self::Thread(i) => &ws.threads[i].title,
         }
@@ -69,6 +72,8 @@ impl Action {
             Self::Forward => "Ctrl+]",
             Self::ToggleSidebar if cfg!(target_os = "macos") => "⌘B",
             Self::ToggleSidebar => "Ctrl+B",
+            Self::ToggleTerminal if cfg!(target_os = "macos") => "⌘J",
+            Self::ToggleTerminal => "Ctrl+J",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
             _ => "",
         }
@@ -83,6 +88,7 @@ impl Action {
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
             Self::Refresh => &REFRESH,
+            Self::ToggleTerminal => &crate::terminal::ICON,
         }
     }
 }
@@ -146,6 +152,7 @@ impl Palette {
         ws: &Workspace,
         active: Option<&str>,
         write: bool,
+        terminal_available: bool,
         history: &crate::navigation::History,
         keep_selection: bool,
     ) {
@@ -188,6 +195,9 @@ impl Palette {
                 }
                 command(Action::Projects);
                 command(Action::ToggleSidebar);
+                if terminal_available {
+                    command(Action::ToggleTerminal);
+                }
                 command(Action::Refresh);
             }
             Page::Project(id) if write => {
@@ -265,11 +275,13 @@ impl Desktop {
                 .get(&pane.id)
                 .map(|&i| self.workspace.threads[i].project.as_str())
         });
+        let terminal_available = self.terminal_available();
         if let Some(palette) = self.palette.as_mut() {
             palette.filter(
                 &self.workspace,
                 active,
                 self.can_operate,
+                terminal_available,
                 &self.history,
                 keep_selection,
             );
@@ -310,6 +322,7 @@ impl Desktop {
             Action::Back => self.go(false),
             Action::Forward => self.go(true),
             Action::ToggleSidebar => self.toggle_sidebar(),
+            Action::ToggleTerminal => self.toggle_terminal(tx),
             Action::Refresh => self.refresh_visible(),
             Action::AddProject => {
                 self.show_projects();
