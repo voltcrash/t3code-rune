@@ -84,9 +84,11 @@ if (requestedPlatform !== undefined && requestedPlatform !== platform) {
 const target =
   values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
 if (
-  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb", "AppImage,deb"], win: ["zip", "nsis"] }[
-    platform
-  ]?.includes(target)
+  !{
+    mac: ["dmg", "zip", "dmg,zip"],
+    linux: ["AppImage", "deb", "AppImage,deb"],
+    win: ["zip", "nsis"],
+  }[platform]?.includes(target)
 ) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
 }
@@ -339,12 +341,20 @@ async function buildRunePackage() {
       }),
     );
     await signRuneMacApp({ app, resources, node: bundledNode, repoRoot, signing });
-    const artifact = NodePath.join(published, file);
-    if (target === "dmg") {
+    const buildDmg = formats.includes("dmg");
+    if (buildDmg) {
+      const artifact = NodePath.join(published, artifactName("dmg"));
       await buildRuneDmg({ app, artifact, desktop, tmp, version });
       if (signing) await signRuneDmg(artifact, signing);
-    } else {
-      await buildRuneMacZip({ app, artifact, tmp, signing });
+    }
+    if (formats.includes("zip")) {
+      await buildRuneMacZip({
+        app,
+        artifact: NodePath.join(published, artifactName("zip")),
+        tmp,
+        signing,
+        submittedInDmg: buildDmg,
+      });
     }
   } else if (win) {
     await stampWindowsExecutable(
