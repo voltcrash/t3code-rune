@@ -1,3 +1,4 @@
+import { projectGlyph } from "./projectIcon.ts";
 import { legacyThreadVisits, visitInput, type OpenVisitDatabase } from "./visits.ts";
 import { recordServerClock, toServerClock } from "@t3tools/client-runtime/clock";
 import * as Clock from "effect/Clock";
@@ -140,12 +141,16 @@ export const headersFor = (session: Session) =>
   withOrchestrationProtocolHeader({ authorization: `Bearer ${session.token}` });
 
 export function projectSummary(
-  project: Pick<Project, "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt">,
+  project: Pick<
+    Project,
+    "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt" | "projectIcon"
+  >,
   scratchRoot: string | undefined,
 ) {
   return {
     id: project.id,
     title: project.title,
+    icon: projectGlyph(project.title, project.projectIcon),
     path: project.workspaceRoot,
     archived: project.archivedAt != null,
     activity_at: Date.parse(project.updatedAt),

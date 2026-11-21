@@ -1,4 +1,4 @@
-import { deriveProjectIdentity } from "../../projectIdentity";
+import { deriveProjectIdentity } from "@t3tools/client-runtime/project-identity";
 import { ProjectMonogram } from "../ProjectMonogram";
 import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 import { T, useGT, useMessages } from "gt-react";

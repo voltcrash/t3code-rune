@@ -46,12 +46,19 @@ use std::collections::{HashMap, HashSet};
 #[derive(Deserialize)]
 pub(super) struct Project {
     id: String,
+    icon: Option<crate::project_icon::ProjectIcon>,
     title: String,
     #[serde(skip)]
     search_title: String,
     path: String,
     archived: bool,
     pub(super) scratch: bool,
+}
+
+impl Project {
+    fn badge(&self, dark: bool) -> Option<El> {
+        self.icon.as_ref().map(|icon| icon.view(dark))
+    }
 }
 
 #[derive(Deserialize)]
@@ -848,25 +855,10 @@ fn hide_sidebar(theme: &tok::Theme) -> El {
         .on_press(Desktop::toggle_sidebar)
 }
 
-fn project_badge(title: &str, theme: &tok::Theme) -> El {
-    let initials = title
-        .split_whitespace()
-        .take(2)
-        .filter_map(|part| part.chars().next())
-        .collect::<String>()
-        .to_uppercase();
-    let blue = tok::accent(0, true);
-    el().size(16.0, 16.0)
-        .radius(4.0)
-        .fill(blue.alpha(0.2))
-        .center()
-        .child(label(&initials, 8.0, 600.0, theme.text_secondary))
-}
-
 fn thread_row(
     s: &Desktop,
     thread: &Thread,
-    project: &str,
+    project: Option<&Project>,
     selected: bool,
     theme: &tok::Theme,
     dark: bool,
@@ -874,7 +866,8 @@ fn thread_row(
     let id = thread.id.clone();
     let recedes = thread.recedes && !selected;
     let (status, name) = sidebar_status::view(thread, dark, theme, &s.workspace.row_clock);
-    let accessible = [Some(thread.title.as_str()), name, Some(project)]
+    let project_name = project.map_or("", |p| p.title.as_str());
+    let accessible = [Some(thread.title.as_str()), name, Some(project_name)]
         .into_iter()
         .flatten()
         .filter(|part| !part.is_empty())
@@ -884,13 +877,13 @@ fn thread_row(
         .w_full()
         .center_y()
         .gap(6.)
-        .child(project_badge(project, theme));
+        .children(project.and_then(|p| p.badge(dark)));
     if thread.pinned {
         heading = heading.child(thread_actions::pin_indicator(s, thread, theme));
     }
     let heading = heading
         .child(
-            label(project, 12.0, 400.0, theme.text_secondary)
+            label(project_name, 12.0, 400.0, theme.text_secondary)
                 .truncate()
                 .shrink(),
         )
@@ -981,10 +974,7 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
             },
             move |s: &Desktop, i| {
                 let t = &s.workspace.threads[s.sidebar_rows(settled)[i]];
-                let project = s
-                    .workspace
-                    .project(&t.project)
-                    .map_or("", |p| p.title.as_str());
+                let project = s.workspace.project(&t.project);
                 let selected = if query_empty {
                     s.new_threads.active.is_none()
                         && !s.workspace.show_projects
@@ -1316,7 +1306,7 @@ fn home_button(
     }
 }
 
-fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
+fn projects_view(s: &Desktop, theme: &tok::Theme, dark: bool) -> El {
     let colors = *theme;
     let list = col()
         .key("project-rows")
@@ -1333,6 +1323,7 @@ fn projects_view(s: &Desktop, theme: &tok::Theme) -> El {
                     .w_full()
                     .center_y()
                     .gap(8.0)
+                    .children(p.badge(dark))
                     .child(label(&p.title, 14.0, 600.0, theme.text).truncate().shrink());
                 if p.archived {
                     title = title.child(label("Archived", 12.0, 400.0, theme.text_secondary));
@@ -1529,6 +1520,7 @@ fn timeline(
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
+    let dark = s.dark(cx);
     let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
     let narrow = viewport[0] < 640.;
     let composing = s.new_threads.active.as_deref();
@@ -1560,7 +1552,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
         header = header
-            .child(project_badge(&project.title, theme))
+            .children(project.badge(dark))
             .child(label(&project.title, 13.0, 400.0, theme.text_secondary))
             .child(label("/  New thread", 14.0, 500.0, theme.text));
     } else if !s.workspace.show_projects
@@ -1568,7 +1560,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     {
         if let Some(project) = s.workspace.project(&thread.project) {
             header = header
-                .child(project_badge(&project.title, theme))
+                .children(project.badge(dark))
                 .child(label(&project.title, 13.0, 400.0, theme.text_secondary).truncate())
                 .child(label("/", 13.0, 400.0, theme.text_secondary));
         }
@@ -1576,7 +1568,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             s,
             thread,
             theme,
-            &Kit::neutral(s.dark(cx)),
+            &Kit::neutral(dark),
             &mut overlays,
         ));
     } else if !empty && !landing {
@@ -1663,7 +1655,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 s,
                 pane,
                 theme,
-                s.dark(cx),
+                dark,
                 chat_lane_inset(viewport[0]),
                 &mut overlays,
             )
@@ -1687,7 +1679,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         } else if empty {
             empty_home(s, theme, narrow)
         } else {
-            projects_view(s, theme)
+            projects_view(s, theme, dark)
         },
     );
     if composing.is_none()
@@ -1698,7 +1690,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && (s.can_operate || s.workspace.questions.contains_key(&thread.id))
     {
         if s.workspace.questions.contains_key(&thread.id) {
-            main = main.child(questions::banner(s, &thread.id, theme, s.dark(cx)));
+            main = main.child(questions::banner(s, &thread.id, theme, dark));
         }
         main = main.child(composer::view(
             s,
@@ -1709,7 +1701,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             chat_lane_inset(viewport[0]),
         ));
     }
-    if let Some(drawer) = crate::terminal::view(s, theme, s.dark(cx), viewport[1]) {
+    if let Some(drawer) = crate::terminal::view(s, theme, dark, viewport[1]) {
         main = main.child(drawer);
     }
     let diff_open = s.workspace.diff.visible(s);
@@ -1730,25 +1722,18 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     s.workspace.row_clock.mounted.set(show_sidebar);
     if show_sidebar {
         root = root
-            .child(sidebar(
-                s,
-                inset.leading,
-                width,
-                theme,
-                s.dark(cx),
-                &mut overlays,
-            ))
+            .child(sidebar(s, inset.leading, width, theme, dark, &mut overlays))
             .child(if narrow {
                 el().w(1.).h_full().fill(theme.separator)
             } else {
                 el().w(1.)
             });
     }
-    thread_actions::sidebar_menu(s, &Kit::neutral(s.dark(cx)), &mut overlays);
+    thread_actions::sidebar_menu(s, &Kit::neutral(dark), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if panel_open {
         let leading = if split_panel { 0. } else { inset.leading };
-        let kit = Kit::neutral(s.dark(cx));
+        let kit = Kit::neutral(dark);
         let panel = if diff_open {
             file_diff::view(s, theme, &kit, leading, inset.trailing)
         } else if s.workspace.explorer.is_some() {
