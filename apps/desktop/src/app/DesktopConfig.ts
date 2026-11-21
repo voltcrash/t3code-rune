@@ -34,6 +34,7 @@ const compactEnv = (env: Readonly<Record<string, string | undefined>>): Record<s
   );
 
 export const configuredBackendPort = Config.Port("T3CODE_PORT").pipe(Config.option);
+export const configuredDisableAutoUpdate = optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE");
 export const desktopLanHostOverride = trimmedString("T3CODE_DESKTOP_LAN_HOST");
 
 export const DesktopConfig = Config.all({
@@ -60,7 +61,7 @@ export const DesktopConfig = Config.all({
   ),
   desktopLauncherPath: trimmedString("T3CODE_DESKTOP_LAUNCHER_PATH"),
   appImagePath: trimmedString("APPIMAGE"),
-  disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
+  disableAutoUpdate: configuredDisableAutoUpdate,
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
