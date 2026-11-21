@@ -1,6 +1,7 @@
 """Open the release fixture in a real Linux Rune window using AT-SPI."""
 
 import argparse
+from contextlib import closing
 import os
 from pathlib import Path
 import re
@@ -51,7 +52,7 @@ def wait_for(app, description, matches):
     raise TimeoutError(description)
 
 
-def launch(tmp):
+def source_command(tmp):
     dist = ROOT / "apps/desktop/dist"
     build = (dist / "current").read_text().strip()
     if not re.fullmatch(r"[0-9a-f]{64}", build):
@@ -61,17 +62,23 @@ def launch(tmp):
     worker.parent.mkdir(parents=True)
     shutil.copyfile(dist / build / worker.name, worker)
     (tmp / "apps/server").symlink_to(ROOT / "apps/server", target_is_directory=True)
-    home = tmp / ".t3/rune"
     node = shutil.which("node")
     if node is None:
         raise RuntimeError("Node is required to start a source build")
-    env = {
-        **os.environ,
-        "T3CODE_TELEMETRY_ENABLED": "false",
+    return [dist / build / "t3-code", "--source-build"], {
         "T3CODE_RUNE_NODE": node,
         "T3CODE_RUNE_WORKER": str(worker),
     }
-    command = [dist / build / "t3-code", "--source-build"]
+
+
+def launch(tmp, executable):
+    home = tmp / ".t3/rune"
+    if executable is None:
+        command, overrides = source_command(tmp)
+    else:
+        command, overrides = [executable.absolute()], {"T3CODE_HOME": str(home)}
+    env = {**os.environ, **overrides, "T3CODE_TELEMETRY_ENABLED": "false"}
+    env.pop("T3CODE_PORT", None)
     userdata = home / "userdata"
     userdata.mkdir(parents=True)
     fixture = ROOT / "scripts/fixtures/desktop-launch/statev2.sqlite"
@@ -90,6 +97,21 @@ def visible_message(node):
     )
 
 
+def close_packaged_window(app):
+    from Xlib import X, display, protocol
+
+    window_id = subprocess.check_output(
+        ["xdotool", "search", "--onlyvisible", "--pid", str(app.pid)], text=True, timeout=5,
+    ).splitlines()[0]
+    with closing(display.Display()) as connection:
+        window = connection.create_resource_object("window", int(window_id))
+        window.send_event(protocol.event.ClientMessage(
+            window=window, client_type=connection.intern_atom("WM_PROTOCOLS"),
+            data=(32, [connection.intern_atom("WM_DELETE_WINDOW"), X.CurrentTime, 0, 0, 0]),
+        ))
+        connection.sync()
+
+
 def snapshot(app, directory):
     windows = subprocess.run(
         ["xdotool", "search", "--onlyvisible", "--pid", str(app.pid)],
@@ -104,17 +126,23 @@ def snapshot(app, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts-dir", type=Path, default=Path("desktop-launch-check"))
+    parser.add_argument("--executable", type=Path, help="Packaged Rune executable or extracted AppRun")
     args = parser.parse_args()
     scratch = ROOT / ".t3"
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="rune-launch-", dir=scratch) as tmp:
-        app = launch(Path(tmp))
+        app = launch(Path(tmp), args.executable)
         try:
             row = wait_for(app, "finding the seeded sidebar row", seeded_row)
             if not row.do_action(0):
                 raise RuntimeError("Could not open the seeded thread")
             wait_for(app, "showing the seeded message", visible_message)
-            print("Rune opened the seeded thread and displayed its recorded message.")
+            if args.executable is not None:
+                close_packaged_window(app)
+            app.stdin.close()
+            if app.wait(timeout=10):
+                raise RuntimeError(f"Rune exited with {app.returncode}")
+            print("Rune opened the seeded thread, displayed its recorded message, and exited cleanly.")
         except Exception:
             try:
                 snapshot(app, args.artifacts_dir)
@@ -123,14 +151,9 @@ def main():
             raise
         finally:
             app.stdin.close()
-            try:
-                app.wait(timeout=10)
-            except subprocess.TimeoutExpired:
+            if app.poll() is None:
                 os.killpg(app.pid, signal.SIGKILL)
                 app.wait()
-                raise
-        if app.returncode:
-            raise RuntimeError(f"Rune exited with {app.returncode}")
 
 
 if __name__ == "__main__":
