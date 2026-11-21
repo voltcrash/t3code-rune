@@ -11,6 +11,9 @@ pub(super) struct ProjectScope {
 }
 
 impl ProjectScope {
+    pub(super) fn is_open(&self) -> bool {
+        self.picker.is_open()
+    }
     pub fn update(&mut self, projects: &[Project]) {
         self.active = projects
             .iter()

@@ -66,6 +66,8 @@ pub(super) struct Thread {
     pub(super) model: String,
     pub(super) permission: Option<crate::permissions::Selection>,
     settled: bool,
+    #[serde(default)]
+    pinned: bool,
     snoozed_until: Option<i64>,
 }
 
@@ -78,16 +80,17 @@ impl Thread {
                 .then_with(|| other.sort_at.cmp(&self.sort_at))
                 .then_with(|| self.id.cmp(&other.id));
         }
-        self.order_key.cmp(&other.order_key).then_with(|| {
-            if self.order_key.is_none() {
-                other
-                    .sort_at
-                    .cmp(&self.sort_at)
-                    .then(self.id.cmp(&other.id))
-            } else {
-                self.id.cmp(&other.id)
-            }
-        })
+        if self.pinned != other.pinned {
+            return other.pinned.cmp(&self.pinned);
+        }
+        let order = match (&self.order_key, &other.order_key) {
+            (None, None) => other.sort_at.cmp(&self.sort_at),
+            (Some(left), Some(right)) => left.cmp(right),
+            // Keyless active rows precede manual order, while legacy keyless pins follow it.
+            _ if self.pinned => other.order_key.cmp(&self.order_key),
+            _ => self.order_key.cmp(&other.order_key),
+        };
+        order.then_with(|| self.id.cmp(&other.id))
     }
 }
 
@@ -857,11 +860,15 @@ fn thread_row(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(", ");
-    let heading = row()
+    let mut heading = row()
         .w_full()
         .center_y()
-        .gap(6.0)
-        .child(project_badge(project, theme))
+        .gap(6.)
+        .child(project_badge(project, theme));
+    if thread.pinned {
+        heading = heading.child(thread_actions::pin_indicator(s, thread, theme));
+    }
+    let heading = heading
         .child(
             label(project, 12.0, 400.0, theme.text_secondary)
                 .truncate()
@@ -1859,6 +1866,7 @@ mod tests {
             model: String::new(),
             permission: None,
             settled: false,
+            pinned: false,
             snoozed_until: None,
         };
         app.workspace
@@ -1893,6 +1901,31 @@ mod tests {
         app.workspace
             .insert_launched(thread("a", "Late launch receipt", 0));
         assert_eq!(app.workspace.threads[1].search_title, "renamed");
+        let pin = |id, key: Option<&str>, created| {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "project":"p", "title":id, "model":"m", "status":"ready",
+                "settled":false, "pinned":true, "order_key":key, "sort_at":created
+            }))
+            .unwrap()
+        };
+        app.receive(update(
+            21,
+            vec![
+                pin("a", Some("C"), 1),
+                pin("c", Some("A"), 2),
+                pin("d", None, 3),
+            ],
+            vec![],
+        ));
+        let ids = app
+            .workspace
+            .threads
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["c", "a", "d", "b"]);
+        app.receive(update(21, vec![thread("a", "Unpinned", 1)], vec![]));
+        assert_eq!(app.workspace.by_thread["a"], 3);
         app.workspace.conversation.as_mut().unwrap().begin_watch(22);
         app.receive(WorkerMessage {
             id: None,

@@ -90,6 +90,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     environmentId: descriptor.environmentId,
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
+    canPin: descriptor.capabilities.threadPinning === true,
     visitTracking: descriptor.capabilities.threadVisitedTracking === true,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,
     streamsCommandOutput: descriptor.capabilities.commandOutputStreaming === true,
@@ -202,14 +203,17 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     settled: thread.settledOverride === "settled",
     activity_at: getThreadSortTimestamp(shell, "updated_at"),
     recent_at: threadRecentUse(threadSearchSubject(shell, null)),
-    order_key: thread.activeOrderKey ?? null,
+    pinned: thread.pinnedAt != null,
+    order_key: (thread.pinnedAt == null ? thread.activeOrderKey : thread.pinOrderKey) ?? null,
     sort_at:
       thread.settledOverride === "settled"
         ? Date.parse(resolveSettledThreadTimestamp(shell) ?? "") || 0
-        : Math.max(
-            DateTime.toEpochMillis(thread.createdAt),
-            DateTime.toEpochMillis(thread.unsettledAt ?? thread.createdAt),
-          ),
+        : thread.pinnedAt != null
+          ? DateTime.toEpochMillis(thread.createdAt)
+          : Math.max(
+              DateTime.toEpochMillis(thread.createdAt),
+              DateTime.toEpochMillis(thread.unsettledAt ?? thread.createdAt),
+            ),
   };
 }
 

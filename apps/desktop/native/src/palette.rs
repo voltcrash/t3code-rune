@@ -643,6 +643,7 @@ mod tests {
             model: String::new(),
             permission: None,
             settled: false,
+            pinned: false,
             snoozed_until: None,
         });
         app.workspace.replace(vec![], threads.into());

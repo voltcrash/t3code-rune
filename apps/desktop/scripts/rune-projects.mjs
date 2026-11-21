@@ -709,6 +709,7 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         local: Boolean(localSession),
         can_operate: session.canOperate,
+        can_pin: session.canPin,
         terminal_read: session.canReadTerminal || session.canOperateTerminal,
         terminal_write: session.canOperateTerminal,
         stage: isNightlyDesktopVersion(session.serverVersion) ? "nightly" : buildStage,
@@ -850,29 +851,35 @@ async function handleWorkspaceRequest(request, reply) {
       if (request.advance && receipt.sequence !== undefined) feed.publishThrough(receipt.sequence);
       reply({ type: "settlementchanged", watch: request.watch, sequence: receipt.sequence });
       return;
-    } else if (request.type === "renamethread") {
+    } else if (request.type === "renamethread" || request.type === "setpin") {
       reading = session;
       const feed = workspaceFeed;
-      const result = { type: "threadrenamed", watch: request.watch };
+      const result = { type: "threadedited", watch: request.watch };
+      const rename = request.type === "renamethread";
       if (
         !reading?.canOperate ||
         !feed ||
         feed.watch !== request.watch ||
         !feed.hasThread(request.thread) ||
-        !request.title?.trim()
+        (rename ? !request.title?.trim() : !reading.canPin || typeof request.pinned !== "boolean")
       ) {
-        reply({ ...result, error: "This thread cannot be renamed on this connection." });
+        reply({ ...result, error: "This thread cannot be changed on this connection." });
         return;
       }
       try {
-        await Effect.runPromise(
+        const orderKey = !rename && request.pinned ? feed.nextPinOrderKey() : undefined;
+        const command = rename
+          ? { type: "thread.metadata.update", title: request.title.trim() }
+          : request.pinned
+            ? { type: "thread.pin", orderKey }
+            : { type: "thread.unpin" };
+        const receipt = await Effect.runPromise(
           openEnvironmentRpc(reading).pipe(
             Effect.flatMap((rpc) =>
               rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
-                type: "thread.metadata.update",
+                ...command,
                 threadId: ThreadId.make(request.thread),
                 commandId: CommandId.make(request.operation),
-                title: request.title.trim(),
               }),
             ),
             Effect.scoped,
@@ -881,11 +888,14 @@ async function handleWorkspaceRequest(request, reply) {
           ),
           { signal: reading.signal },
         );
+        if (orderKey !== undefined) feed.pinCommitted(orderKey, receipt.sequence);
         reply(result);
       } catch {
         reply({
           ...result,
-          error: "Couldn’t confirm the thread rename. Refresh to check the title.",
+          error: rename
+            ? "Couldn’t confirm the thread rename. Refresh to check the title."
+            : "Couldn’t confirm the pin change. Refresh to check the thread.",
         });
       }
       return;

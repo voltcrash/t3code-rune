@@ -42,6 +42,8 @@ enum Reply {
         local: bool,
         can_operate: bool,
         #[serde(default)]
+        can_pin: bool,
+        #[serde(default)]
         terminal_read: bool,
         #[serde(default)]
         terminal_write: bool,
@@ -144,7 +146,7 @@ enum Reply {
         watch: u64,
         sequence: Option<u64>,
     },
-    ThreadRenamed {
+    ThreadEdited {
         watch: u64,
         error: Option<String>,
     },
@@ -223,6 +225,12 @@ enum Request<'a> {
         operation: String,
         settled: bool,
         advance: bool,
+    },
+    SetPin {
+        thread: String,
+        pinned: bool,
+        watch: u64,
+        operation: String,
     },
     RenameThread {
         thread: String,
@@ -364,6 +372,7 @@ struct Desktop {
     stage: stage::Stage,
     local: bool,
     can_operate: bool,
+    can_pin: bool,
     terminal_read: bool,
     terminal_write: bool,
     terminal: Option<terminal::Panel>,
@@ -395,6 +404,7 @@ impl Desktop {
             stage: Default::default(),
             local: false,
             can_operate: false,
+            can_pin: false,
             terminal_read: false,
             terminal_write: false,
             terminal: None,
@@ -501,7 +511,7 @@ impl Desktop {
             self.appearance_error = error;
             return;
         }
-        if let Reply::ThreadRenamed { watch, error } = message.reply {
+        if let Reply::ThreadEdited { watch, error } = message.reply {
             if self.workspace.feed == Some(watch) {
                 if let Some(message) = error {
                     self.error = Some(message);
@@ -689,6 +699,7 @@ impl Desktop {
                 stage,
                 local,
                 can_operate,
+                can_pin,
                 terminal_read,
                 terminal_write,
             } => {
@@ -697,6 +708,7 @@ impl Desktop {
                 self.stage = stage;
                 self.local = local;
                 self.can_operate = can_operate;
+                self.can_pin = can_operate && can_pin;
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
                 self.environment = Some(label);
@@ -798,7 +810,7 @@ impl Desktop {
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
-            | Reply::ThreadRenamed { .. }
+            | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
             | Reply::Appearance { .. }
             | Reply::WorkspacePaused { .. }
@@ -1077,7 +1089,7 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
-            if s.settle_shortcut(ev, tx)
+            if s.thread_action_shortcut(ev, tx)
                 || s.model_shortcut(ev, tx)
                 || s.permission_shortcut(ev, tx)
             {
@@ -1327,6 +1339,7 @@ mod tests {
                 stage: stage::Stage::Dev,
                 local: true,
                 can_operate: true,
+                can_pin: true,
                 terminal_read: true,
                 terminal_write: true,
             },
