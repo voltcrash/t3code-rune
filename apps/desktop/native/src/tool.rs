@@ -43,6 +43,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_conversation_inspectors(&mut self) {
+        self.close_terminal();
         self.close_image();
         self.close_command();
         self.close_diff();

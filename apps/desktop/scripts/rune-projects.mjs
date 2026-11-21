@@ -1,3 +1,4 @@
+import { openTerminal } from "./rune-terminal.mjs";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -462,6 +463,8 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         local: Boolean(localSession),
         can_operate: session.canOperate,
+        terminal_read: session.canReadTerminal || session.canOperateTerminal,
+        terminal_write: session.canOperateTerminal,
         stage: isNightlyDesktopVersion(session.serverVersion) ? "nightly" : buildStage,
       });
     } else if (
@@ -614,7 +617,18 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "inspectcommand") {
+    if (request?.type === "terminal") {
+      const record = watching;
+      if (record && record.id === request.watch) {
+        if (request.action === "open") openTerminal(record, request, write);
+        else if (record.terminal?.operation === request.operation) {
+          if (request.action === "close") {
+            record.terminal.close();
+            record.terminal = undefined;
+          } else record.terminal.input(request);
+        }
+      }
+    } else if (request?.type === "inspectcommand") {
       void inspectCommand(request);
     } else if (request?.type === "imagehandled") {
       const sent = sentImages.get(request.operation);

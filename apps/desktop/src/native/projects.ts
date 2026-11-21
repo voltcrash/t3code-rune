@@ -8,6 +8,8 @@ import {
   AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
   AuthFilesystemReadScope,
+  AuthTerminalReadScope,
+  AuthTerminalOperateScope,
   WS_METHODS,
   CommandId,
   ProjectId,
@@ -50,7 +52,13 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   const descriptor = yield* fetchRemoteEnvironmentDescriptor(target);
   const session = yield* bootstrapRemoteBearerSession({
     ...target,
-    scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope, AuthFilesystemReadScope],
+    scopes: [
+      AuthOrchestrationReadScope,
+      AuthOrchestrationOperateScope,
+      AuthFilesystemReadScope,
+      AuthTerminalReadScope,
+      AuthTerminalOperateScope,
+    ],
     clientMetadata: { label: "T3 Code Desktop", deviceType: "desktop" },
   });
   const scopes = parseOAuthScope(session.scope) ?? [];
@@ -63,6 +71,8 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     platform: descriptor.platform.os,
     httpBaseUrl: target.httpBaseUrl,
     token: session.access_token,
+    canReadTerminal: scopes.includes(AuthTerminalReadScope),
+    canOperateTerminal: scopes.includes(AuthTerminalOperateScope),
     canBrowse: scopes.includes(AuthFilesystemReadScope),
     canOperate: scopes.includes(AuthOrchestrationOperateScope),
   };

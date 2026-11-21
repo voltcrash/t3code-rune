@@ -214,6 +214,9 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
+    pub(crate) fn terminal_watch(&self) -> Option<u64> {
+        self.conversation.as_ref()?.watch
+    }
     pub fn new() -> Self {
         Self {
             diff: Default::default(),
@@ -1335,6 +1338,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             header = header.child(label(status, 12.0, 400.0, theme.text_secondary));
         }
     }
+    if s.terminal_available() {
+        header = header.child(crate::terminal::button(theme));
+    }
     if s.pending {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
@@ -1395,6 +1401,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             cx.system_dark(),
         ));
     }
+    if let Some(drawer) = crate::terminal::view(
+        s,
+        theme,
+        cx.system_dark(),
+        cx.layout_size("workspace").unwrap_or([1100., 780.])[1],
+    ) {
+        main = main.child(drawer);
+    }
     let diff_open = s.workspace.diff.visible(s);
     let split_panel = diff_open
         && cx
@@ -1452,8 +1466,11 @@ mod tests {
         assert!(pane.approval_menu.is_none());
         pane.status = LiveStatus::Live;
         pane.approval_menu = Some("current".into());
+        app.terminal_read = true;
+        assert!(app.terminal_available());
         app.request_id = 8;
         app.pending = true;
+        assert!(!app.terminal_available());
         let mut receive = |watch, update| {
             app.receive(WorkerMessage {
                 id: None,
