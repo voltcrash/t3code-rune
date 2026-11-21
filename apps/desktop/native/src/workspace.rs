@@ -253,6 +253,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 pub(super) struct Workspace {
     pub(super) sequence: u64,
     pub(super) feed: Option<u64>,
+    pub(super) refresh_request: Option<u64>,
     pub(super) refresh_after_edit: Option<u64>,
     actions: thread_actions::Actions,
     row_clock: sidebar_status::Clock,
@@ -292,6 +293,7 @@ impl Workspace {
         Self {
             sequence: 0,
             feed: None,
+            refresh_request: None,
             refresh_after_edit: None,
             actions: Default::default(),
             row_clock: Default::default(),
@@ -549,7 +551,7 @@ impl Desktop {
         {
             return;
         }
-        self.request_id += 1;
+        self.request_id = self.next_request_id();
         self.landing = Landing::Loading {
             project: project.clone(),
             request: self.request_id,
@@ -1626,13 +1628,16 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.terminal_available() {
         header = header.child(crate::terminal::button(theme));
     }
-    if s.pending {
+    let refreshing_projects = s.workspace.refresh_request.is_some()
+        && composing.is_none()
+        && (s.workspace.show_projects || s.workspace.conversation.is_none());
+    if s.pending || refreshing_projects {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
     header = header.pr(inset.trailing + 12.0).child(action(
         "Refresh",
         theme,
-        !s.pending,
+        !s.pending && !refreshing_projects,
         Desktop::refresh_visible,
     ));
     let mut main = col().grow(1.0).min_w(0.0).h_full().child(header);

@@ -90,6 +90,10 @@ impl Workspace {
 }
 
 impl Desktop {
+    fn workspace_edit_pending(&self) -> bool {
+        self.pending || self.workspace.refresh_request.is_some()
+    }
+
     fn thread_menu(&mut self, thread: &str, origin: Origin, point: Option<(f32, f32)>) {
         self.commit_title();
         self.workspace.actions.menu = self
@@ -100,7 +104,7 @@ impl Desktop {
 
     fn set_pin(&mut self, id: &str, pinned: bool) {
         self.workspace.actions.menu = None;
-        if self.pending || !self.can_pin {
+        if self.workspace_edit_pending() || !self.can_pin {
             return;
         }
         let Some(watch) = self.workspace.feed else {
@@ -128,7 +132,7 @@ impl Desktop {
         let Some(target) = ws.action_target(id, origin) else {
             return;
         };
-        if self.pending || !self.can_operate {
+        if self.workspace_edit_pending() || !self.can_operate {
             return;
         }
         let thread = &ws.threads[ws.by_thread[id]];
@@ -259,7 +263,7 @@ impl Desktop {
         let Some(target) = self.workspace.action_target(id, origin) else {
             return;
         };
-        if !self.can_operate {
+        if !self.can_operate || self.workspace_edit_pending() {
             return;
         }
         let title = self.workspace.threads[self.workspace.by_thread[id]]
@@ -277,7 +281,7 @@ impl Desktop {
         tx.focus("thread-title-input", true);
     }
 
-    fn commit_title(&mut self) {
+    pub(crate) fn commit_title(&mut self) {
         let Some(rename) = self.workspace.actions.rename.take() else {
             return;
         };
@@ -443,8 +447,8 @@ pub(super) fn pin_indicator(s: &Desktop, thread: &Thread, theme: &tok::Theme) ->
         .role("button")
         .label("Unpin thread")
         .help("Unpin thread")
-        .focusable(!s.pending)
-        .disabled(s.pending)
+        .focusable(!s.workspace_edit_pending())
+        .disabled(s.workspace_edit_pending())
         .hover_group()
         .child(pin.group_opacity(1., 0.).a11y_hidden())
         .child(
@@ -474,6 +478,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
         let id = thread.id.clone();
         menu = menu.item(
             MenuItem::new("Rename thread")
+                .disabled(s.workspace_edit_pending())
                 .on_select_tx(move |s: &mut Desktop, tx| s.begin_rename(&id, origin, tx)),
         );
     }
@@ -487,7 +492,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
                 "Un-settle thread"
             })
             .icon(&glyphs::CHECK)
-            .disabled(s.pending)
+            .disabled(s.workspace_edit_pending())
             .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
         );
     }
@@ -497,7 +502,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
         menu = menu.item(
             MenuItem::new(if pinned { "Pin thread" } else { "Unpin thread" })
                 .icon(if pinned { &PIN } else { &UNPIN })
-                .disabled(s.pending)
+                .disabled(s.workspace_edit_pending())
                 .on_select(move |s: &mut Desktop| s.set_pin(&id, pinned)),
         );
     }

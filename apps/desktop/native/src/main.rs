@@ -384,6 +384,7 @@ struct Desktop {
     permission_menu: Option<permissions::Menu>,
     models: models::Picker,
     palette: Option<workspace::palette::Palette>,
+    last_id: u64,
     request_id: u64,
     pending: bool,
     starting_local: bool,
@@ -416,6 +417,7 @@ impl Desktop {
             permission_menu: None,
             models: Default::default(),
             palette: None,
+            last_id: 0,
             request_id: 0,
             pending: false,
             starting_local: false,
@@ -439,12 +441,29 @@ impl Desktop {
         sent
     }
 
+    fn next_request_id(&mut self) -> u64 {
+        self.last_id += 1;
+        self.last_id
+    }
+
     fn send(&mut self, request: Request<'_>) {
         if self.pending || self.output.is_none() {
             return;
         }
         if matches!(request, Request::Refresh) {
+            if self.workspace.refresh_request.is_some() {
+                return;
+            }
             self.retry_landing();
+            if self.workspace.feed.is_some() {
+                self.error = None;
+                self.commit_title();
+                let id = self.next_request_id();
+                if self.write_request(Some(id), request) {
+                    self.workspace.refresh_request = Some(id);
+                }
+                return;
+            }
         } else if self.landing.project().is_some()
             || matches!(
                 request,
@@ -465,7 +484,7 @@ impl Desktop {
             self.close_conversation_inspectors();
         }
         self.answer_advance = None;
-        self.request_id += 1;
+        self.request_id = self.next_request_id();
         let starting_local = matches!(request, Request::Local);
         if self.write_request(Some(self.request_id), request) {
             self.starting_local = starting_local;
@@ -485,7 +504,7 @@ impl Desktop {
     }
 
     fn refresh_after_edit(&mut self) {
-        if self.pending {
+        if self.pending || self.workspace.refresh_request.is_some() {
             return;
         }
         if let Some(watch) = self.workspace.refresh_after_edit.take()
@@ -619,6 +638,7 @@ impl Desktop {
             }
             return;
         }
+        let refresh = message.id.is_some() && message.id == self.workspace.refresh_request;
         let landing = self.landing.matches(message.id);
         if landing && matches!(message.reply, Reply::Error { .. }) {
             self.landing.fail();
@@ -628,12 +648,16 @@ impl Desktop {
             if self.environment.is_none() {
                 return;
             }
-        } else if !landing && (!self.pending || message.id != Some(self.request_id)) {
+        } else if !landing && !refresh && (!self.pending || message.id != Some(self.request_id)) {
             return;
         }
-        self.pending = false;
-        self.starting_local = false;
-        self.error = None;
+        if refresh {
+            self.workspace.refresh_request = None;
+        } else {
+            self.pending = false;
+            self.starting_local = false;
+            self.error = None;
+        }
         match message.reply {
             Reply::RequestResult {
                 thread,
@@ -825,7 +849,9 @@ impl Desktop {
                 unreachable!()
             }
             Reply::Error { message } => {
-                self.cancel_settle_navigation();
+                if !refresh || self.waiting_for_settle() {
+                    self.cancel_settle_navigation();
+                }
                 self.error = Some(message);
             }
             Reply::Disconnected | Reply::LocalClosed => {
@@ -834,6 +860,7 @@ impl Desktop {
                 let output = self.output.take();
                 *self = Self {
                     output,
+                    last_id: self.last_id,
                     request_id: self.request_id,
                     sidebar_layout: self.sidebar_layout,
                     appearance: self.appearance,

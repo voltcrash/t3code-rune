@@ -296,6 +296,26 @@ mod tests {
         finish(&mut app);
         assert_eq!(app.history.current, Page::NewThread("p".into()));
         assert!(!app.history.available(false));
+        app.environment = Some("Test".into());
+        app.show_projects();
+        app.workspace.refresh_request = Some(2);
+        app.go(false);
+        assert_eq!(app.new_threads.active.as_deref(), Some("p"));
+        app.go(true);
+        app.request_id = 3;
+        app.pending = true;
+        let refreshed = serde_json::json!({
+            "type": "workspace", "watch": 2, "id": 2, "landing_project": "p",
+            "scratch_available": false, "projects": [record], "threads": []
+        });
+        app.receive(serde_json::from_value(refreshed.clone()).unwrap());
+        assert_eq!(app.workspace.feed, Some(2));
+        assert!(app.workspace.refresh_request.is_none());
+        assert!(app.pending);
+        assert_eq!(app.history.current, Page::Home);
+        app.receive(serde_json::from_value(refreshed).unwrap());
+        assert!(app.pending);
+
         let mut browsing = open(true);
         browsing.show_projects();
         finish(&mut browsing);
