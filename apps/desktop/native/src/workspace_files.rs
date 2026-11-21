@@ -1,4 +1,4 @@
-use super::{Desktop, Request, action_with_tx, label};
+use super::{Desktop, Request, Topbar, action_with_tx, label};
 use rune::{El, GrowthSpec, Span, TextStyle, col, el, rich, row, tok};
 use rune_kit::{Kit, syntax};
 use serde::Serialize;
@@ -209,18 +209,18 @@ pub(super) fn view(
     app: &Desktop,
     theme: &tok::Theme,
     kit: &Kit,
-    leading: f32,
-    trailing: f32,
+    bar: Topbar,
+    tree: Option<El>,
 ) -> El {
     let Some(preview) = &app.workspace.file_preview else {
         return el();
     };
     let header = row()
-        .h(52.)
+        .h(bar.height)
         .window_drag()
         .center_y()
-        .pl(leading + 12.)
-        .pr(trailing + 12.)
+        .pl(bar.leading + 12.)
+        .pr(bar.trailing + 12.)
         .gap(8.)
         .child(rune::icon(rune_kit::file_icon(&preview.path), 16.).color(theme.text_secondary))
         .child(
@@ -236,12 +236,27 @@ pub(super) fn view(
             true,
             Desktop::dismiss_file_preview,
         ));
-    let mut panel = col()
+    let panel = col()
         .grow(1.)
         .min_w(0.)
         .h_full()
         .child(header)
         .child(el().h(1.).w_full().fill(theme.separator));
+    let mut body = row()
+        .grow(1.)
+        .min_h(0.)
+        .w_full()
+        .child(source_view(preview, theme, kit));
+    if let Some(tree) = tree {
+        body = body
+            .child(el().w(1.).h_full().fill(theme.separator))
+            .child(tree);
+    }
+    panel.child(body)
+}
+
+fn source_view(preview: &Preview, theme: &tok::Theme, kit: &Kit) -> El {
+    let mut panel = col().grow(1.).min_w(0.).min_h(0.);
     let Some(source) = &preview.source else {
         return panel.child(
             label(
