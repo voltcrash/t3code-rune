@@ -4,6 +4,9 @@ import { assert, describe, it } from "@effect/vitest";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import { TestClock } from "effect/testing";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -13,6 +16,7 @@ import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
 
+import { resolveNativeWslHost } from "../native/windowsHost.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
@@ -318,6 +322,66 @@ describe("DesktopBackendConfiguration", () => {
       );
       assert.equal(config.env.ELECTRON_RUN_AS_NODE, "1");
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("retries a transient WSL mount and isolates native development homes by checkout", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const source = path.join(root, "apps/server/src");
+      yield* fs.makeDirectory(source, { recursive: true });
+      yield* fs.writeFileString(path.join(source, "bin.ts"), "");
+      const failed = yield* Deferred.make<void>();
+      let attempts = 0;
+      const serverTree = DesktopWslServerTree.DesktopWslServerTree.of({
+        ensure: Effect.gen(function* () {
+          if (++attempts === 1) {
+            yield* Deferred.succeed(failed, undefined);
+            return { ok: false, fatal: false, reason: "mount unavailable" } as const;
+          }
+          return { ok: true, root, serverEntry: "src/bin.ts" } as const;
+        }),
+        cleanupLegacy: Effect.void,
+      });
+      const launch = (home: string) =>
+        resolveNativeWslHost(
+          { port: 5000, desktopBootstrapToken: "token", desktopBootstrapSecret: "secret" },
+          "Ubuntu",
+          "scope",
+        ).pipe(
+          Effect.provideService(DesktopWslServerTree.DesktopWslServerTree, serverTree),
+          Effect.provide([
+            DesktopWslEnvironment.layerTest({
+              isAvailable: true,
+              distros: [{ name: "Ubuntu", version: 2, isDefault: true }],
+              windowsToWslPath: () => Option.some("/mnt/c/repo"),
+              ensureNodePty: () => ({
+                ok: true,
+                nodePath: "/usr/bin/node",
+                resolvedPath: "/usr/bin",
+              }),
+            }),
+            layerEnvironment(home, { isPackaged: false, platform: "win32" }),
+          ]),
+          Effect.map((result) => {
+            assert.isDefined(result);
+            assert.equal(result.config.runningDistro, "Ubuntu");
+            assert.include(result.config.args, "/mnt/c/repo/apps/server/src/bin.ts");
+            assert.equal(result.config.bootstrap.desktopTelemetryControlFd, 1);
+            assert.equal(result.config.args.at(-2), "--base-dir");
+            return result.config.args.at(-1);
+          }),
+        );
+      const first = yield* Effect.forkScoped(launch(root));
+      yield* Deferred.await(failed);
+      yield* TestClock.adjust("500 millis");
+      const firstHome = yield* Fiber.join(first);
+      assert.equal(attempts, 2);
+      assert.match(firstHome!, /^~\/\.t3\/rune-dev\/[a-f0-9]+$/);
+      assert.notEqual(yield* launch(path.join(root, "other")), firstHome);
+      assert.equal(yield* launch(root), firstHome);
+    }).pipe(Effect.scoped, Effect.provide([NodeServices.layer, NodeCrypto.layer])),
   );
 
   it.effect("resolveWsl pins a default-tracking run to the concrete default distro", () =>

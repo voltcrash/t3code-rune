@@ -47,8 +47,8 @@ export async function bundleRuneWorker(outDir, version, banner) {
     outputOptions: { codeSplitting: false, ...(banner && { banner }) },
     deps: {
       alwaysBundle: (id) =>
-        !id.startsWith("node:") && !["bufferutil", "utf-8-validate"].includes(id),
-      neverBundle: ["bufferutil", "utf-8-validate"],
+        !id.startsWith("node:") && !["bufferutil", "utf-8-validate", "ffi-rs"].includes(id),
+      neverBundle: ["bufferutil", "utf-8-validate", "ffi-rs"],
       onlyBundle: false,
     },
   });

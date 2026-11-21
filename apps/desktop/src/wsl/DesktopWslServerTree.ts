@@ -11,7 +11,12 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 // WSL's plain Node cannot read server.asar. Electron's patched fs also reads its unpacked native siblings.
 
 export type WslServerTreeResult =
-  | { readonly ok: true; readonly root: string }
+  | {
+      readonly ok: true;
+      readonly root: string;
+      readonly serverDirectory?: string;
+      readonly serverEntry?: string;
+    }
   | { readonly ok: false; readonly reason: string; readonly fatal: boolean };
 
 const MARKER_FILE_NAME = "t3code-wsl-server-tree.json";

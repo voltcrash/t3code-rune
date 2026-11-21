@@ -8,6 +8,9 @@ import {
   SERVER_EXIT_CODE_STATE_DIR_OWNED,
   SERVER_EXIT_CODE_MANAGED_POLICY,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -19,7 +22,12 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 
-import { backendChildEnvPatch, runBackendProcess } from "../backend/DesktopBackendProcess.ts";
+import {
+  backendChildEnvPatch,
+  runBackendProcess,
+  type DesktopBackendStartConfig,
+} from "../backend/DesktopBackendProcess.ts";
+import { readDesktopSettings } from "../settings/DesktopAppSettings.ts";
 import { pairWithTarget } from "./projects.ts";
 
 class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError>()(
@@ -30,6 +38,8 @@ class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError
 export const isLocalServerStartupError = Schema.is(LocalServerStartupError);
 
 export function startLocalServer(paths: {
+  readonly packaged: boolean;
+  readonly version: string;
   readonly entryPath: string;
   readonly cwd: string;
   readonly t3Home: string;
@@ -38,7 +48,7 @@ export function startLocalServer(paths: {
   const { entryPath, cwd, t3Home } = paths;
   const lifetime = new AbortController();
   const access = new AbortController();
-  const ready = Promise.withResolvers<string>();
+  const ready = Promise.withResolvers<{ url: string; sameFilesystem: boolean }>();
   const secret = Hex.encode(globalThis.crypto.getRandomValues(new Uint8Array(32)));
   const currentToken = () =>
     Clock.currentTimeMillis.pipe(
@@ -56,10 +66,20 @@ export function startLocalServer(paths: {
       ),
       Effect.forkScoped,
     );
+    const path = yield* Path.Path;
+    const settings = yield* readDesktopSettings(
+      yield* FileSystem.FileSystem,
+      path.join(t3Home, "userdata", "desktop-settings.json"),
+      paths.version,
+    );
+    if (!settings.localEnvironmentEnabled)
+      return yield* new LocalServerStartupError({
+        message: "The local environment is disabled. Paste a pairing link to connect to a server.",
+      });
     const port = paths.dev?.port ?? (yield* Net.make().reserveLoopbackPort());
     const httpBaseUrl = new URL(`http://127.0.0.1:${port}`);
     const desktopBootstrapToken = yield* currentToken();
-    return yield* runBackendProcess({
+    const local = {
       executablePath: process.execPath,
       entryPath,
       cwd,
@@ -88,6 +108,15 @@ export function startLocalServer(paths: {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       },
+    } satisfies DesktopBackendStartConfig;
+    const { config, afterReady } =
+      (yield* HostProcess.Platform) === "win32"
+        ? yield* Effect.promise(() => import("./windowsHost.ts")).pipe(
+            Effect.flatMap(({ prepareWindowsHost }) => prepareWindowsHost(local, paths, settings)),
+          )
+        : { config: local, afterReady: Effect.void };
+    return yield* runBackendProcess({
+      ...config,
       desktopTelemetryStream: Stream.empty,
       requireControlReady: true,
       onOutput: (stream, chunk) =>
@@ -101,14 +130,27 @@ export function startLocalServer(paths: {
       onExitObserved: () => Effect.sync(() => access.abort()),
       onReady: () =>
         Fiber.interrupt(startupTimeout).pipe(
-          Effect.andThen(Effect.sync(() => ready.resolve(httpBaseUrl.href))),
+          Effect.andThen(
+            Effect.sync(() =>
+              ready.resolve({
+                url: config.httpBaseUrl.href,
+                sameFilesystem: !("runningDistro" in config && config.runningDistro),
+              }),
+            ),
+          ),
+          Effect.andThen(afterReady),
         ),
     });
   });
   const stopped = Effect.runPromiseExit(
     run.pipe(
       Effect.scoped,
-      Effect.provide([NodeServices.layer, layerRemoteHttpClient(globalThis.fetch)]),
+      Effect.provide([
+        NodeServices.layer,
+        PlatformNodeCrypto.layerSecureRandom,
+        PlatformNodeCrypto.layerDigest,
+        layerRemoteHttpClient(globalThis.fetch),
+      ]),
       Effect.provideService(Logger.LogToStderr, true),
     ),
     { signal: lifetime.signal },
@@ -140,9 +182,15 @@ export function startLocalServer(paths: {
   return {
     async connect(workerSignal: AbortSignal, openVisits?: OpenVisitDatabase) {
       const signal = AbortSignal.any([workerSignal, lifetime.signal, access.signal]);
-      const url = await ready.promise;
+      const { url, sameFilesystem } = await ready.promise;
       const credential = await Effect.runPromise(currentToken(), { signal });
-      return pairWithTarget({ httpBaseUrl: url, credential }, signal, undefined, openVisits);
+      const session = await pairWithTarget(
+        { httpBaseUrl: url, credential },
+        signal,
+        undefined,
+        openVisits,
+      );
+      return { ...session, sameFilesystem };
     },
     stopped,
     stop() {

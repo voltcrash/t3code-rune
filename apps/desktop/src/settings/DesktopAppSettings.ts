@@ -387,7 +387,7 @@ function applyWslWindowsFallback(settings: DesktopSettings): DesktopSettings {
 }
 
 // Fails only when the file may exist but could not be read; a missing file means defaults.
-function readSettings(
+export function readDesktopSettings(
   fileSystem: FileSystem.FileSystem,
   settingsPath: string,
   appVersion: string,
@@ -531,7 +531,7 @@ export const make = Effect.gen(function* () {
   return DesktopAppSettings.of({
     get: SynchronizedRef.get(settingsRef),
     load: Effect.gen(function* () {
-      const settings = yield* readSettings(
+      const settings = yield* readDesktopSettings(
         fileSystem,
         environment.desktopSettingsPath,
         environment.appVersion,

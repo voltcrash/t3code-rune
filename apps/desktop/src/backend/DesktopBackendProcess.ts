@@ -37,6 +37,9 @@ const DESKTOP_BACKEND_ENV_NAMES = [
 export const backendChildEnvPatch = (): Record<string, string | undefined> =>
   Object.fromEntries(DESKTOP_BACKEND_ENV_NAMES.map((name) => [name, undefined]));
 
+export const backendRestartDelay = (attempt: number) =>
+  Duration.millis(Math.min(500 * 2 ** attempt, 10_000));
+
 // Large state databases can take over a minute to become ready.
 const DEFAULT_BACKEND_READINESS_TIMEOUT = Duration.minutes(3);
 const DEFAULT_BACKEND_READINESS_INTERVAL = Duration.millis(100);
@@ -375,10 +378,14 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
   const serverReady = yield* Deferred.make<void>();
 
   yield* options.onStarted?.(handle.pid) ?? Effect.void;
+  // wsl.exe preserves stdin/stdout but drops extra descriptors. The WSL server announces readiness on stdout.
+  const controlOnStdout =
+    options.bootstrapDelivery === "stdin" && options.bootstrap.desktopTelemetryControlFd === 1;
   if (options.bootstrap.desktopTelemetryControlFd !== undefined) {
     const controlFd = options.bootstrap.desktopTelemetryControlFd;
     const handleControl = options.onDesktopTelemetryControl ?? (() => Effect.void);
-    yield* handle.getOutputFd(controlFd).pipe(
+    const control = controlOnStdout ? handle.stdout : handle.getOutputFd(controlFd);
+    yield* control.pipe(
       Stream.decodeText(),
       Stream.splitLines,
       Stream.filter((line) => line.trim().length > 0),
@@ -390,10 +397,12 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
               : handleControl(message),
           ),
           Effect.catchCause((cause) =>
-            logBackendProcessWarning("ignored invalid desktop telemetry control message", {
-              fd: controlFd,
-              cause: Cause.pretty(cause),
-            }),
+            controlOnStdout
+              ? Effect.void
+              : logBackendProcessWarning("ignored invalid desktop telemetry control message", {
+                  fd: controlFd,
+                  cause: Cause.pretty(cause),
+                }),
           ),
         ),
       ),
@@ -442,22 +451,18 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
       pid: Number(handle.pid),
     };
     const onOutputFailure = options.onOutputFailure ?? (() => Effect.void);
-    outputFibers.push(
-      yield* drainBackendOutput(
-        outputContext,
-        "stdout",
-        handle.stdout,
-        onOutput,
-        onOutputFailure,
-      ).pipe(Effect.forkScoped),
-      yield* drainBackendOutput(
-        outputContext,
-        "stderr",
-        handle.stderr,
-        onOutput,
-        onOutputFailure,
-      ).pipe(Effect.forkScoped),
-    );
+    const outputStreams = controlOnStdout ? (["stderr"] as const) : (["stdout", "stderr"] as const);
+    for (const name of outputStreams) {
+      outputFibers.push(
+        yield* drainBackendOutput(
+          outputContext,
+          name,
+          handle[name],
+          onOutput,
+          onOutputFailure,
+        ).pipe(Effect.forkScoped),
+      );
+    }
   }
   // Cold WSL boots across /mnt/c can exceed one probe budget; retry while the backend is alive.
   // HTTP polling stays as the fallback for backends without the control fd, such as WSL.

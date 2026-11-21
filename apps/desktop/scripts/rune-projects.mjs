@@ -569,6 +569,8 @@ function localServer() {
       ? NodePath.join(import.meta.dirname, "server")
       : NodePath.resolve(desktop, "../server");
     const started = startLocalServer({
+      packaged,
+      version: import.meta.t3codeVersion ?? desktopPackage.version,
       cwd,
       entryPath: NodePath.join(cwd, packaged || sourceBuild ? "dist/bin.mjs" : "src/bin.ts"),
       t3Home,
@@ -707,7 +709,7 @@ async function handleWorkspaceRequest(request, reply) {
       reply({
         type: "connected",
         label: session.label,
-        local: Boolean(localSession),
+        local: localSession?.sameFilesystem ?? false,
         can_operate: session.canOperate,
         can_pin: session.canPin,
         terminal_read: session.canReadTerminal || session.canOperateTerminal,
