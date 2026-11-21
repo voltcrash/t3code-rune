@@ -133,7 +133,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
-    timeout-minutes: ${{ inputs.platform == 'win' && 70 || (inputs.target == 'AppImage,deb' || inputs.target == 'dmg,zip') && 60 || 30 }}
+    timeout-minutes: ${{ inputs.platform == 'win' && 70 || (inputs.untrusted_bundle || inputs.target == 'AppImage,deb' || inputs.target == 'dmg,zip') && 60 || 30 }}
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ inputs.clerk_publishable_key }}
       T3CODE_CLERK_JWT_TEMPLATE: ${{ inputs.clerk_jwt_template }}
@@ -142,10 +142,10 @@ jobs:
     steps:
       # The launch check and the CLI archive smoke test both run the bundle.
       - name: Reject running an untrusted bundle
-        if: inputs.untrusted_bundle && (inputs.launch_check || inputs.cli_archive)
+        if: inputs.untrusted_bundle && (inputs.platform != 'mac' || inputs.target != 'dmg' || inputs.arch != 'arm64' || inputs.launch_check || inputs.cli_archive || inputs.verify_runner != '')
         shell: bash
         run: |
-          echo "::error::untrusted_bundle cannot be combined with launch_check or cli_archive, which run the bundle."
+          echo "::error::An untrusted bundle requires the macOS arm64 DMG packaging-only job."
           exit 1
 
       # This repository is public, so Git needs no credentials. checkout's
@@ -247,7 +247,7 @@ jobs:
           fi
 
       - name: Setup Rust
-        if: contains(inputs.target, ',') || steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
+        if: inputs.untrusted_bundle || contains(inputs.target, ',') || steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -280,6 +280,15 @@ jobs:
         with:
           name: js-bundle
           path: apps
+
+      - name: Identify validated PR launcher
+        id: pr_launcher
+        if: inputs.untrusted_bundle
+        shell: bash
+        run: |
+          if [[ -f apps/desktop/dist/rune-bundle/t3-code ]]; then
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Windows preview packaging tools
         if: inputs.target == 'nsis,zip'
@@ -412,7 +421,7 @@ jobs:
         run: node apps/server/scripts/cli.ts build-exe --verbose ${{ inputs.platform == 'win' && format('--target win-{0}', inputs.arch) || '' }}
 
       - name: Import macOS signing certificate
-        if: inputs.platform == 'mac' && (inputs.cli_archive || inputs.target == 'dmg,zip')
+        if: inputs.platform == 'mac' && (inputs.cli_archive || inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true')
         shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -633,7 +642,7 @@ jobs:
         run: vp run dist:desktop:rune --platform linux --target AppImage,deb --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose
 
       - name: Build Rune macOS preview
-        if: inputs.target == 'dmg,zip'
+        if: inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true'
         shell: bash
         env:
           pnpm_config_cache_dir: ${{ steps.stage_pnpm.outputs.dir }}/cache
@@ -645,7 +654,10 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           set -euo pipefail
-          args=(--platform mac --target dmg,zip --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose)
+          args=(--platform mac --target "${{ inputs.target }}" --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose)
+          if [[ "${{ steps.pr_launcher.outputs.native }}" == true ]]; then
+            args+=(--prebuilt-mac-launcher)
+          fi
           if [[ -n "${T3CODE_CLI_MAC_SIGN_IDENTITY:-}" ]]; then
             args+=(--signed)
             if [[ -n "${APPLE_API_KEY:-}" ]]; then
@@ -658,7 +670,7 @@ jobs:
           vp run dist:desktop:rune "${args[@]}"
 
       - name: Build desktop artifact
-        if: inputs.target != 'AppImage,deb' && inputs.target != 'dmg,zip'
+        if: inputs.target != 'AppImage,deb' && inputs.target != 'dmg,zip' && steps.pr_launcher.outputs.native != 'true'
         shell: bash
         env:
           # pnpm only goes to the registry for packages or versions the cache lacks.

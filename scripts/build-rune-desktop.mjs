@@ -32,7 +32,7 @@ import {
   WSL_RUNTIME_ARCHIVE_HASH_NAME,
 } from "./desktop-packaging.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
-import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
+import { stageMacBinary, stageMacNode, stagePrebuiltMacLauncher } from "./lib/rune-mac.mjs";
 import { publishRuneArtifacts } from "./lib/rune-artifacts.mjs";
 import { buildRuneDeb } from "./lib/rune-deb.mjs";
 import {
@@ -66,6 +66,7 @@ const { values } = NodeUtil.parseArgs({
     "output-dir": { type: "string" },
     platform: { type: "string" },
     "skip-build": { type: "boolean" },
+    "prebuilt-mac-launcher": { type: "boolean" },
     signed: { type: "boolean" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
@@ -88,6 +89,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
   --output-dir <dir>            Directory for completed artifacts (default: release)
   --signed                      Sign the macOS or Windows distribution
   --skip-build                  Use the matching prebuilt server, client and desktop worker
+  --prebuilt-mac-launcher       Also use the macOS preview launcher in the prebuilt bundle
   --keep-stage                  Keep staged packaging files
   --verbose                     Show detailed build output
   -h, --help                    Show this help`);
@@ -116,6 +118,10 @@ const wslRuntime =
   (platform === "win" ? process.env.T3CODE_DESKTOP_WSL_RUNTIME : undefined);
 if (wslRuntime !== undefined && (platform !== "win" || !wslRuntime.trim())) {
   throw new Error("--wsl-runtime requires a Linux CLI archive path and a Windows target.");
+}
+const prebuiltMacLauncher = values["prebuilt-mac-launcher"] ?? false;
+if (prebuiltMacLauncher && (platform !== "mac" || !skipBuild)) {
+  throw new Error("--prebuilt-mac-launcher requires a macOS package with --skip-build.");
 }
 const target =
   values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
@@ -304,32 +310,44 @@ async function buildRunePackage() {
     );
   else await bundleRuneWorker(resources, version);
 
-  for (const rustTarget of rustTargets)
-    run(
-      "cargo",
-      [
-        win ? "rustc" : "build",
-        "--bin",
-        "t3-code",
-        "--release",
-        "--locked",
-        "--manifest-path",
-        manifest,
-        "--target",
-        rustTarget,
-        "--target-dir",
-        NodePath.join(desktop, "native/target"),
-        // PE resource editing requires a shell executable without a COFF symbol table.
-        ...(win ? ["--", "-Cstrip=symbols"] : []),
-      ],
-      { env: { ...process.env, T3CODE_RUNE_PRODUCT_NAME: product } },
-    );
-  const binaries = rustTargets.map((rustTarget) =>
-    NodePath.join(desktop, "native/target", rustTarget, "release", win ? "t3-code.exe" : "t3-code"),
-  );
   const bundledNode = NodePath.join(helpers, win ? "node.exe" : "node");
+  if (prebuiltMacLauncher) {
+    const source = NodePath.join(desktop, "dist/rune-bundle/t3-code");
+    await stagePrebuiltMacLauncher(source, executable, arch);
+  } else {
+    for (const rustTarget of rustTargets)
+      run(
+        "cargo",
+        [
+          win ? "rustc" : "build",
+          "--bin",
+          "t3-code",
+          "--release",
+          "--locked",
+          "--manifest-path",
+          manifest,
+          "--target",
+          rustTarget,
+          "--target-dir",
+          NodePath.join(desktop, "native/target"),
+          // PE resource editing requires a shell executable without a COFF symbol table.
+          ...(win ? ["--", "-Cstrip=symbols"] : []),
+        ],
+        { env: { ...process.env, T3CODE_RUNE_PRODUCT_NAME: product } },
+      );
+    const binaries = rustTargets.map((rustTarget) =>
+      NodePath.join(
+        desktop,
+        "native/target",
+        rustTarget,
+        "release",
+        win ? "t3-code.exe" : "t3-code",
+      ),
+    );
+    if (mac) await stageMacBinary(binaries, executable);
+    else await NodeFSP.copyFile(binaries[0], executable);
+  }
   if (mac) {
-    await stageMacBinary(binaries, executable);
     await stageMacNode({
       tmp,
       arch,
@@ -339,7 +357,6 @@ async function buildRunePackage() {
       dest: bundledNode,
     });
   } else {
-    await NodeFSP.copyFile(binaries[0], executable);
     await NodeFSP.copyFile(node, bundledNode);
   }
   await NodeFSP.copyFile(

@@ -23,7 +23,7 @@ class StagePreviewBundleTests(unittest.TestCase):
 
     def bundle(self, extra=(), missing=None):
         with zipfile.ZipFile(self.archive, "w") as bundle:
-            for name in sorted(staging.REQUIRED_FILES - {missing}):
+            for name in sorted((staging.SERVER_ENTRY_POINTS | {staging.ELECTRON_MAIN}) - {missing}):
                 bundle.writestr(name, b"bundle data, never executed")
             for name, content in extra:
                 bundle.writestr(name, content)
@@ -38,10 +38,34 @@ class StagePreviewBundleTests(unittest.TestCase):
                      ("server/dist/client/asset-manifest.json", b"{}"),
                      ("desktop/dist-electron/chunks/helper.cjs", b"chunk")])
         self.stage()
-        for name in staging.REQUIRED_FILES:
+        for name in staging.SERVER_ENTRY_POINTS | {staging.ELECTRON_MAIN}:
             self.assertEqual((self.destination / name).read_bytes(), b"bundle data, never executed")
         self.assertEqual((self.destination / "desktop/dist-electron/chunks/helper.cjs").read_bytes(), b"chunk")
         self.assertEqual((self.destination / "desktop/dist/rune-bundle/rune-projects.mjs").read_bytes(), b"worker")
+
+    def test_stages_native_preview_with_its_launcher_and_no_electron(self):
+        launcher = "desktop/dist/rune-bundle/t3-code"
+        native_files = {
+            launcher: b"mach-o",
+            "desktop/dist/rune-bundle/rune-projects.mjs": b"worker",
+            "server/dist/claude-history-worker.mjs": b"server worker",
+            "server/dist/client/asset-manifest.json": b"{}",
+        }
+        for missing in native_files:
+            with self.subTest(missing=missing):
+                remaining = [(name, data) for name, data in native_files.items() if name != missing]
+                self.bundle(remaining, missing=staging.ELECTRON_MAIN)
+                with self.assertRaises(ValueError):
+                    self.stage()
+                self.assertFalse(self.destination.exists())
+        self.bundle(native_files.items())
+        with self.assertRaises(ValueError):
+            self.stage()
+        self.assertFalse(self.destination.exists())
+        self.bundle(native_files.items(), missing=staging.ELECTRON_MAIN)
+        self.stage()
+        self.assertEqual((self.destination / launcher).read_bytes(), b"mach-o")
+        self.assertFalse((self.destination / "desktop/dist-electron").exists())
 
     def test_rejects_builder_overwrite_and_unsafe_paths_before_writing(self):
         for name in [
