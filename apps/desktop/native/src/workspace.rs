@@ -66,6 +66,7 @@ pub(super) struct Thread {
     pub(super) model: String,
     pub(super) permission: Option<crate::permissions::Selection>,
     settled: bool,
+    snoozed_until: Option<i64>,
 }
 
 impl Thread {
@@ -229,6 +230,8 @@ impl Conversation {
 
 #[derive(Deserialize)]
 pub(super) struct WorkspaceChanges {
+    #[serde(default)]
+    sequence: u64,
     scratch_available: bool,
     projects: Vec<Project>,
     threads: Vec<Thread>,
@@ -244,8 +247,9 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 }
 
 pub(super) struct Workspace {
+    pub(super) sequence: u64,
     pub(super) feed: Option<u64>,
-    pub(super) refresh_after_rename: Option<u64>,
+    pub(super) refresh_after_edit: Option<u64>,
     actions: thread_actions::Actions,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
@@ -283,8 +287,9 @@ impl Workspace {
     }
     pub fn new() -> Self {
         Self {
+            sequence: 0,
             feed: None,
-            refresh_after_rename: None,
+            refresh_after_edit: None,
             actions: Default::default(),
             row_clock: Default::default(),
             paused: false,
@@ -325,6 +330,7 @@ impl Workspace {
     }
 
     fn apply_changes(&mut self, changes: WorkspaceChanges) {
+        self.sequence = changes.sequence;
         self.scratch_available = changes.scratch_available;
         for project in changes.projects {
             self.put_project(project);
@@ -592,6 +598,9 @@ impl Desktop {
                 .conversation
                 .as_ref()
                 .is_none_or(|pane| pane.id != id);
+        if opened {
+            self.cancel_settle_navigation();
+        }
         self.history.visit(Page::Thread(id.into()));
         self.new_threads.active = None;
         self.workspace.show_projects = false;
@@ -646,6 +655,7 @@ impl Desktop {
     }
 
     pub(super) fn leave_visible_thread(&mut self) {
+        self.cancel_settle_navigation();
         if self.workspace.conversation.is_some() {
             self.write_request(None, Request::VisitThread { thread: None });
         }
@@ -1757,6 +1767,7 @@ mod tests {
             model: String::new(),
             permission: None,
             settled: false,
+            snoozed_until: None,
         };
         app.workspace
             .replace(vec![], vec![thread("a", "Original", 1)]);
@@ -1768,6 +1779,7 @@ mod tests {
             reply: Reply::WorkspaceLive {
                 watch,
                 changes: WorkspaceChanges {
+                    sequence: 1,
                     scratch_available: false,
                     threads,
                     projects: vec![],

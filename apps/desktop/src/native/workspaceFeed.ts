@@ -20,6 +20,7 @@ type Loaded = Awaited<ReturnType<typeof readWorkspace>>;
 type ProjectRow = ReturnType<typeof projectSummary>;
 type ThreadRow = ReturnType<typeof threadSummary>;
 type Changes = {
+  sequence: number;
   scratch_available: boolean;
   threads: ThreadRow[];
   projects: ProjectRow[];
@@ -83,12 +84,17 @@ export function watchWorkspace(
   let scratchChanged = false;
   let waiting = false;
   let scheduled = false;
+  let publishedSequence = sequence;
+  let requestedSequence = sequence;
   const flush = () => {
     if (
       scheduled ||
       waiting ||
       signal.aborted ||
-      (!scratchChanged && !dirtyThreads.size && !dirtyProjects.size)
+      (!scratchChanged &&
+        !dirtyThreads.size &&
+        !dirtyProjects.size &&
+        !(publishedSequence < requestedSequence && sequence >= requestedSequence))
     )
       return;
     scheduled = true;
@@ -100,7 +106,9 @@ export function watchWorkspace(
             const p = takeChanges(projects, dirtyProjects);
             const t = takeChanges(threads, dirtyThreads);
             waiting = true;
+            publishedSequence = sequence;
             emit({
+              sequence,
               scratch_available: scratchAvailable,
               projects: p.changed,
               threads: t.changed,
@@ -231,6 +239,10 @@ export function watchWorkspace(
     if (!signal.aborted) paused();
   });
   return {
+    publishThrough(committed: number) {
+      requestedSequence = committed;
+      flush();
+    },
     hasThread(id: string) {
       return threads.has(id);
     },

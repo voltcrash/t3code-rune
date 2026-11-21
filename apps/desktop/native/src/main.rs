@@ -50,6 +50,8 @@ enum Reply {
     Workspace {
         watch: u64,
         #[serde(default)]
+        sequence: u64,
+        #[serde(default)]
         clock_offset: Option<i64>,
         scratch_available: bool,
         projects: Vec<Project>,
@@ -126,6 +128,10 @@ enum Reply {
         options: Vec<models::Choice>,
         error: Option<String>,
     },
+    SettlementChanged {
+        watch: u64,
+        sequence: Option<u64>,
+    },
     ThreadRenamed {
         watch: u64,
         error: Option<String>,
@@ -190,6 +196,13 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    SetSettlement {
+        thread: String,
+        watch: u64,
+        operation: String,
+        settled: bool,
+        advance: bool,
+    },
     RenameThread {
         thread: String,
         title: String,
@@ -386,6 +399,9 @@ impl Desktop {
         if self.pending || self.output.is_none() {
             return;
         }
+        if !matches!(request, Request::Refresh | Request::SetSettlement { .. }) {
+            self.cancel_settle_navigation();
+        }
         self.permission_menu = None;
         self.models.close();
         if matches!(request, Request::Thread { .. }) {
@@ -411,11 +427,11 @@ impl Desktop {
         });
     }
 
-    fn refresh_after_rename(&mut self) {
+    fn refresh_after_edit(&mut self) {
         if self.pending {
             return;
         }
-        if let Some(watch) = self.workspace.refresh_after_rename.take()
+        if let Some(watch) = self.workspace.refresh_after_edit.take()
             && self.workspace.paused
             && self.workspace.feed == Some(watch)
         {
@@ -429,8 +445,8 @@ impl Desktop {
                 if let Some(message) = error {
                     self.error = Some(message);
                 } else if self.workspace.paused {
-                    self.workspace.refresh_after_rename = Some(watch);
-                    self.refresh_after_rename();
+                    self.workspace.refresh_after_edit = Some(watch);
+                    self.refresh_after_edit();
                 }
             }
             return;
@@ -439,6 +455,7 @@ impl Desktop {
             if self.workspace.feed == Some(watch) {
                 self.apply_workspace(changes);
                 self.write_request(None, Request::WorkspaceHandled { watch });
+                self.advance_after_settle();
             }
             return;
         }
@@ -451,6 +468,10 @@ impl Desktop {
         if let Reply::WorkspacePaused { watch } = message.reply {
             if self.workspace.feed == Some(watch) {
                 self.workspace.paused = true;
+                if self.waiting_for_settle() {
+                    self.workspace.refresh_after_edit = Some(watch);
+                    self.refresh_after_edit();
+                }
             }
             return;
         }
@@ -559,6 +580,14 @@ impl Desktop {
                     }
                 }
             }
+            Reply::SettlementChanged { watch, sequence } => {
+                if self.workspace.feed == Some(watch) {
+                    if self.workspace.paused {
+                        self.workspace.refresh_after_edit = Some(watch);
+                    }
+                    self.settlement_committed(sequence);
+                }
+            }
             Reply::ModelSaved {
                 thread,
                 instance,
@@ -608,6 +637,7 @@ impl Desktop {
             }
             Reply::Workspace {
                 watch,
+                sequence,
                 projects,
                 threads,
                 scratch_available,
@@ -616,6 +646,7 @@ impl Desktop {
                 if let Some(offset) = clock_offset {
                     self.workspace.set_clock_offset(offset);
                 }
+                self.workspace.sequence = sequence;
                 self.workspace.feed = Some(watch);
                 self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
@@ -703,7 +734,10 @@ impl Desktop {
             | Reply::FileDiff { .. } => {
                 unreachable!()
             }
-            Reply::Error { message } => self.error = Some(message),
+            Reply::Error { message } => {
+                self.cancel_settle_navigation();
+                self.error = Some(message);
+            }
             Reply::Disconnected | Reply::LocalClosed => {
                 let lost = matches!(message.reply, Reply::LocalClosed);
                 let output = self.output.take();
@@ -718,7 +752,8 @@ impl Desktop {
             }
         }
         self.close_stale_terminal();
-        self.refresh_after_rename();
+        self.advance_after_settle();
+        self.refresh_after_edit();
     }
 }
 
@@ -939,7 +974,10 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
-            if s.model_shortcut(ev, tx) || s.permission_shortcut(ev, tx) {
+            if s.settle_shortcut(ev, tx)
+                || s.model_shortcut(ev, tx)
+                || s.permission_shortcut(ev, tx)
+            {
                 return true;
             }
             if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {

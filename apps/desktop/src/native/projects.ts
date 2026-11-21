@@ -14,6 +14,7 @@ import {
   presentThreadShell,
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
+import { threadRaisedHandWhileSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchSubject } from "@t3tools/client-runtime/state/thread-search";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
@@ -192,6 +193,10 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
       mode: thread.runtimeMode,
       label: permissionLabel(thread.runtimeMode),
     },
+    snoozed_until:
+      shell.snoozedUntil && !threadRaisedHandWhileSnoozed(shell)
+        ? Date.parse(shell.snoozedUntil)
+        : null,
     settled: thread.settledOverride === "settled",
     recent_at: threadRecentUse(threadSearchSubject(shell, null)),
     order_key: thread.activeOrderKey ?? null,
