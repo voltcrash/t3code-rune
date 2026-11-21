@@ -517,6 +517,7 @@ async function buildRunePackage() {
         arch,
         tmp,
         signed,
+        releaseInstall: updateFeed,
       });
       if (windowsSigning) await signRuneWindowsFile(archive, windowsSigning);
     }

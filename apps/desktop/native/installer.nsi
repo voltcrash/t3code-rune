@@ -32,13 +32,24 @@ VIAddVersionKey /LANG=1033 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "FileDescription" "${PRODUCT} Installer"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "T3 Tools"
 
-!define ROOT "$LOCALAPPDATA\Programs\${INSTALL_NAME}"
+!ifdef RELEASE_INSTALL
+  !include "${__FILEDIR__}/rune-install-location.nsh"
+!else
+  !define ROOT "$LOCALAPPDATA\Programs\${INSTALL_NAME}"
+  !define ACTIVE "${ROOT}\app"
+  !define SHORTCUT_NAME "${INSTALL_NAME}"
+  !define DISPLAY_NAME "${INSTALL_NAME}"
+!endif
 !define ARP "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_NAME}"
-!define LINK "$SMPROGRAMS\${INSTALL_NAME}.lnk"
-!define DESKTOP_LINK "$DESKTOP\${INSTALL_NAME}.lnk"
+!define LINK "$SMPROGRAMS\${SHORTCUT_NAME}.lnk"
+!define DESKTOP_LINK "$DESKTOP\${SHORTCUT_NAME}.lnk"
 Var stage
 Var previous
 Var oldVersion
+Var oldDisplayName
+!ifdef RELEASE_INSTALL
+Var createdStartLink
+!endif
 Var pendingCleanup
 
 !macro LockInstaller
@@ -99,12 +110,27 @@ FunctionEnd
 !insertmacro DefineCleanup ""
 !insertmacro DefineCleanup "un."
 
+!ifdef RELEASE_INSTALL
+!insertmacro DefineReleaseMigration
+!endif
+
 Function .onInit
   !insertmacro LockInstaller
   ${IfNot} ${NATIVE_ARCH}
     MessageBox MB_OK "Use the ${PRODUCT} installer for this PC’s architecture." /SD IDOK
     Abort
   ${EndIf}
+  !ifdef RELEASE_INSTALL
+    !insertmacro ReadReleaseLocation
+    Call RecoverAdoption
+    ${IfNot} ${Errors}
+      Call RecoverShortcutChange
+    ${EndIf}
+    ${If} ${Errors}
+      MessageBox MB_OK "Could not restore the previous desktop installation. Close the app and retry." /SD IDOK
+      Abort
+    ${EndIf}
+  !endif
 FunctionEnd
 
 Function LaunchInstalledApp
@@ -136,7 +162,7 @@ Function LaunchInstalledApp
   ${EndIf}
 
   HideWindow
-  StrCpy $2 "$INSTDIR\app\${PRODUCT}.exe"
+  StrCpy $2 "${ACTIVE}\${PRODUCT}.exe"
   ; GetCurrentProcessToken is a pseudo-handle. Only a confirmed unelevated caller may launch directly.
   System::Call 'advapi32::GetTokenInformation(p -4, i 20, *i .r3, i 4, *i .r4)i.r0'
   ${If} $0 != 0
@@ -163,9 +189,10 @@ Section "Install"
   SetRegView 64
   SetShellVarContext current
   StrCpy $INSTDIR "${ROOT}"
-  !insertmacro CheckProgramClosed "$INSTDIR\app\${PRODUCT}.exe" failed
-  !insertmacro CheckProgramClosed "$INSTDIR\app\resources\node.exe" failed
+  !insertmacro CheckProgramClosed "${ACTIVE}\${PRODUCT}.exe" failed
+  !insertmacro CheckProgramClosed "${ACTIVE}\resources\node.exe" failed
   ReadRegStr $oldVersion HKCU "${ARP}" "DisplayVersion"
+  ReadRegStr $oldDisplayName HKCU "${ARP}" "DisplayName"
   ClearErrors
   CreateDirectory "$INSTDIR"
   GetTempFileName $stage "$INSTDIR"
@@ -176,53 +203,138 @@ Section "Install"
   WriteUninstaller "$stage\Uninstall.exe"
   IfErrors failed
   SetOutPath "$INSTDIR"
-  ${If} ${FileExists} "$INSTDIR\app\*.*"
+  ${If} ${FileExists} "${ACTIVE}\*.*"
+    !ifdef RELEASE_INSTALL
+      Call RecognizeRelease
+      IfErrors failed
+    !endif
     ${If} $oldVersion != ""
-    ${AndIf} ${FileExists} "$INSTDIR\app\Uninstall.exe"
+    ${AndIf} ${FileExists} "${ACTIVE}\Uninstall.exe"
       CreateDirectory "${ROOT}\retired"
       GetTempFileName $previous "${ROOT}\retired"
     ${Else}
-      GetTempFileName $previous "$INSTDIR"
+      !ifdef RELEASE_INSTALL
+        StrCpy $previous "${FORMER_DIR}"
+        WriteRegStr HKCU "${RELEASE_LOCATION_KEY}" "InstallLocation" "${ACTIVE}"
+        IfErrors failed
+        WriteRegStr HKCU "${RELEASE_LOCATION_KEY}" "AdoptionStage" "$stage"
+        IfErrors failed
+        StrCpy $oldDisplayName "$formerProduct"
+      !else
+        GetTempFileName $previous "$INSTDIR"
+      !endif
     ${EndIf}
     IfErrors failed
-    Delete "$previous"
-    Rename "$INSTDIR\app" "$previous"
+    !ifdef RELEASE_INSTALL
+      ${If} $previous != "${FORMER_DIR}"
+        Delete "$previous"
+      ${EndIf}
+    !else
+      Delete "$previous"
+    !endif
+    !ifdef RELEASE_INSTALL
+      Call RecordShortcutChange
+      IfErrors failed
+    !endif
+    Rename "${ACTIVE}" "$previous"
     IfErrors failed
   ${EndIf}
-  Rename "$stage" "$INSTDIR\app"
+  Rename "$stage" "${ACTIVE}"
   IfErrors restore
   ClearErrors
-  CreateShortcut "${LINK}" "$INSTDIR\app\${PRODUCT}.exe"
-  ${If} $previous == ""
-    CreateShortcut "${DESKTOP_LINK}" "$INSTDIR\app\${PRODUCT}.exe"
-  ${EndIf}
-  WriteRegStr HKCU "${ARP}" "DisplayName" "${INSTALL_NAME}"
+  WriteRegStr HKCU "${ARP}" "DisplayName" "${DISPLAY_NAME}"
   WriteRegStr HKCU "${ARP}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${ARP}" "Publisher" "T3 Tools"
-  WriteRegStr HKCU "${ARP}" "InstallLocation" "$INSTDIR\app"
-  WriteRegStr HKCU "${ARP}" "DisplayIcon" "$INSTDIR\app\${PRODUCT}.exe"
-  WriteRegStr HKCU "${ARP}" "UninstallString" '"$INSTDIR\app\Uninstall.exe"'
-  WriteRegStr HKCU "${ARP}" "QuietUninstallString" '"$INSTDIR\app\Uninstall.exe" /S'
+  WriteRegStr HKCU "${ARP}" "InstallLocation" "${ACTIVE}"
+  WriteRegStr HKCU "${ARP}" "DisplayIcon" "${ACTIVE}\${PRODUCT}.exe"
+  WriteRegStr HKCU "${ARP}" "UninstallString" '"${ACTIVE}\Uninstall.exe"'
+  WriteRegStr HKCU "${ARP}" "QuietUninstallString" '"${ACTIVE}\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${ARP}" "NoModify" 1
   WriteRegDWORD HKCU "${ARP}" "NoRepair" 1
   IfErrors unpublish
+  !ifdef RELEASE_INSTALL
+    WriteRegStr HKCU "${RELEASE_LOCATION_KEY}" "InstallLocation" "${ACTIVE}"
+    IfErrors unpublish
+  !endif
+  !ifdef RELEASE_INSTALL
+    ${IfNot} ${FileExists} "${LINK}"
+      CreateShortcut "${LINK}" "${ACTIVE}\${PRODUCT}.exe"
+      IfErrors unpublish
+      StrCpy $createdStartLink 1
+    ${ElseIf} ${FileExists} "${LINK}\*.*"
+      Goto unpublish
+    ${EndIf}
+  !else
+    CreateShortcut "${LINK}" "${ACTIVE}\${PRODUCT}.exe"
+  !endif
+  ${If} $previous == ""
+    CreateShortcut "${DESKTOP_LINK}" "${ACTIVE}\${PRODUCT}.exe"
+  ${EndIf}
+  IfErrors unpublish
+  !ifdef RELEASE_INSTALL
+    ${If} $oldDisplayName != ""
+    ${AndIf} $oldDisplayName != "${PRODUCT}"
+    ${AndIf} ${FileExists} "$DESKTOP\$oldDisplayName.lnk"
+      ${If} ${FileExists} "${DESKTOP_LINK}\*.*"
+        Goto unpublish
+      ${ElseIfNot} ${FileExists} "${DESKTOP_LINK}"
+        CreateShortcut "${DESKTOP_LINK}" "${ACTIVE}\${PRODUCT}.exe"
+        IfErrors unpublish
+      ${EndIf}
+    ${EndIf}
+    ${If} $previous == "${FORMER_DIR}"
+      DeleteRegValue HKCU "${RELEASE_LOCATION_KEY}" "AdoptionStage"
+      IfErrors unpublish
+    ${EndIf}
+    ${If} $oldDisplayName != ""
+    ${AndIf} $oldDisplayName != "${PRODUCT}"
+      Call RecoverShortcutChange
+    ${EndIf}
+    Call RetirePreviousRelease
+  !endif
   Call CleanRetired
   Goto done
 unpublish:
-  Rename "$INSTDIR\app" "$stage"
-  ${If} $previous == ""
-    Delete "${LINK}"
-    Delete "${DESKTOP_LINK}"
+  !ifdef RELEASE_INSTALL
+    ${If} $createdStartLink == 1
+      Delete "${LINK}"
+    ${EndIf}
+  !endif
+  Rename "${ACTIVE}" "$stage"
+  ${If} $oldVersion == ""
+    ${If} $previous == ""
+      Delete "${LINK}"
+      Delete "${DESKTOP_LINK}"
+    ${EndIf}
     DeleteRegKey HKCU "${ARP}"
+    !ifdef RELEASE_INSTALL
+      ${If} $previous == ""
+        DeleteRegKey HKCU "${RELEASE_LOCATION_KEY}"
+      ${EndIf}
+    !endif
   ${Else}
     WriteRegStr HKCU "${ARP}" "DisplayVersion" "$oldVersion"
+    WriteRegStr HKCU "${ARP}" "DisplayName" "$oldDisplayName"
+    !ifdef RELEASE_INSTALL
+      WriteRegStr HKCU "${ARP}" "DisplayIcon" "${ACTIVE}\$oldDisplayName.exe"
+    !endif
   ${EndIf}
 restore:
   ${If} $previous != ""
-    Rename "$previous" "$INSTDIR\app"
+    Rename "$previous" "${ACTIVE}"
   ${EndIf}
 failed:
   SetOutPath "$TEMP"
+  !ifdef RELEASE_INSTALL
+    ${If} $previous == "${FORMER_DIR}"
+      ReadRegStr $0 HKCU "${RELEASE_LOCATION_KEY}" "AdoptionStage"
+      ${If} $0 != ""
+        Call RecoverAdoption
+        StrCpy $stage ""
+      ${EndIf}
+    ${EndIf}
+    Call RecoverShortcutChange
+  !endif
   ${If} $stage != ""
     RMDir /r "$stage"
   ${EndIf}
@@ -246,6 +358,12 @@ Function un.RemovePayloadDirectory
   ${EndIf}
 FunctionEnd
 
+!ifdef RELEASE_INSTALL
+Function un.onInit
+  !insertmacro ReadReleaseLocation
+FunctionEnd
+!endif
+
 Section "Uninstall"
   SetRegView 64
   SetShellVarContext current
@@ -260,13 +378,13 @@ Section "Uninstall"
       SetErrorLevel 0
       Goto done
     ${EndIf}
-  ${ElseIf} $INSTDIR != "${ROOT}\app"
+  ${ElseIf} $INSTDIR != "${ACTIVE}"
     SetErrorLevel 2
     Abort
   ${EndIf}
   !insertmacro LockInstaller
   SetOutPath "$TEMP"
-  ${If} $INSTDIR == "${ROOT}\app"
+  ${If} $INSTDIR == "${ACTIVE}"
     !insertmacro CheckProgramClosed "$INSTDIR\${PRODUCT}.exe" busy
     !insertmacro CheckProgramClosed "$INSTDIR\resources\node.exe" busy
     ClearErrors
@@ -285,6 +403,12 @@ Section "Uninstall"
     Goto busy
   ${EndIf}
   RMDir "${ROOT}"
+  !ifdef RELEASE_INSTALL
+    ${IfNot} ${FileExists} "${ACTIVE}\Uninstall.exe"
+    ${AndIfNot} ${FileExists} "${FORMER_DIR}\*.*"
+      DeleteRegKey HKCU "${RELEASE_LOCATION_KEY}"
+    ${EndIf}
+  !endif
   Goto done
 busy:
   MessageBox MB_OK "Close ${PRODUCT} and retry removal from Windows Installed apps." /SD IDOK

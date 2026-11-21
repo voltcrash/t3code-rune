@@ -88,6 +88,7 @@ export async function buildRuneInstaller({
   arch,
   tmp,
   signed,
+  releaseInstall = false,
 }) {
   const revision = "b2905ed52ab5be0408e2f012123110abe443aab3";
   const repository = "mozilla-firefox/firefox";
@@ -140,7 +141,8 @@ export async function buildRuneInstaller({
     PRODUCT: product,
     VERSION: version,
     NUMERIC_VERSION: version.split(/[-+]/, 1)[0],
-    INSTALL_NAME: product + " Rune",
+    INSTALL_NAME: releaseInstall ? "T3Code.Native" : product + " Rune",
+    ...(releaseInstall ? { RELEASE_INSTALL: "1" } : {}),
     PLUGIN_DIR: tmp,
     PAYLOAD: app,
     REMOVALS: manifest,
