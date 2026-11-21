@@ -1,3 +1,4 @@
+import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from "@t3tools/contracts";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
@@ -708,6 +709,45 @@ async function handleWorkspaceRequest(request, reply) {
             error:
               "Couldn’t confirm the response. Refresh to check the request before trying again.",
           });
+      }
+      return;
+    } else if (request.type === "renamethread") {
+      reading = session;
+      const feed = workspaceFeed;
+      const result = { type: "threadrenamed", watch: request.watch };
+      if (
+        !reading?.canOperate ||
+        !feed ||
+        feed.watch !== request.watch ||
+        !feed.hasThread(request.thread) ||
+        !request.title?.trim()
+      ) {
+        reply({ ...result, error: "This thread cannot be renamed on this connection." });
+        return;
+      }
+      try {
+        await Effect.runPromise(
+          openEnvironmentRpc(reading).pipe(
+            Effect.flatMap((rpc) =>
+              rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+                type: "thread.metadata.update",
+                threadId: ThreadId.make(request.thread),
+                commandId: CommandId.make(request.operation),
+                title: request.title.trim(),
+              }),
+            ),
+            Effect.scoped,
+            Effect.timeout("15 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        reply(result);
+      } catch {
+        reply({
+          ...result,
+          error: "Couldn’t confirm the thread rename. Refresh to check the title.",
+        });
       }
       return;
     } else if (request.type === "setthreadmodel" && session) {

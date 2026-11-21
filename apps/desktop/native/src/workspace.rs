@@ -15,6 +15,8 @@ pub(crate) mod file_diff;
 pub(super) mod palette;
 #[path = "sidebar_header.rs"]
 mod sidebar_header;
+#[path = "thread_actions.rs"]
+mod thread_actions;
 
 #[path = "sidebar_status.rs"]
 pub(super) mod sidebar_status;
@@ -236,6 +238,8 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 
 pub(super) struct Workspace {
     pub(super) feed: Option<u64>,
+    pub(super) refresh_after_rename: Option<u64>,
+    actions: thread_actions::Actions,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
@@ -273,6 +277,8 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             feed: None,
+            refresh_after_rename: None,
+            actions: Default::default(),
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
@@ -345,6 +351,7 @@ impl Workspace {
     }
 
     fn reconcile(&mut self) {
+        self.reconcile_actions();
         if self
             .conversation
             .as_ref()
@@ -746,17 +753,16 @@ fn project_badge(title: &str, theme: &tok::Theme) -> El {
 }
 
 fn thread_row(
+    s: &Desktop,
     thread: &Thread,
     project: &str,
     selected: bool,
-    pending: bool,
     theme: &tok::Theme,
     dark: bool,
-    clock: &sidebar_status::Clock,
 ) -> El {
     let id = thread.id.clone();
     let recedes = thread.recedes && !selected;
-    let (status, name) = sidebar_status::view(thread, dark, theme, clock);
+    let (status, name) = sidebar_status::view(thread, dark, theme, &s.workspace.row_clock);
     let accessible = [Some(thread.title.as_str()), name, Some(project)]
         .into_iter()
         .flatten()
@@ -775,6 +781,8 @@ fn thread_row(
         )
         .child(spacer())
         .child(status);
+    let editor = thread_actions::editor(s, thread, thread_actions::Origin::Sidebar, theme);
+    let editing = editor.is_some();
     let mut base = col()
         .key(&id)
         .label(&accessible)
@@ -785,7 +793,7 @@ fn thread_row(
         .py(8.0)
         .gap(4.0)
         .child(heading)
-        .child(
+        .child(editor.unwrap_or_else(|| {
             label(
                 &thread.title,
                 14.0,
@@ -796,15 +804,19 @@ fn thread_row(
                     theme.text
                 },
             )
-            .truncate(),
-        );
+            .truncate()
+        }));
     if let Some(branch) = &thread.branch {
         base = base.child(label(branch, 12.0, 400.0, theme.text_secondary).truncate());
     }
     if selected {
         base = base.fill(theme.separator);
     }
-    if pending {
+    if editing {
+        return base;
+    }
+    let base = thread_actions::context(base, &id, thread_actions::Origin::Sidebar);
+    if s.pending {
         base.disabled(true)
     } else {
         base.hover(theme.separator)
@@ -866,15 +878,7 @@ fn sidebar(
                 } else {
                     s.workspace.search_target.as_ref() == Some(&t.id)
                 };
-                thread_row(
-                    t,
-                    project,
-                    selected,
-                    s.pending,
-                    &colors,
-                    dark,
-                    &s.workspace.row_clock,
-                )
+                thread_row(s, t, project, selected, &colors, dark)
             },
         )
         .virtual_rows_version(s.workspace.filter_revision)
@@ -1428,11 +1432,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .child(label(&project.title, 13.0, 400.0, theme.text_secondary).truncate())
                 .child(label("/", 13.0, 400.0, theme.text_secondary));
         }
-        header = header.child(
-            label(&thread.title, 14.0, 500.0, theme.text)
-                .truncate()
-                .shrink(),
-        );
+        header = header.child(thread_actions::header(
+            s,
+            thread,
+            theme,
+            &Kit::neutral(cx.system_dark()),
+            &mut overlays,
+        ));
     } else if !empty {
         header = header.child(label("Projects", 14.0, 500.0, theme.text));
     }
@@ -1550,6 +1556,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
+    thread_actions::sidebar_menu(s, &Kit::neutral(cx.system_dark()), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if diff_open {
         let leading = if split_panel { 0. } else { inset.leading };
