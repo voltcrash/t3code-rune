@@ -20,7 +20,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import { backendChildEnvPatch } from "./DesktopBackendProcess.ts";
-import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import type * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
@@ -215,7 +215,7 @@ const readPersistedBackendObservabilitySettings = Effect.gen(function* () {
   };
 });
 
-const readBackendObservabilitySettings = Effect.gen(function* () {
+export const readBackendObservabilitySettings = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const persisted = yield* readPersistedBackendObservabilitySettings;
   return {
@@ -242,7 +242,7 @@ const HOST_SCOPE_PATTERN = /^[0-9a-f]{32}$/;
  * they run on one machine, so usage both read from one Windows directory counts
  * once. Persisted so summaries from earlier launches still match.
  */
-const readOrCreateHostScope = Effect.gen(function* () {
+export const readOrCreateHostScope = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const random = yield* SecureRandom.SecureRandom;
@@ -377,7 +377,9 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
     if (!serverTree.ok) {
       return { ok: false, reason: serverTree.reason, fatal: serverTree.fatal } as const;
     }
-    const windowsEntryPath = environment.path.join(serverTree.root, "apps/server/dist/bin.mjs");
+    const serverDirectory = serverTree.serverDirectory ?? "apps/server";
+    const serverEntry = serverTree.serverEntry ?? "dist/bin.mjs";
+    const windowsEntryPath = environment.path.join(serverTree.root, serverDirectory, serverEntry);
     const entryExists = yield* fileSystem
       .exists(windowsEntryPath)
       .pipe(Effect.orElseSucceed(() => false));
@@ -395,7 +397,13 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
           reason: `wslpath conversion failed for ${serverTree.root}`,
           fatal: false,
         } as const)
-      : ({ ok: true, windowsEntryPath, linuxAppRoot: mountedAppRoot.value } as const);
+      : ({
+          ok: true,
+          windowsEntryPath,
+          serverDirectory,
+          linuxEntryPath: `${mountedAppRoot.value}/${serverDirectory}/${serverEntry}`,
+          linuxAppRoot: mountedAppRoot.value,
+        } as const);
   });
 
   let stagedFailure: { readonly runtimeId?: string; readonly reason: string } | undefined;
@@ -443,11 +451,10 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
       : ({ _tag: "Failed", reason: mounted.reason, fatal: mounted.fatal } as const);
   }
 
-  const nodePtyResult = yield* wslEnv.ensureNodePty(
-    runningDistro,
-    mounted.linuxAppRoot,
-    nodePtyOptions,
-  );
+  const nodePtyResult = yield* wslEnv.ensureNodePty(runningDistro, mounted.linuxAppRoot, {
+    ...nodePtyOptions,
+    serverDirectory: mounted.serverDirectory,
+  });
   if (!nodePtyResult.ok) {
     // Only substitute a staged failure for a fatal mounted failure; transient /mnt failures must remain retryable.
     return stagedFailure && nodePtyResult.fatal
@@ -466,7 +473,7 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
     runtime: {
       kind: "node-script",
       nodePath: nodePtyResult.nodePath,
-      linuxEntryPath: `${mounted.linuxAppRoot}/apps/server/dist/bin.mjs`,
+      linuxEntryPath: mounted.linuxEntryPath,
     },
     resolvedPath: nodePtyResult.resolvedPath,
   } as const;
@@ -572,6 +579,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   input: SharedBootstrapInput & {
     readonly port: number;
     readonly distro: string | null;
+    readonly requireControlReady?: boolean;
   },
 ): Effect.fn.Return<
   DesktopBackendManager.DesktopBackendStartConfig,
@@ -595,6 +603,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     port: input.port,
     // Omit t3Home to keep the Linux backend from sharing the primary's Windows SQLite file.
     host: wslBindHost,
+    ...(input.requireControlReady && { desktopTelemetryControlFd: 1, desktopAppUpdate: false }),
     desktopBootstrapToken: input.bootstrapToken,
     desktopBootstrapSecret: input.bootstrapSecret,
     // PortSchema rejects 0 even when Tailscale Serve is disabled.
@@ -665,7 +674,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
 
   const parentEnvWithoutT3Home: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (key === "T3CODE_HOME") continue;
+    if (["T3CODE_HOME", "T3CODE_RUNE_DEV_HOME"].includes(key.toUpperCase())) continue;
     parentEnvWithoutT3Home[key] = value;
   }
   const wslEnv = mergeWslEnv(parentEnvWithoutT3Home.WSLENV, forwardedEnvNames);
@@ -740,6 +749,8 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     ...(preflight.runtimeId === undefined ? {} : { wslRuntimeId: preflight.runtimeId }),
   } satisfies DesktopBackendManager.DesktopBackendStartConfig;
 });
+
+export { resolveWslStartConfig };
 
 /** @public */
 export const make = Effect.gen(function* () {

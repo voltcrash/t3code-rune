@@ -28,6 +28,7 @@ import * as DesktopBrowserHost from "../preview/DesktopBrowserHost.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 
 import {
+  backendRestartDelay,
   runBackendProcess,
   type DesktopBackendStartConfig,
   type PreflightFailure,
@@ -40,8 +41,6 @@ export {
   type PreflightFailure,
 } from "./DesktopBackendProcess.ts";
 
-const INITIAL_RESTART_DELAY = Duration.millis(500);
-const MAX_RESTART_DELAY = Duration.seconds(10);
 const MAX_PREFLIGHT_FAILURE_ATTEMPTS = 5;
 // Three restarts without readiness is about 2 s of backoff: past a blip, early enough to help.
 const STARTUP_FAILURE_RESTART_ATTEMPTS = 3;
@@ -136,9 +135,6 @@ const withActiveRun =
     ...state,
     active: Option.map(state.active, (run) => (run.id === runId ? f(run) : run)),
   });
-
-const calculateRestartDelay = (attempt: number): Duration.Duration =>
-  Duration.min(Duration.times(INITIAL_RESTART_DELAY, 2 ** attempt), MAX_RESTART_DELAY);
 
 const closeRun = (
   run: ActiveBackendRun,
@@ -569,7 +565,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
 
       const attempt = latest.restartAttempt + 1;
       return [
-        Option.some({ delay: calculateRestartDelay(latest.restartAttempt), attempt }),
+        Option.some({ delay: backendRestartDelay(latest.restartAttempt), attempt }),
         { ...latest, restartAttempt: attempt },
       ] as const;
     });

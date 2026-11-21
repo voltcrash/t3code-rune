@@ -35,6 +35,7 @@ const TOOLCHAIN_TRANSPORT_RETRY_LIMIT = 12;
 const BUILD_TRANSPORT_RETRY_LIMIT = 2;
 
 export interface EnsureWslNodePtyOptions {
+  readonly serverDirectory?: string;
   readonly allowBuild?: boolean;
   readonly nodeEngineRange?: string | null;
 }
@@ -624,7 +625,7 @@ const ensureNodePtyImpl = Effect.fn("DesktopWslEnvironment.ensureNodePtyImpl")(f
 ): Effect.fn.Return<EnsureWslNodePtyResult, never, ChildProcessSpawner.ChildProcessSpawner> {
   // node-pty lives in the apps/server workspace's node_modules; resolve from
   // there rather than the monorepo root, where Bun's hoist layout omits it.
-  const linuxServerDir = `${linuxRepoRoot}/apps/server`;
+  const linuxServerDir = `${linuxRepoRoot}/${options.serverDirectory ?? "apps/server"}`;
 
   const probe = yield* runWslShell(
     distro,
