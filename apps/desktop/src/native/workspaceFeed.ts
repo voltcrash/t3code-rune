@@ -1,3 +1,4 @@
+import { visitInput, type trackVisibleThread } from "./visits.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
@@ -5,6 +6,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import {
+  sampleDesktopConfig,
   projectSummary,
   loadWorkspace,
   readWorkspace,
@@ -69,8 +71,10 @@ export function watchWorkspace(
   signal: AbortSignal,
   emit: (changes: Changes) => void,
   paused: () => void,
+  onClock: (offset: number) => void,
+  currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
 ) {
-  let { sequence, identities, scratchRoot } = initial;
+  let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
   const dirtyProjects = new Set<string>();
@@ -110,19 +114,25 @@ export function watchWorkspace(
       { signal },
     ).catch(() => {});
   };
-  function replace(view: Loaded["view"]) {
+  function replace(fresh: Pick<Loaded, "view" | "visitRows">) {
+    const { view } = fresh;
+    visitRows = fresh.visitRows;
     reconcileRows(projects, dirtyProjects, view.projects);
     reconcileRows(threads, dirtyThreads, view.threads);
     scratchChanged ||= view.scratch_available !== scratchAvailable;
     scratchAvailable = view.scratch_available;
+    const active = currentVisit();
+    if (active) active.update(visitRows.get(active.id) ?? null);
     flush();
   }
   function adopt(fresh: Loaded) {
     sequence = fresh.sequence;
     identities = fresh.identities;
     scratchRoot = fresh.scratchRoot;
-    replace(fresh.view);
+    if (fresh.clockOffset !== undefined) onClock(fresh.clockOffset);
+    replace(fresh);
   }
+  let sampleOnConnect = initial.clockOffset === undefined;
   let failures = 0;
   let needSnapshot = false;
   const subscribe = Effect.fn("nativeDesktop.followWorkspace")(function* () {
@@ -132,6 +142,19 @@ export function watchWorkspace(
       needSnapshot = false;
     }
     const rpc = yield* openEnvironmentRpc(session);
+    if (sampleOnConnect) {
+      yield* sampleDesktopConfig(rpc, session).pipe(
+        Effect.timeout("3 seconds"),
+        Effect.tap(({ clockOffset }) =>
+          Effect.sync(() => {
+            if (clockOffset !== undefined) onClock(clockOffset);
+          }),
+        ),
+        Effect.ignore,
+        Effect.forkScoped,
+      );
+    }
+    sampleOnConnect = true;
     const feed = rpc[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({
       afterSequence: sequence,
       ...(identities && { knownProjectIdentities: identities }),
@@ -147,6 +170,7 @@ export function watchWorkspace(
             return yield* Effect.fail("Shell snapshot required");
           }
           if (item.kind === "synchronized") {
+            currentVisit()?.reconnect();
             failures = 0;
             return;
           }
@@ -157,7 +181,7 @@ export function watchWorkspace(
           if (item.kind === "snapshot") {
             sequence = item.snapshot.snapshotSequence;
             failures = 0;
-            replace(workspaceRows(item.snapshot, session.environmentId, scratchRoot));
+            replace(workspaceRows(item.snapshot, session, scratchRoot));
             return;
           }
           if (item.sequence <= sequence) return;
@@ -168,8 +192,13 @@ export function watchWorkspace(
               threads,
               dirtyThreads,
               item.thread.id,
-              active ? threadSummary(item.thread, session.environmentId) : undefined,
+              active ? threadSummary(item.thread, session) : undefined,
             );
+            const visit = active ? visitInput(session.environmentId, item.thread) : null;
+            if (visit) visitRows.set(item.thread.id, visit);
+            else visitRows.delete(item.thread.id);
+            const current = currentVisit();
+            if (current?.id === item.thread.id) current.update(visit);
           } else if (item.kind === "project.updated") {
             changeRow(
               projects,
@@ -178,6 +207,9 @@ export function watchWorkspace(
               projectSummary(item.project, scratchRoot),
             );
           } else if (item.kind === "thread.removed") {
+            visitRows.delete(item.threadId);
+            const current = currentVisit();
+            if (current?.id === item.threadId) current.update(null);
             changeRow(threads, dirtyThreads, item.threadId, undefined);
           } else {
             changeRow(projects, dirtyProjects, item.projectId, undefined);
@@ -199,6 +231,16 @@ export function watchWorkspace(
     if (!signal.aborted) paused();
   });
   return {
+    visitSource(id: string) {
+      return visitRows.get(id) ?? null;
+    },
+    seen(id: string, at: string) {
+      const source = visitRows.get(id)?.legacy;
+      if (!session.legacyVisits?.mark(id, at) || !source) return;
+      const row = threadSummary(source, session);
+      changeRow(threads, dirtyThreads, id, row);
+      flush();
+    },
     async launched(row: ThreadRow, committed: number | undefined) {
       if (committed === undefined) {
         const fresh = await readWorkspace(session, signal);

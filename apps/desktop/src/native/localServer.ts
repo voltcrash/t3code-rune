@@ -1,3 +1,4 @@
+import type { OpenVisitDatabase } from "./visits.ts";
 import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
@@ -137,11 +138,11 @@ export function startLocalServer(paths: {
     ready.reject(new LocalServerStartupError({ message }));
   });
   return {
-    async connect(workerSignal: AbortSignal) {
+    async connect(workerSignal: AbortSignal, openVisits?: OpenVisitDatabase) {
       const signal = AbortSignal.any([workerSignal, lifetime.signal, access.signal]);
       const url = await ready.promise;
       const credential = await Effect.runPromise(currentToken(), { signal });
-      return pairWithTarget({ httpBaseUrl: url, credential }, signal);
+      return pairWithTarget({ httpBaseUrl: url, credential }, signal, undefined, openVisits);
     },
     stopped,
     stop() {

@@ -38,11 +38,17 @@ enum Reply {
         #[serde(flatten)]
         changes: workspace::WorkspaceChanges,
     },
+    WorkspaceClock {
+        watch: u64,
+        offset: i64,
+    },
     WorkspacePaused {
         watch: u64,
     },
     Workspace {
         watch: u64,
+        #[serde(default)]
+        clock_offset: Option<i64>,
         scratch_available: bool,
         projects: Vec<Project>,
         threads: Vec<Thread>,
@@ -157,7 +163,7 @@ struct ClientMessage<'a> {
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
     VisitThread {
-        thread: &'a str,
+        thread: Option<&'a str>,
     },
     WorkspaceHandled {
         watch: u64,
@@ -354,6 +360,12 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::WorkspaceClock { watch, offset } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.set_clock_offset(offset);
+            }
+            return;
+        }
         if let Reply::WorkspacePaused { watch } = message.reply {
             if self.workspace.feed == Some(watch) {
                 self.workspace.paused = true;
@@ -490,6 +502,7 @@ impl Desktop {
                 terminal_read,
                 terminal_write,
             } => {
+                self.workspace.set_clock_offset(0);
                 self.stage = stage;
                 self.local = local;
                 self.can_operate = can_operate;
@@ -503,7 +516,11 @@ impl Desktop {
                 projects,
                 threads,
                 scratch_available,
+                clock_offset,
             } => {
+                if let Some(offset) = clock_offset {
+                    self.workspace.set_clock_offset(offset);
+                }
                 self.workspace.feed = Some(watch);
                 self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
@@ -516,6 +533,7 @@ impl Desktop {
                 base,
                 worktree,
             } => {
+                self.leave_visible_thread();
                 self.close_conversation_inspectors();
                 self.history
                     .visit(navigation::Page::NewThread(project.clone()));
@@ -575,6 +593,7 @@ impl Desktop {
             }
             Reply::Live { .. }
             | Reply::StopResult { .. }
+            | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::WorkspacePaused { .. }
             | Reply::TerminalCopy { .. }
@@ -790,7 +809,8 @@ fn start() -> io::Result<()> {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
             let stop = s.poll_stop(now, tx);
-            s.poll_answer(tx) || stop
+            let clock = s.workspace.poll_sidebar_clock(tx);
+            s.poll_answer(tx) || stop || clock
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
@@ -927,7 +947,8 @@ fn start() -> io::Result<()> {
                     && reply.id == Some(s.request_id);
                 let update_palette = matches!(
                     reply.reply,
-                    Reply::WorkspaceLive { .. }
+                    Reply::WorkspaceClock { .. }
+                        | Reply::WorkspaceLive { .. }
                         | Reply::Live {
                             update: LiveUpdate::Deleted,
                             ..

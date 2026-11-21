@@ -1,4 +1,16 @@
-import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { legacyThreadVisits, visitInput, type OpenVisitDatabase } from "./visits.ts";
+import { recordServerClock, toServerClock } from "@t3tools/client-runtime/clock";
+import * as Clock from "effect/Clock";
+import {
+  hasUnseenCompletion,
+  resolveSidebarRowStatus,
+  shouldRecedeSidebarThread,
+} from "@t3tools/client-runtime/state/sidebar-row-status";
+import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  presentThreadShell,
+  resolveThreadWorkingStartedAt,
+} from "@t3tools/client-runtime/state/models";
 import { threadSearchSubject } from "@t3tools/client-runtime/state/thread-search";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
@@ -14,8 +26,6 @@ import {
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
   WS_METHODS,
-  ORCHESTRATION_V2_WS_METHODS,
-  type OrchestrationV2AppThread,
   CommandId,
   ProjectId,
   type Project,
@@ -92,14 +102,24 @@ export async function pairWithTarget(
   target: Pick<ResolvedRemotePairingTarget, "credential" | "httpBaseUrl">,
   signal: AbortSignal,
   http: typeof remoteHttp = localHttp,
+  openVisits?: OpenVisitDatabase,
 ) {
   const session = await Effect.runPromise(pair(target).pipe(Effect.provide(http)), { signal });
-  return { ...session, http, signal };
+  return {
+    ...session,
+    http,
+    signal,
+    legacyVisits: openVisits ? legacyThreadVisits(openVisits, session.environmentId) : undefined,
+  };
 }
 
-export function pairWithEnvironment(link: string, signal: AbortSignal) {
+export function pairWithEnvironment(
+  link: string,
+  signal: AbortSignal,
+  openVisits?: OpenVisitDatabase,
+) {
   const target = resolveRemotePairingTarget({ pairingUrl: readPairingAppLink(link) ?? link });
-  return pairWithTarget(target, signal, remoteHttp);
+  return pairWithTarget(target, signal, remoteHttp, openVisits);
 }
 
 export type Session = Awaited<ReturnType<typeof pairWithEnvironment>>;
@@ -126,17 +146,41 @@ export function visibleThread(thread: OrchestrationV2ThreadShell) {
   );
 }
 
-export function threadSummary(
-  thread: OrchestrationV2ThreadShell,
-  environmentId: Session["environmentId"],
-) {
-  const shell = presentThreadShell(environmentId, thread);
+export function threadSummary(thread: OrchestrationV2ThreadShell, session: Session) {
+  const shell = presentThreadShell(session.environmentId, thread);
+  const localVisit =
+    thread.lastVisitedAt === undefined ? session.legacyVisits?.get(thread.id) : undefined;
+  const visited = localVisit ? { ...shell, lastVisitedAt: localVisit } : shell;
+  const row = resolveSidebarRowStatus(visited);
+  const isUnread = hasUnseenCompletion(visited);
+  const status =
+    row === "working" && shell.goal?.status === "active"
+      ? "goal"
+      : row === "ready" && isUnread
+        ? "done"
+        : row;
+  const timestamp =
+    row === "ready"
+      ? resolveThreadActivityTimestamp(shell)
+      : row === "working" || row === "preparing"
+        ? resolveThreadWorkingStartedAt(shell)
+        : row === "waiting"
+          ? shell.latestRun?.completedAt
+          : null;
   return {
     id: thread.id,
     project: thread.projectId,
     title: thread.title,
     branch: thread.branch,
-    status: thread.status,
+    status,
+    status_at: timestamp ? Date.parse(timestamp) : null,
+    recedes: shouldRecedeSidebarThread({
+      status: row,
+      isUnread,
+      isWoke: false,
+      isActive: false,
+      isSelected: false,
+    }),
     model: thread.modelSelection.model,
     settled: thread.settledOverride === "settled",
     recent_at: threadRecentUse(threadSearchSubject(shell, null)),
@@ -155,31 +199,53 @@ export function threadSummary(
 
 export function workspaceRows(
   snapshot: OrchestrationV2ShellSnapshot,
-  environmentId: Session["environmentId"],
+  session: Session,
   scratchRoot: string | undefined,
 ) {
+  const listed = snapshot.threads.filter(visibleThread);
   return {
-    scratch_available: Boolean(scratchRoot),
-    projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
-    threads: snapshot.threads.filter(visibleThread).map((row) => threadSummary(row, environmentId)),
+    visitRows: new Map<string, ReturnType<typeof visitInput>>(
+      listed.map((t) => [t.id, visitInput(session.environmentId, t)]),
+    ),
+    view: {
+      scratch_available: Boolean(scratchRoot),
+      projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
+      threads: listed.map((row) => threadSummary(row, session)),
+    },
   };
 }
 
-const readScratchRoot = Effect.fn("nativeDesktop.readScratchRoot")(function* (session: Session) {
-  const rpc = yield* openEnvironmentRpc(session);
-  return (yield* rpc[WS_METHODS.serverGetConfig]({})).scratchWorkspaceRoot;
+export const sampleDesktopConfig = Effect.fn("nativeDesktop.sampleConfig")(function* (
+  rpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>>,
+  session: Session,
+) {
+  const requestedAtMs = yield* Clock.currentTimeMillis;
+  const config = yield* rpc[WS_METHODS.serverGetConfig]({});
+  const serverTimeMs = Date.parse(config.serverTime ?? "");
+  if (!Number.isFinite(serverTimeMs))
+    return { scratchRoot: config.scratchWorkspaceRoot, clockOffset: undefined };
+  recordServerClock(session.environmentId, {
+    requestedAtMs,
+    receivedAtMs: yield* Clock.currentTimeMillis,
+    serverTimeMs,
+  });
+  return {
+    scratchRoot: config.scratchWorkspaceRoot,
+    clockOffset: toServerClock(session.environmentId, 0),
+  };
 });
 
 export const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: Session) {
   const client = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
-  const [snapshot, scratchRoot] = yield* Effect.all(
+  const [snapshot, config] = yield* Effect.all(
     [
       client.shellSnapshot({
         headers: headersFor(session),
         query: session.shellThreadFamilies ? { omitIdleSubagents: "1" } : {},
       }),
       session.canOperate
-        ? readScratchRoot(session).pipe(
+        ? openEnvironmentRpc(session).pipe(
+            Effect.flatMap((rpc) => sampleDesktopConfig(rpc, session)),
             Effect.scoped,
             Effect.timeout("3 seconds"),
             Effect.orElseSucceed(() => undefined),
@@ -192,8 +258,9 @@ export const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (ses
   return {
     sequence: snapshot.snapshotSequence,
     identities: snapshot.projectIdentities,
-    scratchRoot,
-    view: workspaceRows(snapshot, session.environmentId, scratchRoot),
+    scratchRoot: config?.scratchRoot,
+    clockOffset: config?.clockOffset,
+    ...workspaceRows(snapshot, session, config?.scratchRoot),
   };
 });
 
@@ -307,18 +374,3 @@ export function changeProject(session: Session, edit: ProjectEdit) {
     { signal: session.signal },
   );
 }
-
-export const recordOpen = Effect.fn("nativeDesktop.recordOpen")(function* (
-  session: Session,
-  thread: OrchestrationV2AppThread,
-) {
-  const random = yield* SecureRandom.SecureRandom;
-  const rpc = yield* openEnvironmentRpc(session);
-  yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
-    type: "thread.visit",
-    commandId: CommandId.make(yield* random.uuidV4()),
-    threadId: thread.id,
-    visitedAt: DateTime.formatIso(thread.updatedAt),
-    opened: true,
-  });
-}, Effect.provide(SecureRandom.layerWebCrypto));

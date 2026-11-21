@@ -16,6 +16,8 @@ pub(super) mod palette;
 #[path = "sidebar_header.rs"]
 mod sidebar_header;
 
+#[path = "sidebar_status.rs"]
+pub(super) mod sidebar_status;
 use super::navigation::{self, Page};
 use super::questions::{self, Forms, Prompt};
 use super::{
@@ -50,7 +52,10 @@ pub(super) struct Thread {
     #[serde(skip)]
     search_title: String,
     branch: Option<String>,
-    status: String,
+    status: sidebar_status::RowStatus,
+    status_at: Option<i64>,
+    #[serde(default)]
+    recedes: bool,
     #[serde(default)]
     pub(super) sort_at: i64,
     order_key: Option<String>,
@@ -230,6 +235,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 
 pub(super) struct Workspace {
     pub(super) feed: Option<u64>,
+    row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
     pub questions: Forms,
@@ -259,6 +265,7 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             feed: None,
+            row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
             scratch_available: false,
@@ -564,7 +571,7 @@ impl Desktop {
             .is_some_and(|p| p.id == id)
         {
             if opened {
-                self.write_request(None, Request::VisitThread { thread: id });
+                self.write_request(None, Request::VisitThread { thread: Some(id) });
             }
             return;
         }
@@ -598,7 +605,7 @@ impl Desktop {
         });
         self.refresh_thread();
         if opened {
-            self.write_request(None, Request::VisitThread { thread: id });
+            self.write_request(None, Request::VisitThread { thread: Some(id) });
         }
     }
 
@@ -607,7 +614,14 @@ impl Desktop {
         self.workspace.sidebar = !self.workspace.sidebar;
     }
 
+    pub(super) fn leave_visible_thread(&mut self) {
+        if self.workspace.conversation.is_some() {
+            self.write_request(None, Request::VisitThread { thread: None });
+        }
+    }
+
     pub(super) fn show_projects(&mut self) {
+        self.leave_visible_thread();
         self.close_conversation_inspectors();
         self.history.visit(Page::Home);
         self.new_threads.active = None;
@@ -729,21 +743,18 @@ fn thread_row(
     selected: bool,
     pending: bool,
     theme: &tok::Theme,
+    dark: bool,
+    clock: &sidebar_status::Clock,
 ) -> El {
     let id = thread.id.clone();
-    let status = match thread.status.as_str() {
-        "completed" => "Done",
-        "running" => "Working",
-        "waiting" => "Waiting",
-        "failed" => "Failed",
-        "queued" => "Queued",
-        "preparing" => "Preparing",
-        "starting" => "Starting",
-        "interrupted" => "Interrupted",
-        "cancelled" => "Cancelled",
-        "rolled_back" => "Rolled back",
-        _ => "",
-    };
+    let recedes = thread.recedes && !selected;
+    let (status, name) = sidebar_status::view(thread, dark, theme, clock);
+    let accessible = [Some(thread.title.as_str()), name, Some(project)]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
     let heading = row()
         .w_full()
         .center_y()
@@ -755,19 +766,10 @@ fn thread_row(
                 .shrink(),
         )
         .child(spacer())
-        .child(label(
-            status,
-            12.0,
-            500.0,
-            if status == "Done" {
-                rune::oklch(0.75, 0.14, 165.0)
-            } else {
-                theme.text_secondary
-            },
-        ));
+        .child(status);
     let mut base = col()
         .key(&id)
-        .label(&thread.title)
+        .label(&accessible)
         .role("button")
         .radius(6.0)
         .w_full()
@@ -775,7 +777,19 @@ fn thread_row(
         .py(8.0)
         .gap(4.0)
         .child(heading)
-        .child(label(&thread.title, 14.0, 500.0, theme.text).truncate());
+        .child(
+            label(
+                &thread.title,
+                14.0,
+                if recedes { 400. } else { 500. },
+                if recedes {
+                    theme.text.alpha(0.75)
+                } else {
+                    theme.text
+                },
+            )
+            .truncate(),
+        );
     if let Some(branch) = &thread.branch {
         base = base.child(label(branch, 12.0, 400.0, theme.text_secondary).truncate());
     }
@@ -844,10 +858,25 @@ fn sidebar(
                 } else {
                     s.workspace.search_target.as_ref() == Some(&t.id)
                 };
-                thread_row(t, project, selected, s.pending, &colors)
+                thread_row(
+                    t,
+                    project,
+                    selected,
+                    s.pending,
+                    &colors,
+                    dark,
+                    &s.workspace.row_clock,
+                )
             },
         )
-        .virtual_rows_version(s.workspace.filter_revision);
+        .virtual_rows_version(s.workspace.filter_revision)
+        .on_visible_rows(|s: &mut Desktop, range| {
+            if s.workspace.row_clock.visible == range {
+                return false;
+            }
+            s.workspace.row_clock.visible = range;
+            true
+        });
     let list = col()
         .key("thread-list")
         .w_full()
@@ -1510,7 +1539,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    if s.workspace.sidebar && (!diff_open || split_panel) {
+    let show_sidebar = s.workspace.sidebar && (!diff_open || split_panel);
+    s.workspace.row_clock.mounted.set(show_sidebar);
+    if show_sidebar {
         root = root
             .child(sidebar(
                 s,
@@ -1650,7 +1681,9 @@ mod tests {
             title: title.into(),
             search_title: String::new(),
             branch: None,
-            status: "completed".into(),
+            status: sidebar_status::RowStatus::Ready,
+            status_at: None,
+            recedes: false,
             sort_at,
             recent_at: sort_at as f64,
             order_key: None,
