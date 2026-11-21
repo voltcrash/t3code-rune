@@ -43,6 +43,15 @@ enum Reply {
     Downloaded {
         error: Option<String>,
     },
+    FileEntries {
+        operation: u64,
+        directory: String,
+        #[serde(default)]
+        entries: Vec<workspace::workspace_tree::Entry>,
+        #[serde(default)]
+        truncated: bool,
+        error: Option<String>,
+    },
     FileMatches {
         operation: u64,
         #[serde(default)]
@@ -562,6 +571,17 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::FileEntries {
+            operation,
+            directory,
+            entries,
+            truncated,
+            error,
+        } = message.reply
+        {
+            self.directory_loaded(operation, directory, entries, truncated, error);
+            return;
+        }
         if let Reply::FileMatches {
             operation,
             paths,
@@ -915,6 +935,7 @@ impl Desktop {
             | Reply::PlanSaved { .. }
             | Reply::Downloaded { .. }
             | Reply::FileMatches { .. }
+            | Reply::FileEntries { .. }
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
@@ -1225,6 +1246,24 @@ fn start() -> io::Result<()> {
                 if !tx.key_repeat() {
                     s.toggle_terminal(tx);
                 }
+                return true;
+            }
+            if ev.mods.alt
+                && !ev.mods.shift
+                && ev.is_command('b')
+                && s.file_location().is_some()
+                && !s.pending
+            {
+                if !tx.key_repeat() {
+                    s.toggle_files_panel(tx);
+                }
+                return true;
+            }
+            if ev.key == rune::Key::Escape
+                && s.workspace.explorer.is_some()
+                && s.workspace.file_preview.is_none()
+            {
+                s.close_explorer();
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.file_preview.is_some() {

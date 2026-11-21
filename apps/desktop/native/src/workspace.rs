@@ -21,6 +21,8 @@ mod sidebar_header;
 mod thread_actions;
 #[path = "workspace_files.rs"]
 pub(crate) mod workspace_files;
+#[path = "workspace_tree.rs"]
+pub(crate) mod workspace_tree;
 
 #[path = "sidebar_status.rs"]
 pub(super) mod sidebar_status;
@@ -268,6 +270,7 @@ pub(super) struct Workspace {
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
     pub(crate) file_preview: Option<workspace_files::Preview>,
+    pub(crate) explorer: Option<workspace_tree::Explorer>,
     pub questions: Forms,
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
@@ -309,6 +312,7 @@ impl Workspace {
             paused: false,
             diff: Default::default(),
             file_preview: None,
+            explorer: None,
             scratch_available: false,
             projects: Vec::new(),
             by_project: HashMap::new(),
@@ -1644,6 +1648,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.terminal_available() {
         header = header.child(crate::terminal::button(theme));
     }
+    if !s.pending
+        && s.can_read_files
+        && composing.is_none()
+        && s.workspace.terminal_watch().is_some()
+        && s.thread_workspace_root().is_some()
+    {
+        header = header.child(workspace_tree::toggle_button(theme));
+    }
     let refreshing_projects = s.workspace.refresh_request.is_some()
         && composing.is_none()
         && (s.workspace.show_projects || s.workspace.conversation.is_none());
@@ -1720,7 +1732,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(drawer);
     }
     let diff_open = s.workspace.diff.visible(s);
-    let panel_open = diff_open || s.workspace.file_preview.is_some();
+    let panel_open =
+        diff_open || s.workspace.file_preview.is_some() || s.workspace.explorer.is_some();
     let split_panel = panel_open
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
@@ -1757,6 +1770,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         let kit = Kit::neutral(s.dark(cx));
         let panel = if diff_open {
             file_diff::view(s, theme, &kit, leading, inset.trailing)
+        } else if s.workspace.explorer.is_some() {
+            let width = if split_panel {
+                (viewport[0] - if show_sidebar { width } else { 0. }) * 0.5
+            } else {
+                viewport[0]
+            };
+            workspace_tree::panel(s, theme, &kit, leading, inset.trailing, width)
         } else {
             workspace_files::view(s, theme, &kit, leading, inset.trailing)
         };

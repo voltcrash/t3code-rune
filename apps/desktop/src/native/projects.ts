@@ -443,7 +443,8 @@ const threadWorkspaceRoot = Effect.fn("nativeDesktop.threadWorkspaceRoot")(funct
 
 type WorkspaceFileInput =
   | { readonly action: "search"; readonly query: string }
-  | { readonly action: "read"; readonly path: string };
+  | { readonly action: "read"; readonly path: string }
+  | { readonly action: "list"; readonly directory: string };
 
 export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(function* (
   session: Session,
@@ -453,13 +454,14 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
   activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined,
 ) {
   const cwd =
-    input.action === "search" && activeRpc
+    input.action !== "read" && activeRpc
       ? expectedRoot
       : yield* threadWorkspaceRoot(session, threadId, expectedRoot);
   const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
-  const result =
-    input.action === "search"
-      ? yield* rpc[WS_METHODS.projectsSearchEntries]({
+  const list = () => {
+    switch (input.action) {
+      case "search":
+        return rpc[WS_METHODS.projectsSearchEntries]({
           cwd,
           query: input.query,
           kind: "file",
@@ -469,10 +471,18 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
             type: "filematches",
             paths: entries.filter((e) => e.kind === "file").map((e) => e.path),
           })),
-        )
-      : yield* rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: input.path }).pipe(
+        );
+      case "list":
+        return rpc[WS_METHODS.projectsListEntries]({ cwd, directoryPath: input.directory }).pipe(
+          Effect.map(({ entries, truncated }) => ({ type: "fileentries", entries, truncated })),
+        );
+      case "read":
+        return rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: input.path }).pipe(
           Effect.map(({ contents, truncated }) => ({ type: "filesource", contents, truncated })),
         );
+    }
+  };
+  const result = yield* list();
   if (!activeRpc) yield* threadWorkspaceRoot(session, threadId, expectedRoot);
   return result;
 });

@@ -8,7 +8,7 @@ use std::rc::Rc;
 #[derive(Clone, PartialEq, Serialize)]
 pub(crate) struct Location {
     pub watch: u64,
-    root: String,
+    pub(super) root: String,
 }
 
 #[derive(Serialize)]
@@ -16,6 +16,7 @@ pub(crate) struct Location {
 pub(crate) enum Input {
     Search { query: String, cancel: bool },
     Read { path: String, cancel: bool },
+    List { directory: String, cancel: bool },
 }
 
 pub(crate) struct Preview {
@@ -146,6 +147,12 @@ impl Desktop {
         );
     }
 
+    pub(super) fn reload_file_preview(&mut self) {
+        if let Some(p) = &self.workspace.file_preview {
+            self.open_workspace_file(p.location.clone(), p.path.clone());
+        }
+    }
+
     pub(crate) fn receive_file_source(
         &mut self,
         operation: u64,
@@ -173,6 +180,14 @@ impl Desktop {
             .as_ref()
             .is_some_and(|p| changed(&p.location));
         let search_changed = self.file_search_location().is_some_and(changed);
+        if self
+            .workspace
+            .explorer
+            .as_ref()
+            .is_some_and(|tree| changed(&tree.location))
+        {
+            self.close_explorer();
+        }
         if preview_changed {
             self.close_file_preview();
         }

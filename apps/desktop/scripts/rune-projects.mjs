@@ -56,6 +56,7 @@ let localSession;
 let server;
 let watching;
 const pendingLaunches = new Map();
+const directoryReads = Semaphore.makeUnsafe(4);
 const imageReads = Semaphore.makeUnsafe(3);
 const sentImages = new Map();
 const lifetime = new AbortController();
@@ -408,15 +409,28 @@ async function openThread(owner, request, reply) {
 async function workspaceFiles(request, reply) {
   const record = watching;
   const search = request.action === "search";
-  const channel = search ? "fileSearch" : "fileRead";
-  const target = { type: search ? "filematches" : "filesource", operation: request.operation };
+  const list = request.action === "list";
+  const channel = list ? "directories" : search ? "fileSearch" : "fileRead";
+  const target = {
+    type: list ? "fileentries" : search ? "filematches" : "filesource",
+    operation: request.operation,
+    ...(list && { directory: request.directory }),
+  };
   if (!record || record.id !== request.watch || record.owner !== session || !session.canBrowse) {
     return reply({ ...target, error: "Reopen this thread with file read access." });
   }
-  record[channel]?.abort();
-  if (request.cancel) return;
-  const controller = new AbortController();
-  record[channel] = controller;
+  const previous = record[channel];
+  if (request.cancel) {
+    if (previous?.operation === request.operation || search) previous?.controller.abort();
+    return;
+  }
+  let job = previous;
+  if (!list || previous?.operation !== request.operation) {
+    previous?.controller.abort();
+    job = { operation: request.operation, controller: new AbortController() };
+    record[channel] = job;
+  }
+  const controller = job.controller;
   const signal = AbortSignal.any([
     record.controller.signal,
     record.owner.signal,
@@ -435,14 +449,14 @@ async function workspaceFiles(request, reply) {
       error: "The workspace changed. Refresh the thread and try again.",
     };
     if (rootChanged()) return reply(changed);
-    const result = await Effect.runPromise(
-      readWorkspaceFiles(record.owner, record.thread, request.root, request, rpc).pipe(
-        Effect.scoped,
-        Effect.timeout("12 seconds"),
-        Effect.provide(record.owner.http),
-      ),
-      { signal },
+    const read = readWorkspaceFiles(record.owner, record.thread, request.root, request, rpc).pipe(
+      Effect.scoped,
+      Effect.timeout("12 seconds"),
+      Effect.provide(record.owner.http),
     );
+    const result = await Effect.runPromise(list ? directoryReads.withPermits(1)(read) : read, {
+      signal,
+    });
     if (!signal.aborted) reply(rootChanged() ? changed : { ...target, ...result });
   } catch (error) {
     if (!signal.aborted)
@@ -453,12 +467,14 @@ async function workspaceFiles(request, reply) {
             ? "The workspace changed. Refresh the thread and try again."
             : error?.failure === "binary_file"
               ? "This file contains binary data."
-              : search
-                ? "Couldn’t search workspace files."
-                : "Couldn’t read this workspace file.",
+              : list
+                ? "Couldn’t load this folder. Refresh files to retry."
+                : search
+                  ? "Couldn’t search workspace files."
+                  : "Couldn’t read this workspace file.",
       });
   } finally {
-    if (record[channel] === controller) record[channel] = undefined;
+    if (!list && record[channel] === job) record[channel] = undefined;
   }
 }
 

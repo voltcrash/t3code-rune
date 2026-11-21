@@ -20,6 +20,7 @@ enum Action {
     ToggleSidebar,
     ToggleTerminal,
     GoToFile,
+    ToggleFiles,
     OpenFile,
     Settings,
     Refresh,
@@ -46,6 +47,7 @@ impl Action {
             Self::Refresh => "refresh".into(),
             Self::ToggleTerminal => "toggle-terminal".into(),
             Self::GoToFile => "go-to-file".into(),
+            Self::ToggleFiles => "toggle-files".into(),
             Self::OpenFile => unreachable!(),
         }
     }
@@ -59,6 +61,7 @@ impl Action {
             Self::Projects => "Projects",
             Self::Settings => "Settings",
             Self::GoToFile => "Go to file",
+            Self::ToggleFiles => "Toggle right panel",
             Self::OpenFile => unreachable!(),
             Self::Back => "Go back",
             Self::Forward => "Go forward",
@@ -86,6 +89,8 @@ impl Action {
             Self::ToggleTerminal => "Ctrl+J",
             Self::GoToFile if cfg!(target_os = "macos") => "⌘P",
             Self::GoToFile => "Ctrl+P",
+            Self::ToggleFiles if cfg!(target_os = "macos") => "⌥⌘B",
+            Self::ToggleFiles => "Ctrl+Alt+B",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
             _ => "",
         }
@@ -97,6 +102,7 @@ impl Action {
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
+            Self::ToggleFiles => &super::workspace_tree::PANEL_ICON,
             Self::Settings => &crate::appearance::GEAR,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
@@ -107,7 +113,7 @@ impl Action {
     }
 }
 
-static REFRESH: Icon = Icon {
+pub(super) static REFRESH: Icon = Icon {
     name: "refresh-workspace",
     view: 24.0,
     body: r#"<path d="M20 7v5h-5 M4 17v-5h5 M5.6 8.4a7.5 7.5 0 0 1 12.6-2l1.8 2 M4 15.6l1.8 2a7.5 7.5 0 0 0 12.6-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>"#,
@@ -225,6 +231,7 @@ impl Palette {
                 command(Action::ToggleSidebar);
                 if available.files {
                     command(Action::GoToFile);
+                    command(Action::ToggleFiles);
                 }
                 if available.terminal {
                     command(Action::ToggleTerminal);
@@ -516,6 +523,7 @@ impl Desktop {
             Action::Forward => self.go(true),
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::ToggleTerminal => self.toggle_terminal(tx),
+            Action::ToggleFiles => self.toggle_files_panel(tx),
             Action::Refresh => self.refresh_visible(),
             Action::AddProject => {
                 self.show_projects();
