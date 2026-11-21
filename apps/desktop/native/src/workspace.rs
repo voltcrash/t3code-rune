@@ -1093,12 +1093,13 @@ fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
 
 fn sidebar(
     s: &Desktop,
-    inset: f32,
+    bar: Topbar,
     width: f32,
     theme: &tok::Theme,
     dark: bool,
     overlays: &mut Vec<El>,
 ) -> El {
+    let inset = bar.leading;
     let compact = width - inset < 174.;
     let mut on_art = *theme;
     if s.stage.has_art() {
@@ -1176,7 +1177,7 @@ fn sidebar(
         .pb(8.0)
         .child(
             row()
-                .h(52.0)
+                .h(bar.height)
                 .w_full()
                 .pl(if compact { inset } else { inset + 7. })
                 .center_y()
@@ -1598,6 +1599,13 @@ fn timeline(
         .child(content)
 }
 
+#[derive(Clone, Copy)]
+struct Topbar {
+    height: f32,
+    leading: f32,
+    trailing: f32,
+}
+
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
     let dark = s.dark(cx);
     let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
@@ -1606,9 +1614,26 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
     let inset = cx.chrome_insets();
-    let trailing = inset.trailing;
     #[cfg(target_os = "linux")]
-    let trailing = trailing.max(s.frame.trailing(s.zoom.factor));
+    let (overlay_height, trailing) = (
+        s.frame
+            .visible()
+            .then(|| crate::CAPTION_HEIGHT / s.zoom.factor as f32),
+        inset.trailing.max(s.frame.trailing(s.zoom.factor)),
+    );
+    #[cfg(not(target_os = "linux"))]
+    let (overlay_height, trailing) = (
+        (cfg!(target_os = "windows") && (inset.leading > 0. || inset.trailing > 0.))
+            .then_some(inset.height),
+        inset.trailing,
+    );
+    let bar = Topbar {
+        height: overlay_height.map_or(crate::WORKSPACE_TOPBAR_HEIGHT, |h| {
+            h.ceil().max(crate::CAPTION_HEIGHT)
+        }),
+        leading: inset.leading,
+        trailing,
+    };
     let landing = s.landing.project().is_some();
     let empty = (s.workspace.projects.is_empty()
         || (matches!(s.landing, Landing::Index)
@@ -1626,13 +1651,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let mut header = row()
         .key("thread-titlebar")
         .w_full()
-        .h(52.0)
+        .h(bar.height)
         .window_drag()
         .center_y()
         .gap(8.0)
         .px(16.0);
     if !s.sidebar_layout.open {
-        header = header.pl(inset.leading + 12.0).child(action(
+        header = header.pl(bar.leading + 12.0).child(action(
             "Show sidebar",
             theme,
             true,
@@ -1710,7 +1735,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.pending || refreshing_projects {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
-    let header_trailing = if split_panel { 0. } else { trailing };
+    let header_trailing = if split_panel { 0. } else { bar.trailing };
     header = header.pr(header_trailing + 12.0).child(action(
         "Refresh",
         theme,
@@ -1796,7 +1821,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     let show_sidebar = s.sidebar_layout.open && (!panel_open || split_panel);
-    let bounds = crate::sidebar_layout::Bounds::new(viewport[0], inset.leading);
+    let bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
     let width = if narrow {
         176.
     } else {
@@ -1805,7 +1830,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     s.workspace.row_clock.mounted.set(show_sidebar);
     if show_sidebar {
         root = root
-            .child(sidebar(s, inset.leading, width, theme, dark, &mut overlays))
+            .child(sidebar(s, bar, width, theme, dark, &mut overlays))
             .child(if narrow {
                 el().w(1.).h_full().fill(theme.separator)
             } else {
@@ -1815,19 +1840,22 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     thread_actions::sidebar_menu(s, &Kit::neutral(dark), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if panel_open {
-        let leading = if split_panel { 0. } else { inset.leading };
+        let bar = Topbar {
+            leading: if split_panel { 0. } else { bar.leading },
+            ..bar
+        };
         let kit = Kit::neutral(dark);
         let panel = if diff_open {
-            file_diff::view(s, theme, &kit, leading, trailing)
+            file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {
             let width = if split_panel {
                 (viewport[0] - if show_sidebar { width } else { 0. }) * 0.5
             } else {
                 viewport[0]
             };
-            workspace_tree::panel(s, theme, &kit, leading, trailing, width)
+            workspace_tree::panel(s, theme, &kit, bar, width)
         } else {
-            workspace_files::view(s, theme, &kit, leading, trailing)
+            workspace_files::view(s, theme, &kit, bar, None)
         };
         if split_panel {
             root.child(main)

@@ -1109,8 +1109,19 @@ fn button(label: &str, enabled: bool, theme: &tok::Theme, action: fn(&mut Deskto
     }
 }
 
+const CAPTION_HEIGHT: f32 = 40.;
+const WORKSPACE_TOPBAR_HEIGHT: f32 = 52.;
+
+fn native_titlebar(zoom: f32) -> Titlebar {
+    let center = WORKSPACE_TOPBAR_HEIGHT * zoom / 2.;
+    let light_top = (center - 7.).round().max(0.);
+    Titlebar::new(CAPTION_HEIGHT).traffic_lights(16., light_top)
+}
+
 fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     cx.zoom(s.zoom.factor as f32);
+    #[cfg(target_os = "macos")]
+    cx.set_titlebar(native_titlebar(s.zoom.factor as f32));
     let dark = s.dark(cx);
     let mut theme = tok::theme(dark);
     theme.bg = if dark {
@@ -1210,7 +1221,7 @@ fn connection(s: &Desktop, cx: &mut Cx<Desktop>, theme: tok::Theme) -> El {
         root = root.child(
             el().absolute(0., 0.)
                 .w_full()
-                .h(40. / s.zoom.factor as f32)
+                .h(CAPTION_HEIGHT / s.zoom.factor as f32)
                 .window_drag(),
         );
     }
@@ -1545,7 +1556,7 @@ fn start() -> io::Result<()> {
                 .keys_first()
                 .menu("View"),
         )
-        .titlebar(Titlebar::new(40.0).traffic_lights(16.0, 19.0))
+        .titlebar(native_titlebar(1.))
         .init(move || {
             let mut desktop = Desktop {
                 output,

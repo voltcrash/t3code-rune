@@ -1,7 +1,7 @@
 #[path = "workspace_tree/filter.rs"]
 mod filter;
 use super::workspace_files::{Input, Location};
-use super::{Desktop, action, label};
+use super::{Desktop, Topbar, action, label};
 use filter::Matches;
 use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, TextEdit, Tx, col, el, icon, row, tok};
 use rune_kit::{Kit, TreeItem, TreeRow, TreeStyle, glyphs};
@@ -555,34 +555,18 @@ pub(super) fn toggle_button(theme: &tok::Theme) -> El {
         .child(icon(&PANEL_ICON, 16.).color(theme.text_secondary))
         .on_press_tx(Desktop::toggle_files_panel)
 }
-pub(super) fn panel(
-    s: &Desktop,
-    theme: &tok::Theme,
-    kit: &Kit,
-    leading: f32,
-    trailing: f32,
-    width: f32,
-) -> El {
+pub(super) fn panel(s: &Desktop, theme: &tok::Theme, kit: &Kit, bar: Topbar, width: f32) -> El {
     let preview_only = width < 416.;
     let tree = tree_view(s, theme, kit, preview_only);
     if s.workspace.file_preview.is_some() {
-        let source = super::workspace_files::view(s, theme, kit, leading, trailing);
-        if preview_only {
-            return source.on_key(|s: &mut Desktop, ev, tx| filter::find(s, ev, tx, true));
-        }
-        return row()
-            .grow(1.)
-            .min_w(0.)
-            .h_full()
-            .child(source)
-            .child(el().w(1.).h_full().fill(theme.separator))
-            .child(
-                col()
-                    .w((width - 256.).clamp(160., 256.))
-                    .h_full()
-                    .child(tree),
-            )
-            .on_key(|s: &mut Desktop, ev, tx| filter::find(s, ev, tx, false));
+        let sidebar = (!preview_only).then(|| {
+            col()
+                .w((width - 256.).clamp(160., 256.))
+                .h_full()
+                .child(tree)
+        });
+        return super::workspace_files::view(s, theme, kit, bar, sidebar)
+            .on_key(move |s: &mut Desktop, ev, tx| filter::find(s, ev, tx, preview_only));
     }
     col()
         .grow(1.)
@@ -590,9 +574,9 @@ pub(super) fn panel(
         .h_full()
         .child(
             row()
-                .h(52.)
-                .pl(leading + 12.)
-                .pr(trailing + 12.)
+                .h(bar.height)
+                .pl(bar.leading + 12.)
+                .pr(bar.trailing + 12.)
                 .center_y()
                 .window_drag()
                 .child(label("Files", 14., 500., theme.text).grow(1.))

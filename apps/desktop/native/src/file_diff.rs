@@ -1,4 +1,4 @@
-use super::{Desktop, MessageRow, Request, action, label};
+use super::{Desktop, MessageRow, Request, Topbar, action, label};
 use rune::{El, ScrollSpec, TextStyle, col, row, text, tok};
 use rune_kit::Kit;
 use rune_kit::diff::{DiffMode, DiffState, DiffView, FileDiff, FileStatus, LineKind, parse};
@@ -232,21 +232,15 @@ fn source(value: &str, theme: &tok::Theme) -> El {
         .selectable(true)
 }
 
-pub(super) fn view(
-    app: &Desktop,
-    theme: &tok::Theme,
-    kit: &Kit,
-    leading: f32,
-    trailing: f32,
-) -> El {
+pub(super) fn view(app: &Desktop, theme: &tok::Theme, kit: &Kit, bar: Topbar) -> El {
     let panel = &app.workspace.diff;
     let files = panel.state.files();
     let mut header = row()
-        .h(52.)
+        .h(bar.height)
         .window_drag()
         .center_y()
-        .pl(leading + 12.)
-        .pr(trailing + 12.)
+        .pl(bar.leading + 12.)
+        .pr(bar.trailing + 12.)
         .gap(4.)
         .child(label("Diff", 14., 500., theme.text).grow(1.));
     if !files.is_empty() {
