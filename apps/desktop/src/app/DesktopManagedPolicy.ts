@@ -18,7 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
 
-import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 type FoundPolicy = Effect.Success<ReturnType<typeof readManagedPolicy>>;
 const isManagedPolicyFileError = Schema.is(ManagedPolicyFileError);
@@ -34,7 +34,7 @@ export class DesktopManagedPolicy extends Context.Service<
 export const layer = Layer.effect(
   DesktopManagedPolicy,
   Effect.gen(function* () {
-    const { platform } = yield* DesktopEnvironment.DesktopEnvironment;
+    const platform = yield* HostProcess.Platform;
     const read = yield* Effect.cached(
       readManagedPolicy(platform).pipe(
         Effect.provideService(FileSystem.FileSystem, yield* FileSystem.FileSystem),

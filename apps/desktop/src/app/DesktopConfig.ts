@@ -33,6 +33,9 @@ const compactEnv = (env: Readonly<Record<string, string | undefined>>): Record<s
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );
 
+export const configuredBackendPort = Config.Port("T3CODE_PORT").pipe(Config.option);
+export const desktopLanHostOverride = trimmedString("T3CODE_DESKTOP_LAN_HOST");
+
 export const DesktopConfig = Config.all({
   appDataDirectory: trimmedString("APPDATA"),
   xdgConfigHome: trimmedString("XDG_CONFIG_HOME"),
@@ -41,9 +44,9 @@ export const DesktopConfig = Config.all({
   devServerUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option),
   appUserModelIdOverride: trimmedString("T3CODE_DESKTOP_APP_USER_MODEL_ID"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
-  configuredBackendPort: Config.Port("T3CODE_PORT").pipe(Config.option),
+  configuredBackendPort,
   commitHashOverride: trimmedString("T3CODE_COMMIT_HASH"),
-  desktopLanHostOverride: trimmedString("T3CODE_DESKTOP_LAN_HOST"),
+  desktopLanHostOverride,
   desktopHttpsEndpointUrls: commaSeparatedStrings("T3CODE_DESKTOP_HTTPS_ENDPOINTS"),
   otlpTracesUrl: trimmedString("T3CODE_OTLP_TRACES_URL"),
   otlpMetricsUrl: trimmedString("T3CODE_OTLP_METRICS_URL"),

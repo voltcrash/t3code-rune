@@ -16,6 +16,9 @@ import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
 
+import * as Net from "@t3tools/shared/Net";
+import { makeNativeServerConfig } from "../native/localServer.ts";
+import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
 import { resolveNativeWslHost } from "../native/windowsHost.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
@@ -227,6 +230,65 @@ const withPackagedWslHarness = <A, E, R>(
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 describe("DesktopBackendConfiguration", () => {
+  it.effect(
+    "starts packaged Rune with the saved network settings and keeps checkout servers isolated",
+    () =>
+      Effect.gen(function* () {
+        const settings = {
+          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+          serverExposureMode: "network-accessible" as const,
+          tailscaleServeEnabled: true,
+          tailscaleServePort: 8443,
+        };
+        const launch = (packaged: boolean, managed = false, devPort?: number) =>
+          makeNativeServerConfig(
+            {
+              packaged,
+              version: "1.2.3",
+              t3Home: "/profile",
+              entryPath: "/server/bin.mjs",
+              cwd: "/server",
+              ...(devPort === undefined ? {} : { dev: { port: devPort } }),
+            },
+            settings,
+            "token",
+            "secret",
+          ).pipe(
+            Effect.provide(
+              DesktopManagedPolicy.layerTest(
+                managed
+                  ? { schemaVersion: 1, organization: "Example", limits: { clients: ["desktop"] } }
+                  : undefined,
+              ),
+            ),
+          );
+        for (const [config, port, host, serve, servePort] of [
+          [yield* launch(true), 4099, "0.0.0.0", true, 8443],
+          [yield* launch(true, true), 4099, "127.0.0.1", false, 8443],
+          [yield* launch(false), 5100, "127.0.0.1", false, 443],
+          [yield* launch(false, false, 6200), 6200, "127.0.0.1", false, 443],
+        ] as const) {
+          assert.equal(config.httpBaseUrl.href, `http://127.0.0.1:${port}/`);
+          assert.include(config.bootstrap, {
+            port,
+            host,
+            tailscaleServeEnabled: serve,
+            tailscaleServePort: servePort,
+          });
+        }
+      }).pipe(
+        Effect.provide(
+          DesktopConfig.layerTest({ T3CODE_PORT: "4099", T3CODE_DESKTOP_LAN_HOST: "fixture.lan" }),
+        ),
+        Effect.provideService(DesktopNetworkInterfaces.DesktopNetworkInterfaces, {
+          read: Effect.succeed({}),
+        }),
+        Effect.provide(
+          Layer.mock(Net.NetService, { reserveLoopbackPort: () => Effect.succeed(5100) }),
+        ),
+      ),
+  );
+
   it.effect("resolvePrimary produces a stable scoped bootstrap token", () =>
     withHarness(
       Effect.gen(function* () {
