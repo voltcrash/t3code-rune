@@ -33,6 +33,7 @@ import {
   WSL_RUNTIME_ARCHIVE_NAME,
   WSL_RUNTIME_ARCHIVE_HASH_NAME,
 } from "./desktop-packaging.ts";
+import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode, stagePrebuiltMacLauncher } from "./lib/rune-mac.mjs";
 import { publishRuneArtifacts, publishUnpackedRuneApp } from "./lib/rune-artifacts.mjs";
@@ -61,6 +62,9 @@ const { values } = NodeUtil.parseArgs({
   allowNegative: true,
   options: {
     help: { type: "boolean", short: "h" },
+    distribution: { type: "boolean" },
+    "mock-updates": { type: "boolean" },
+    "mock-update-server-port": { type: "string" },
     arch: { type: "string" },
     "build-version": { type: "string" },
     "keep-stage": { type: "boolean" },
@@ -81,12 +85,14 @@ if (values.help) {
 
 Usage: node scripts/build-rune-desktop.mjs [options]
 
+  --distribution                Build the standard installer set (dist:desktop:artifact)
+                                macOS dmg + ZIP, Linux AppImage + deb, Windows NSIS
   --platform mac|linux|win      Target platform (defaults to the host)
   --arch x64|arm64|universal    Architecture (universal is macOS only)
   --target <format>             macOS: dmg, zip, dmg,zip, dir
                                 Linux: AppImage, deb, AppImage,deb, dir
                                 Windows: nsis, zip, nsis,zip, dir
-  --windows-node-dir <dir>      Extracted Windows Node distribution for Linux cross-builds
+  --windows-node-dir <dir>      Extracted target Node distribution for Windows or Linux hosts
   --wsl-runtime <archive>       Bundle the matching Linux CLI release archive for WSL on Windows
   --build-version <version>     Version to embed in the app and artifact names
   --output-dir <dir>            Directory for completed artifacts (default: release)
@@ -102,16 +108,29 @@ Usage: node scripts/build-rune-desktop.mjs [options]
 function booleanOption(name, env) {
   return values[name] ?? Effect.runSync(Config.Boolean(env).pipe(Config.withDefault(false)));
 }
+if (
+  values["mock-updates"] ||
+  (values["mock-update-server-port"] !== undefined && values["mock-updates"] !== false) ||
+  (values.distribution && booleanOption("mock-updates", "T3CODE_DESKTOP_MOCK_UPDATES"))
+) {
+  throw new Error(
+    "Use node scripts/build-desktop-artifact.ts --mock-updates to exercise the Electron updater.",
+  );
+}
 const skipBuild = booleanOption("skip-build", "T3CODE_DESKTOP_SKIP_BUILD");
 const keepStage = booleanOption("keep-stage", "T3CODE_DESKTOP_KEEP_STAGE");
 const verbose = booleanOption("verbose", "T3CODE_DESKTOP_VERBOSE");
 const signed = booleanOption("signed", "T3CODE_DESKTOP_SIGNED");
 const windowsNodeDir = values["windows-node-dir"];
-if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
+if (
+  windowsNodeDir !== undefined &&
+  (!windowsNodeDir.trim() || !["linux", "win32"].includes(host))
+) {
   throw new Error(
-    "--windows-node-dir takes an extracted Windows Node distribution on a Linux host.",
+    "--windows-node-dir takes an extracted Windows Node distribution on a Windows or Linux host.",
   );
 }
+const crossWindows = host === "linux" && windowsNodeDir !== undefined;
 const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
 const requestedPlatform = values.platform ?? process.env.T3CODE_DESKTOP_PLATFORM;
 if (requestedPlatform !== undefined && requestedPlatform !== platform) {
@@ -127,8 +146,17 @@ const prebuiltMacLauncher = values["prebuilt-mac-launcher"] ?? false;
 if (prebuiltMacLauncher && (platform !== "mac" || !skipBuild)) {
   throw new Error("--prebuilt-mac-launcher requires a macOS package with --skip-build.");
 }
+const distributionTargets =
+  { mac: ["dmg", "zip"], linux: ["AppImage", "deb"], win: ["nsis"] }[platform] ?? [];
+const portableTarget = platform === "linux" ? "AppImage" : "zip";
+const selectedTarget =
+  values.target ??
+  process.env.T3CODE_DESKTOP_TARGET ??
+  (values.distribution ? distributionTargets[0] : portableTarget);
 const target =
-  values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
+  values.distribution && selectedTarget === distributionTargets[0]
+    ? distributionTargets.join(",")
+    : selectedTarget;
 if (
   !{
     mac: ["dmg", "zip", "dmg,zip", "dir"],
@@ -144,11 +172,21 @@ const node = await NodeFSP.realpath(
 const hostArch = Effect.runSync(HostProcess.Architecture);
 const runtimeArch =
   platform === "win" ? await windowsNodeArchitecture(node, rootPackage.engines.node) : hostArch;
-const arch = values.arch ?? process.env.T3CODE_DESKTOP_ARCH ?? runtimeArch;
+const arch =
+  values.arch ??
+  process.env.T3CODE_DESKTOP_ARCH ??
+  (values.distribution && host === "win32" && !windowsNodeDir
+    ? Effect.runSync(getDefaultBuildArch("win", { archChoices: ["x64", "arm64"] }))
+    : runtimeArch);
 if (!platform || !["arm64", "x64"].includes(runtimeArch)) {
   throw new Error("Build the Rune app on a macOS, Linux or Windows x64 or ARM64 host.");
 }
 if (platform === "mac" ? !["arm64", "x64", "universal"].includes(arch) : arch !== runtimeArch) {
+  if (platform === "win" && ["x64", "arm64"].includes(arch)) {
+    throw new Error(
+      `The Windows ${arch} package requires ${arch} Node. Use --windows-node-dir with an extracted ${arch} distribution, or select --arch ${runtimeArch} for this runtime.`,
+    );
+  }
   throw new Error(
     `Unsupported Rune architecture "${arch}" for the ${platform} ${runtimeArch} runtime.`,
   );
@@ -178,7 +216,7 @@ const cpu = arch === "arm64" ? "aarch64" : "x86_64";
 const run = (command, args, options) =>
   NodeChildProcess.execFileSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
 const manifest = NodePath.join(desktop, "native/Cargo.toml");
-const rustTargets = windowsNodeDir
+const rustTargets = crossWindows
   ? [{ x64: "x86_64-pc-windows-gnu", arm64: "aarch64-pc-windows-gnullvm" }[arch]]
   : resolveResourceMonitorRustTargets(platform, arch);
 
@@ -399,7 +437,7 @@ async function buildRunePackage() {
       yield* stageResourceMonitor({
         repoRoot,
         stageResourcesDir: server,
-        ...(windowsNodeDir ? { rustTarget: rustTargets[0] } : {}),
+        ...(crossWindows ? { rustTarget: rustTargets[0] } : {}),
         platform,
         arch,
         verbose,

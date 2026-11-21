@@ -763,7 +763,7 @@ jobs:
           if [[ "${{ inputs.target }}" == 'nsis,zip' ]]; then
             vp run dist:desktop:rune "${args[@]}" --windows-node-dir "$T3CODE_WINDOWS_NODE_DIR"
           else
-            vp run dist:desktop:artifact "${args[@]}"
+            node scripts/build-desktop-artifact.ts "${args[@]}"
           fi
 
       # The CLI was submitted without waiting so Apple reviews it while the
