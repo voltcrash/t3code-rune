@@ -6,11 +6,11 @@ import * as NodeStreamPromises from "node:stream/promises";
 import { BlockMap } from "better-blockmap";
 import { serializeUpdateManifest } from "./update-manifest.ts";
 
-export async function writeMacUpdateFiles(directory, { version, channel, arch, zip, dmg }) {
+async function writeBlockMappedFeed(directory, name, version, archives, platformLabel) {
   const files = [];
   const names = [];
-  for (const archive of dmg ? [zip, dmg] : [zip]) {
-    const map = new BlockMap({ detectZipBoundary: archive === zip });
+  for (const archive of archives) {
+    const map = new BlockMap({ detectZipBoundary: archive.endsWith(".zip") });
     await NodeStreamPromises.pipeline(
       NodeFS.createReadStream(NodePath.join(directory, archive)),
       map,
@@ -20,9 +20,23 @@ export async function writeMacUpdateFiles(directory, { version, channel, arch, z
     files.push({ url: archive, size: map.stats.size, sha512: map.stats.sha512 });
     names.push(name);
   }
-  const name = channel + (arch === "x64" ? "-mac-x64.yml" : "-mac.yml");
-  await writeManifest(directory, name, version, files, "macOS");
+  await writeManifest(directory, name, version, files, platformLabel);
   return [...names, name];
+}
+
+export function writeMacUpdateFiles(directory, { version, channel, arch, zip, dmg }) {
+  const name = channel + (arch === "x64" ? "-mac-x64.yml" : "-mac.yml");
+  return writeBlockMappedFeed(directory, name, version, dmg ? [zip, dmg] : [zip], "macOS");
+}
+
+export function writeWindowsUpdateFiles(directory, { version, channel, arch, installer }) {
+  return writeBlockMappedFeed(
+    directory,
+    `${channel}-win-${arch}.yml`,
+    version,
+    [installer],
+    "Windows",
+  );
 }
 
 async function writeManifest(directory, name, version, files, platformLabel) {
