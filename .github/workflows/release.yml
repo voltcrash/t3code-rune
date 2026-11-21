@@ -572,9 +572,21 @@ jobs:
       # which compiles the Linux browser secret helper and needs libsecret.
       - name: Check bundle-only build support
         id: bundle_build
+        env:
+          RELEASE_CHANNEL: ${{ needs.preflight.outputs.release_channel }}
         run: |
-          script="$(node -p "require('./package.json').scripts['build:desktop:bundle'] ? 'build:desktop:bundle' : 'build:desktop'")"
+          script="$(node -p "
+            const scripts = require('./package.json').scripts;
+            const electron = process.env.RELEASE_CHANNEL !== 'preview';
+            [electron && 'build:desktop:electron:bundle', 'build:desktop:bundle', 'build:desktop'].find(name => name && scripts[name]);
+          ")"
+          if [[ "$RELEASE_CHANNEL" == preview ]]; then
+            desktop_dist=dist/rune-bundle/rune-projects.mjs
+          else
+            desktop_dist=dist-electron
+          fi
           echo "script=$script" >> "$GITHUB_OUTPUT"
+          echo "desktop_dist=$desktop_dist" >> "$GITHUB_OUTPUT"
 
       - if: steps.bundle_build.outputs.script == 'build:desktop'
         uses: ./.github/actions/setup-apt-mirrors
@@ -583,17 +595,18 @@ jobs:
         if: steps.bundle_build.outputs.script == 'build:desktop'
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
-      # Runs t3#build (which depends on @t3tools/web#build) and the desktop
-      # bundle, so apps/server/dist holds the server bundle plus the web client
-      # and apps/desktop/dist-electron the Electron main. build:desktop:bundle
-      # skips the Linux browser secret helper, which this artifact does not
-      # carry; each Linux package job compiles its own per arch.
+      # Both desktop runtimes package the same server and its web client.
       # The release channel is already stable, nightly, or preview. Builds in
       # other repositories report "dev" telemetry.
       - name: Build JS bundle
         env:
           T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && needs.preflight.outputs.release_channel || 'dev' }}
-        run: vp run ${{ steps.bundle_build.outputs.script }}
+        run: |
+          vp run ${{ steps.bundle_build.outputs.script }}
+          test -s apps/server/dist/bin.mjs
+          desktop_dist="apps/desktop/${{ steps.bundle_build.outputs.desktop_dist }}"
+          if [[ -d "$desktop_dist" ]]; then desktop_dist="$desktop_dist/main.cjs"; fi
+          test -f "$desktop_dist" && test -s "$desktop_dist"
 
       # Consumers download into `apps` to restore the original layout.
       - name: Upload JS bundle
@@ -602,8 +615,7 @@ jobs:
           name: js-bundle
           path: |
             apps/server/dist
-            apps/desktop/dist-electron
-            apps/desktop/dist/rune-bundle/rune-projects.mjs
+            apps/desktop/${{ steps.bundle_build.outputs.desktop_dist }}
           if-no-files-found: error
           retention-days: 1
 

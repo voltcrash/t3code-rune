@@ -25,10 +25,14 @@ export default defineConfig({
         dependsOn: ["t3#build"],
         cache: false,
       },
-      // CI bundle jobs skip the Linux browser secret helper; packaging stages one per arch.
       "build:bundle": {
-        command:
-          "node scripts/bundle-rune-worker.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
+        command: "node scripts/bundle-rune-worker.mjs",
+        dependsOn: ["t3#build"],
+        cache: false,
+      },
+      // Packaging stages the Linux browser secret helper per architecture.
+      "build:electron:bundle": {
+        command: "node scripts/build-preview-annotation-css.mjs && vp pack",
         dependsOn: ["t3#build"],
         cache: false,
       },

@@ -180,7 +180,7 @@ jobs:
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.apt.outcome == 'success' && needs.changes.outputs.build != 'false' }}
         run: |
           node apps/desktop/scripts/build-browser-secret.mjs
-          vp run build:desktop:bundle
+          vp run build:desktop:electron:bundle
           node apps/desktop/scripts/build-rune.mjs
 
       - name: Verify preload bundle output
