@@ -27,6 +27,7 @@ import {
   runBackendProcess,
   type DesktopBackendStartConfig,
 } from "../backend/DesktopBackendProcess.ts";
+import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import { configuredBackendPort } from "../app/DesktopConfig.ts";
 import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
 import { resolveDesktopBackendPort } from "../backend/DesktopBackendPort.ts";
@@ -60,6 +61,7 @@ export const makeNativeServerConfig = Effect.fn("nativeDesktop.makeServerConfig"
   settings: DesktopSettings,
   desktopBootstrapToken: string,
   secret: string,
+  cliPath?: string,
 ) {
   const { entryPath, cwd, t3Home } = paths;
   const net = yield* Net.NetService;
@@ -82,6 +84,7 @@ export const makeNativeServerConfig = Effect.fn("nativeDesktop.makeServerConfig"
     args: [entryPath, "--bootstrap-fd", "3", "--base-dir", t3Home],
     env: {
       ...backendChildEnvPatch(),
+      ...(paths.packaged && { T3CODE_CLI_PATH: cliPath }),
       T3CODE_RUNE_DEV_HOME: undefined,
       T3CODE_HOME: t3Home,
       VITE_DEV_SERVER_URL: paths.dev?.webUrl,
@@ -137,11 +140,20 @@ export function startLocalServer(paths: LocalServerPaths) {
       paths.previousSettingsHome &&
         path.join(paths.previousSettingsHome, "userdata", "desktop-settings.json"),
     );
+    const cliPath = paths.packaged
+      ? Option.getOrUndefined(yield* DesktopCliShim.installBundledNode(t3Home, paths.entryPath))
+      : undefined;
     if (!settings.localEnvironmentEnabled)
       return yield* new LocalServerStartupError({
         message: "The local environment is disabled. Paste a pairing link to connect to a server.",
       });
-    const local = yield* makeNativeServerConfig(paths, settings, yield* currentToken(), secret);
+    const local = yield* makeNativeServerConfig(
+      paths,
+      settings,
+      yield* currentToken(),
+      secret,
+      cliPath,
+    );
     const { config, afterReady } =
       (yield* HostProcess.Platform) === "win32"
         ? yield* Effect.promise(() => import("./windowsHost.ts")).pipe(

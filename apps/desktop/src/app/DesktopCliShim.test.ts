@@ -142,12 +142,29 @@ describe("renderCliShim", () => {
   );
 
   it("extracts the AppImage where it cannot be mounted", () => {
-    const { shim } = fakeAppImage(false);
+    const { root, image, appImage, shim } = fakeAppImage(false);
     const result = run(shim, ["--version"], { APPIMAGE_EXTRACT_AND_RUN: "1" });
     expect(result.status).toBe(3);
     expect(result.stdout).toMatch(
       /squashfs-root\/resources\/app\.asar\/apps\/server\/dist\/bin\.mjs/,
     );
+
+    const executableName = "opt/T3 Code (Beta)/resources/node";
+    const entry = "opt/T3 Code (Beta)/resources/server/dist/bin.mjs";
+    writeExecutable(NodePath.join(image, executableName), REPORTER);
+    writeExecutable(
+      shim,
+      renderCliShim({
+        target: { kind: "appimage", appImage, executableName, entry },
+        runtime: "node",
+        shimPath: shim,
+        t3Home: root,
+      }),
+    );
+    const native = run(shim, ["--version"], { ELECTRON_RUN_AS_NODE: "1" });
+    expect(native.status).toBe(3);
+    expect(native.stdout).toContain("node= cli=");
+    expect(native.stdout).toContain("squashfs-root/" + entry);
   });
 
   // The server skips its compile cache only under APPIMAGE; each mount path is new.

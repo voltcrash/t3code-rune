@@ -434,6 +434,7 @@ async function buildRunePackage() {
         NSHighResolutionCapable: true,
       }),
     );
+    await NodeFSP.symlink(binaryName, NodePath.join(bin, product));
     await signRuneMacApp({ app, resources, node: bundledNode, repoRoot, signing });
     const buildDmg = formats.includes("dmg");
     if (buildDmg) {
@@ -524,6 +525,8 @@ async function buildRunePackage() {
           Effect.provide(NodeServices.layer),
         ),
       );
+      if (linuxUpdate)
+        await NodeFSP.symlink(NodePath.relative(app, executable), NodePath.join(app, binaryName));
       for (const [name, target] of [
         ["AppRun", NodePath.relative(app, executable)],
         [`${desktopId}.desktop`, entry],

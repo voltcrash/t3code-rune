@@ -1164,9 +1164,7 @@ fn product_name() -> &'static str {
     option_env!("T3CODE_RUNE_PRODUCT_NAME").unwrap_or("T3 Code")
 }
 
-fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
-    use std::process::Command;
-
+fn packaged_runtime() -> io::Result<Option<(std::path::PathBuf, std::path::PathBuf)>> {
     #[cfg(target_os = "macos")]
     let package = {
         let exe = std::env::current_exe()?;
@@ -1208,7 +1206,16 @@ fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
             .filter(|dir| dir.is_dir() || exe.ends_with(format!("{}.exe", product_name())))
             .map(|dir| (dir.join("node.exe"), dir))
     };
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let package = None;
+    Ok(package)
+}
+
+fn worker_command(
+    mode: Option<&str>,
+    package: Option<(std::path::PathBuf, std::path::PathBuf)>,
+) -> io::Result<std::process::Command> {
+    use std::process::Command;
     if let Some((node, resources)) = package {
         let mut command = Command::new(node);
         command
@@ -1236,8 +1243,26 @@ fn start() -> io::Result<()> {
         .as_deref()
         .and_then(|arg| arg.to_str())
         .filter(|arg| matches!(*arg, "--integrated-dev" | "--source-build"));
+    let package = packaged_runtime()?;
+    #[cfg(unix)]
+    if let Some((node, resources)) = &package
+        && std::env::var_os("ELECTRON_RUN_AS_NODE").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        // A t3 launcher installed before the upgrade can run before Rune refreshes it.
+        let mut args = std::env::args_os().skip(1);
+        if args.next().is_some_and(|entry| {
+            std::path::Path::new(&entry).ends_with("app.asar/apps/server/dist/bin.mjs")
+        }) {
+            use std::os::unix::process::CommandExt;
+            return Err(std::process::Command::new(node)
+                .arg(resources.join("server/dist/bin.mjs"))
+                .args(args)
+                .env_remove("ELECTRON_RUN_AS_NODE")
+                .exec());
+        }
+    }
     let launch_check = launch_check::LaunchCheck::requested()?;
-    let mut worker = worker_command(mode)?;
+    let mut worker = worker_command(mode, package)?;
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
