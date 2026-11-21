@@ -305,7 +305,13 @@ mod tests {
         ws.project_scope.choose("q", false, &ws.projects);
         ws.filter();
         assert!(ws.filtered.is_empty());
-        assert_eq!(ws.settled_count, 1);
+        assert_eq!(ws.settled, [1]);
+        ws.show_settled = true;
+        ws.filter();
+        assert!(
+            ws.filtered.is_empty(),
+            "settled rows belong in their own section"
+        );
         ws.search = rune::TextEdit::new("match");
         ws.query_changed();
         assert_eq!(ws.search_target.as_deref(), Some("b"));

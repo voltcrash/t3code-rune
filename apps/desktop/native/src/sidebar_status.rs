@@ -1,6 +1,9 @@
 use super::Thread;
 use rune::{Color, El, Icon, el, icon, row, tok};
 use serde::Deserialize;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Default, Deserialize, PartialEq)]
@@ -174,8 +177,9 @@ pub(super) fn view(
 }
 
 pub(super) struct Clock {
-    pub mounted: std::cell::Cell<bool>,
-    pub visible: std::ops::Range<usize>,
+    pub mounted: Cell<bool>,
+    pub viewport: rune::Live<[f32; 4]>,
+    rows: RefCell<HashMap<String, Weak<rune::Live<[f32; 4]>>>>,
     now: i64,
     offset: i64,
 }
@@ -184,39 +188,55 @@ impl Default for Clock {
     fn default() -> Self {
         Self {
             mounted: Default::default(),
-            visible: 0..0,
+            viewport: rune::Live::new([0.; 4]),
+            rows: Default::default(),
             now: unix_millis(),
             offset: 0,
         }
     }
 }
 
+fn intersects(row: [f32; 4], viewport: [f32; 4]) -> bool {
+    row[3] > 0.
+        && viewport[3] > 0.
+        && row[1] < viewport[1] + viewport[3]
+        && row[1] + row[3] > viewport[1]
+}
+
+impl Clock {
+    pub(super) fn track_row(&self, thread: &Thread, row: El) -> El {
+        if thread.next_label_change(self.now, self.offset).is_none() {
+            return row;
+        }
+        let mut rows = self.rows.borrow_mut();
+        let bounds = rows
+            .get(&thread.id)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let bounds = Rc::new(rune::Live::new([0.; 4]));
+                rows.insert(thread.id.clone(), Rc::downgrade(&bounds));
+                bounds
+            });
+        row.drawn_rect_into(&bounds)
+            .on_visible(move |s: &mut super::Desktop, on, tx| {
+                if on && intersects(bounds.get(), s.workspace.row_clock.viewport.get()) {
+                    tx.wake_after(std::time::Duration::ZERO);
+                }
+                tx.live_only();
+            })
+    }
+}
 impl super::Workspace {
     pub(crate) fn set_clock_offset(&mut self, offset: i64) {
         self.row_clock.offset = offset;
         self.row_clock.now = unix_millis();
     }
     pub(crate) fn poll_sidebar_clock(&mut self, tx: &mut rune::Tx) -> bool {
-        if !self.row_clock.mounted.get() || self.row_clock.visible.is_empty() {
+        if !self.row_clock.mounted.get() {
             return false;
         }
         let now = unix_millis();
-        let mut deadline = None;
-        let mut changed = false;
-        for &i in self
-            .filtered
-            .get(self.row_clock.visible.start..self.row_clock.visible.end.min(self.filtered.len()))
-            .unwrap_or_default()
-        {
-            let thread = &self.threads[i];
-            if let Some(next) = thread.next_label_change(now, self.row_clock.offset) {
-                deadline = Some(deadline.map_or(next, |earlier: i64| earlier.min(next)));
-                changed |= now < self.row_clock.now
-                    || thread
-                        .next_label_change(self.row_clock.now, self.row_clock.offset)
-                        .is_some_and(|due| due <= now);
-            }
-        }
+        let (changed, deadline) = self.sidebar_clock_deadline(now);
         if let Some(due) = deadline {
             tx.wake_after(std::time::Duration::from_millis((due - now).max(1) as u64));
         }
@@ -224,6 +244,31 @@ impl super::Workspace {
             self.row_clock.now = now;
         }
         changed
+    }
+
+    fn sidebar_clock_deadline(&self, now: i64) -> (bool, Option<i64>) {
+        let mut deadline = None;
+        let mut changed = false;
+        let viewport = self.row_clock.viewport.get();
+        self.row_clock.rows.borrow_mut().retain(|id, weak| {
+            let Some(bounds) = weak.upgrade() else {
+                return false;
+            };
+            if intersects(bounds.get(), viewport)
+                && let Some(&index) = self.by_thread.get(id)
+            {
+                let thread = &self.threads[index];
+                if let Some(next) = thread.next_label_change(now, self.row_clock.offset) {
+                    deadline = Some(deadline.map_or(next, |earlier: i64| earlier.min(next)));
+                    changed |= now < self.row_clock.now
+                        || thread
+                            .next_label_change(self.row_clock.now, self.row_clock.offset)
+                            .is_some_and(|due| due <= now);
+                }
+            }
+            true
+        });
+        (changed, deadline)
     }
 }
 
@@ -262,3 +307,76 @@ const DONE: Icon = Icon {
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></g>"#,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrolling_between_active_and_settled_rows_ticks_only_visible_labels() {
+        use crate::Desktop;
+        use rune::{Cx, Env, Runtime, ScrollSpec, col};
+
+        fn view(s: &Desktop, _: &mut Cx<Desktop>) -> El {
+            let ws = &s.workspace;
+            let row = |id: &str| {
+                ws.row_clock
+                    .track_row(&ws.threads[ws.by_thread[id]], el().key(id).w_full().h(50.))
+            };
+            col()
+                .key("viewport")
+                .w_full()
+                .h_full()
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
+                .drawn_rect_into(&ws.row_clock.viewport)
+                .child(row("active"))
+                .child(el().w_full().h(270.))
+                .child(row("settled"))
+        }
+
+        let mut app = Desktop::new();
+        app.workspace.replace(
+            vec![],
+            ["active", "settled"]
+                .map(|id| {
+                    serde_json::from_value(serde_json::json!({
+                "id":id,"project":"p","title":id,"model":"test","status_at":0,
+                "status": if id == "active" { "working" } else { "ready" }, "settled":id=="settled"
+            })).unwrap()
+                })
+                .into(),
+        );
+        let mut rt = Runtime::new(app, view, (200., 200.), Env::default());
+        rt.frame(0.);
+        rt.frame(0.);
+        assert_eq!(
+            rt.state.workspace.sidebar_clock_deadline(1000).1,
+            Some(2000)
+        );
+        rt.update(|_, tx| tx.scroll_to_bottom("viewport"));
+        let mut saw_gap = false;
+        let mut saw_settled = false;
+        for _ in 0..120 {
+            rt.frame(1. / 120.);
+            let elements = rt.elements();
+            let visible = |id| {
+                elements.iter().any(|el| {
+                    el.key.as_deref() == Some(id) && intersects(el.rect, [0., 0., 200., 200.])
+                })
+            };
+            let expected = if visible("active") {
+                Some(2000)
+            } else if visible("settled") {
+                Some(60_000)
+            } else {
+                None
+            };
+            assert_eq!(rt.state.workspace.sidebar_clock_deadline(1000).1, expected);
+            saw_gap |= expected.is_none();
+            saw_settled |= expected == Some(60_000);
+        }
+        assert!(saw_gap && saw_settled);
+    }
+}
