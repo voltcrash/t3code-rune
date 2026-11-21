@@ -274,6 +274,9 @@ impl Desktop {
     }
 }
 fn input(s: &mut Desktop, e: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.zoom_key(e, tx) {
+        return true;
+    }
     let shortcut = !e.mods.alt && (cfg!(target_os = "macos") != e.mods.shift);
     if shortcut && e.is_command('a') {
         s.terminal_input(Input::SelectAll);

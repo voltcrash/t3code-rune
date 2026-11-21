@@ -22,12 +22,16 @@ mod questions;
 mod sidebar_layout;
 mod stage;
 mod terminal;
+mod window_zoom;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    WindowZoom {
+        factor: f64,
+    },
     SidebarLayout {
         width: Option<u32>,
         open: Option<bool>,
@@ -280,6 +284,9 @@ enum Request<'a> {
     SetSidebarOpen {
         open: bool,
     },
+    SetWindowZoom {
+        factor: f64,
+    },
     SetAppearance {
         mode: appearance::Mode,
     },
@@ -445,6 +452,7 @@ enum Request<'a> {
 }
 
 struct Desktop {
+    zoom: window_zoom::WindowZoom,
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
     font_smoothing: Option<bool>,
@@ -484,6 +492,7 @@ impl Desktop {
     fn new() -> Self {
         Self {
             output: None,
+            zoom: Default::default(),
             sidebar_layout: Default::default(),
             answer_advance: None,
             appearance: Default::default(),
@@ -667,6 +676,10 @@ impl Desktop {
                 self.sidebar_layout.width = width;
                 self.sidebar_layout.open = open.unwrap_or(true);
             }
+            return;
+        }
+        if let Reply::WindowZoom { factor } = message.reply {
+            self.zoom.restore(factor);
             return;
         }
         if let Reply::Appearance { mode, error } = message.reply {
@@ -999,6 +1012,7 @@ impl Desktop {
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
             | Reply::Typography { .. }
+            | Reply::WindowZoom { .. }
             | Reply::Appearance { .. }
             | Reply::RefreshFavicons { .. }
             | Reply::WorkspacePaused { .. }
@@ -1033,6 +1047,7 @@ impl Desktop {
                     error: lost.then(|| {
                         "The local environment stopped. Reconnect to start it again.".to_owned()
                     }),
+                    zoom: self.zoom,
                     ..Self::new()
                 };
             }
@@ -1067,6 +1082,7 @@ fn button(label: &str, enabled: bool, theme: &tok::Theme, action: fn(&mut Deskto
 }
 
 fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
+    cx.zoom(s.zoom.factor as f32);
     let dark = s.dark(cx);
     let mut theme = tok::theme(dark);
     theme.bg = if dark {
@@ -1346,6 +1362,9 @@ fn start() -> io::Result<()> {
             s.poll_answer(tx) || stop || clock || renamed || resized
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
+            if s.zoom_key(ev, tx) {
+                return true;
+            }
             if !ev.mods.alt && !ev.mods.shift && ev.is_command(',') {
                 if !tx.key_repeat() {
                     s.open_settings(tx);
@@ -1459,6 +1478,8 @@ fn start() -> io::Result<()> {
     let app = App::new(spec);
     #[cfg(target_os = "macos")]
     let app = app.font_smoothing(rune::FontSmoothing::Off);
+    #[cfg(target_os = "macos")]
+    let app = window_zoom::view_menu(app);
     let app = app
         .tab_visits_controls(true)
         .menu_item(

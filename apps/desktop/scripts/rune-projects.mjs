@@ -686,6 +686,9 @@ function savePreference(name, value) {
 function validAppearance(mode) {
   return mode === "system" || mode === "light" || mode === "dark";
 }
+const savedZoom = Number(readPreference("desktop-zoom"));
+if (savedZoom >= 0.25 && savedZoom <= 5) write({ type: "windowzoom", factor: savedZoom });
+
 const savedAppearance = readPreference("desktop-appearance");
 let appearance = validAppearance(savedAppearance) ? savedAppearance : "system";
 write({ type: "appearance", mode: appearance });
@@ -1222,6 +1225,17 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "setwindowzoom") {
+      const factor = request.factor;
+      if (Number.isFinite(factor) && factor >= 0.25 && factor <= 5) {
+        try {
+          savePreference("desktop-zoom", factor === 1 ? null : factor);
+        } catch {
+          process.stderr.write("Couldn’t save the desktop zoom.\n");
+        }
+      }
+      continue;
+    }
     if (request?.type === "setappearance") {
       setAppearance(request.mode);
     } else if (request?.type === "setfontsmoothing") {
