@@ -32,6 +32,7 @@ export function startLocalServer(paths: {
   readonly entryPath: string;
   readonly cwd: string;
   readonly t3Home: string;
+  readonly dev?: { readonly port: number; readonly webUrl?: string | undefined };
 }) {
   const { entryPath, cwd, t3Home } = paths;
   const lifetime = new AbortController();
@@ -54,7 +55,7 @@ export function startLocalServer(paths: {
       ),
       Effect.forkScoped,
     );
-    const port = yield* Net.make().reserveLoopbackPort();
+    const port = paths.dev?.port ?? (yield* Net.make().reserveLoopbackPort());
     const httpBaseUrl = new URL(`http://127.0.0.1:${port}`);
     const desktopBootstrapToken = yield* currentToken();
     return yield* runBackendProcess({
@@ -62,7 +63,12 @@ export function startLocalServer(paths: {
       entryPath,
       cwd,
       args: [entryPath, "--bootstrap-fd", "3", "--base-dir", t3Home],
-      env: { ...backendChildEnvPatch(), T3CODE_HOME: t3Home, VITE_DEV_SERVER_URL: undefined },
+      env: {
+        ...backendChildEnvPatch(),
+        T3CODE_RUNE_DEV_HOME: undefined,
+        T3CODE_HOME: t3Home,
+        VITE_DEV_SERVER_URL: paths.dev?.webUrl,
+      },
       extendEnv: true,
       captureOutput: true,
       preflightFailure: Option.none(),

@@ -45,10 +45,13 @@ the two forges; in text that reaches GitHub, use the GitHub number.
 
 ## Choosing a dev process
 
-Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
+Use `vp run dev` for server and web. With Rust installed, `vp run dev:desktop` opens the Rune
+desktop client, starts its Node server in the dev runner’s data directory, and serves the web client
+on the printed web port. Disconnect in the desktop window to pair with another environment.
 `dev:server` and `dev:web` start those processes separately.
-Run `vp run dev:desktop:rune` with Rust installed for the Rune desktop client. It starts a local
-server in the checkout's `.t3/rune`. Disconnect to pair with another environment.
+
+For a standalone native window with separate state, `vp run dev:desktop:rune` starts a local
+server in the checkout’s `.t3/rune`.
 
 On macOS, `vp run dist:desktop:rune` builds an app for the build machine's architecture with
 the pinned Node runtime, Rust, and the Xcode Command Line Tools. Extract the zip from `release/`

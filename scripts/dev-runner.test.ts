@@ -91,6 +91,15 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(web.T3CODE_DEV_AUTH_TOKEN, input.baseEnv.T3CODE_DEV_AUTH_TOKEN);
         assert.equal(desktop.T3CODE_DEV_AUTH_TOKEN, undefined);
+        const path = yield* Path.Path;
+        const liveHome = path.join(yield* HostProcess.HomeDirectory, ".t3");
+        for (const t3Home of [undefined, liveHome, "/tmp/rune-dev-explicit"]) {
+          const configured = yield* createDevRunnerEnv({ ...input, mode: "dev:desktop", t3Home });
+          assert.equal(
+            configured.T3CODE_RUNE_DEV_HOME,
+            t3Home === "/tmp/rune-dev-explicit" ? t3Home : path.join(liveHome, "dev"),
+          );
+        }
       }),
     );
 
@@ -143,7 +152,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
-    it.effect.each(["dev", "dev:web"] as const)(
+    it.effect.each(["dev", "dev:web", "dev:desktop"] as const)(
       "leaves the client backend URLs unset in %s mode",
       (mode) =>
         Effect.gen(function* () {

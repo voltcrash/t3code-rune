@@ -348,37 +348,25 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
   // install of the developer's real accounts. Set it explicitly to opt in.
   output.T3CODE_TELEMETRY_ENABLED = baseEnv.T3CODE_TELEMETRY_ENABLED ?? "false";
 
-  if (!isDesktopMode) {
-    output.T3CODE_PORT = String(serverPort);
-    // An inherited HOST pins Vite's HMR socket via explicitHost in apps/web/vite.config.ts.
-    // Only desktop mode should set it.
-    delete output.HOST;
-    if (mode === "dev" || mode === "dev:web") {
-      // Browser dev is single-origin: everything (including /ws) is proxied
-      // through Vite, so the client must resolve its backend from
-      // window.location.origin rather than a baked-in localhost URL.
-      delete output.VITE_HTTP_URL;
-      delete output.VITE_WS_URL;
-      // Deleting is not enough on its own: vite.config.ts calls loadRepoEnv,
-      // which merges `.env`/`.env.local` *under* this env, so a developer
-      // with either URL in their `.env` would get it back and silently lose
-      // single-origin mode.
-      output.T3CODE_SINGLE_ORIGIN_DEV = "1";
-    } else {
-      output.VITE_HTTP_URL = `http://localhost:${serverPort}`;
-      output.VITE_WS_URL = `ws://localhost:${serverPort}`;
-      delete output.T3CODE_SINGLE_ORIGIN_DEV;
-    }
-  } else {
-    output.T3CODE_PORT = String(serverPort);
-    output.VITE_HTTP_URL = `http://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    output.VITE_WS_URL = `ws://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    // Desktop pins the renderer to loopback on purpose; an ambient marker
-    // must not make Vite drop those URLs.
+  output.T3CODE_PORT = String(serverPort);
+  if (mode === "dev:server") {
+    output.VITE_HTTP_URL = `http://localhost:${serverPort}`;
+    output.VITE_WS_URL = `ws://localhost:${serverPort}`;
     delete output.T3CODE_SINGLE_ORIGIN_DEV;
+  } else {
+    // The browser reaches the same environment through Vite's HTTP and WebSocket proxies.
+    delete output.VITE_HTTP_URL;
+    delete output.VITE_WS_URL;
+    output.T3CODE_SINGLE_ORIGIN_DEV = "1";
+  }
+  if (isDesktopMode) {
+    output.T3CODE_RUNE_DEV_HOME = isLiveHome ? path.join(resolvedBaseDir, "dev") : resolvedBaseDir;
     delete output.T3CODE_MODE;
     delete output.T3CODE_NO_BROWSER;
     delete output.T3CODE_DEV_AUTH_TOKEN;
+  } else {
+    delete output.HOST;
+    delete output.T3CODE_RUNE_DEV_HOME;
   }
 
   // Agent shells inherit the parent T3 server's bind settings; only --host widens the dev server.
@@ -823,7 +811,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
       yield* Effect.logInfo("[dev-runner] --share has no effect for dev:server (no web server).");
     } else if (input.mode === "dev:desktop") {
       yield* Effect.logWarning(
-        "[dev-runner] --share is not supported for dev:desktop (the renderer is pinned to loopback). Use `dev`, which runs the whole browser stack.",
+        "[dev-runner] --share is not supported for dev:desktop (the desktop host listens on loopback). Use `dev`, which runs the whole browser stack.",
       );
     } else {
       // acquireRelease, not share-then-addFinalizer: the mapping outlives this

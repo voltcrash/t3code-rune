@@ -609,7 +609,7 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     col().w_full().h_full().center().fill(theme.bg).child(panel)
 }
 
-fn worker_command() -> io::Result<std::process::Command> {
+fn worker_command(integrated_dev: bool) -> io::Result<std::process::Command> {
     use std::process::Command;
 
     #[cfg(target_os = "macos")]
@@ -635,13 +635,17 @@ fn worker_command() -> io::Result<std::process::Command> {
         .ok_or_else(|| io::Error::other("Missing desktop worker path."))?;
     let mut command = Command::new(node);
     command.arg(worker);
+    if integrated_dev {
+        command.arg("--integrated-dev");
+    }
     Ok(command)
 }
 
 fn start() -> io::Result<()> {
     use std::process::Stdio;
 
-    let mut child = worker_command()?
+    let integrated_dev = std::env::args_os().any(|arg| arg == "--integrated-dev");
+    let mut child = worker_command(integrated_dev)?
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
@@ -727,6 +731,13 @@ fn start() -> io::Result<()> {
             desktop
         });
     let handle = app.handle();
+    if integrated_dev {
+        let owner = handle.clone();
+        std::thread::spawn(move || {
+            let _ = io::copy(&mut io::stdin().lock(), &mut io::sink());
+            owner.close();
+        });
+    }
     let images = image_decode::start(handle.clone());
     std::thread::spawn(move || {
         for line in input.lines() {

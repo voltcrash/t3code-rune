@@ -365,6 +365,7 @@ async function interruptRun(owner, request, reply) {
 function localServer() {
   if (!server) {
     const cwd = NodePath.resolve(import.meta.dirname, packaged ? "server" : "../../server");
+    const devHome = process.argv[2] === "--integrated-dev" && process.env.T3CODE_RUNE_DEV_HOME;
     const started = startLocalServer({
       cwd,
       entryPath: NodePath.join(cwd, packaged ? "dist/bin.mjs" : "src/bin.ts"),
@@ -372,7 +373,12 @@ function localServer() {
         ? NodePath.resolve(
             process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
           )
-        : NodePath.resolve(import.meta.dirname, "../../../.t3/rune"),
+        : devHome || NodePath.resolve(import.meta.dirname, "../../../.t3/rune"),
+      ...(devHome
+        ? {
+            dev: { port: Number(process.env.T3CODE_PORT), webUrl: process.env.VITE_DEV_SERVER_URL },
+          }
+        : {}),
     });
     server = started;
     void started.stopped.then(() => {
