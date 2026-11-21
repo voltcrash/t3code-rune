@@ -1,4 +1,8 @@
-import { proposedPlanTitle, stripDisplayedPlanMarkdown } from "@t3tools/shared/proposedPlanText";
+import {
+  proposedPlanCanCollapse,
+  proposedPlanTitle,
+  stripDisplayedPlanMarkdown,
+} from "@t3tools/shared/proposedPlanText";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { memo, useState, useId } from "react";
 import { findRevealRef } from "./markdownFindContext";
@@ -82,8 +86,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
     },
   });
   const title = proposedPlanTitle(planMarkdown) ?? gt("Proposed plan");
-  const lineCount = planMarkdown.split("\n").length;
-  const canCollapse = planMarkdown.length > 900 || lineCount > 20;
+  const canCollapse = proposedPlanCanCollapse(planMarkdown);
   const displayedPlanMarkdown = stripDisplayedPlanMarkdown(planMarkdown);
   const collapsedPreview = canCollapse
     ? buildCollapsedProposedPlanPreviewMarkdown(planMarkdown, { maxLines: 10 }, messages)

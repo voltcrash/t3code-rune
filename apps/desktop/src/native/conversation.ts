@@ -1,4 +1,10 @@
 import {
+  proposedPlanBodyStart,
+  proposedPlanCanCollapse,
+  proposedPlanPreviewEnd,
+  proposedPlanTitle,
+} from "@t3tools/shared/proposedPlanText";
+import {
   applyOrchestrationV2ProjectionEvent,
   getProjectionArrayReplacementIndex,
 } from "@t3tools/client-runtime/state/orchestration-v2-projection";
@@ -41,10 +47,20 @@ import { nativeTurnFolds } from "./turnFolds.ts";
 
 type Row = {
   key: string;
-  role: "command" | "reasoning" | "tasks" | "file" | "tool" | "sent-message" | "user" | "assistant";
+  role:
+    | "command"
+    | "reasoning"
+    | "tasks"
+    | "file"
+    | "tool"
+    | "plan"
+    | "sent-message"
+    | "user"
+    | "assistant";
   body: string;
   attachments: Array<{ name: string; image?: string }>;
   caption?: string;
+  plan?: { start: number; collapsible: boolean; preview_end?: number };
   language?: string;
   exit_code?: number | undefined;
   failed?: boolean | undefined;
@@ -55,6 +71,27 @@ type Row = {
 function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row | null {
   const item = row.item;
   const key = JSON.stringify([row.sourceThreadId, row.sourceItemId]);
+  if (item.type === "proposed_plan") {
+    const body = item.markdown;
+    const start = proposedPlanBodyStart(body);
+    const title = proposedPlanTitle(body);
+    const collapsible = proposedPlanCanCollapse(body);
+    const previewEnd = collapsible ? proposedPlanPreviewEnd(body.slice(start), 10) : undefined;
+    return {
+      key,
+      role: "plan",
+      body,
+      attachments: [],
+      ...(title ? { caption: title } : {}),
+      plan: {
+        start: Buffer.byteLength(body.slice(0, start)),
+        collapsible,
+        ...(previewEnd !== undefined
+          ? { preview_end: Buffer.byteLength(body.slice(start, start + previewEnd)) }
+          : {}),
+      },
+    };
+  }
   if (item.type === "dynamic_tool" || item.type === "file_search" || item.type === "web_search")
     return toolRow(key, row, root);
   if (item.type === "file_change") return fileChangeRow(key, item, root);
@@ -272,12 +309,20 @@ export function windowReply(state: Window) {
   };
 }
 
+function samePlan(a: Row, b: Row) {
+  return (
+    a.plan?.start === b.plan?.start &&
+    a.plan?.collapsible === b.plan?.collapsible &&
+    a.plan?.preview_end === b.plan?.preview_end
+  );
+}
 function sameRow(a: Row, b: Row) {
   return (
     a.key === b.key &&
     a.role === b.role &&
     a.body === b.body &&
     a.caption === b.caption &&
+    samePlan(a, b) &&
     a.exit_code === b.exit_code &&
     a.failed === b.failed &&
     a.tool?.revision === b.tool?.revision &&
@@ -325,6 +370,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
         row.role !== "command" &&
         row.role === old.role &&
         row.caption === old.caption &&
+        samePlan(old, row) &&
         row.attachments.length === 0 &&
         old.attachments.length === 0 &&
         row.body.startsWith(old.body)
