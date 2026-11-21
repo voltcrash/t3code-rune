@@ -94,6 +94,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     environmentId: descriptor.environmentId,
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
+    tracksClones: descriptor.capabilities.projectCloneTracking === true,
     canPin: descriptor.capabilities.threadPinning === true,
     visitTracking: descriptor.capabilities.threadVisitedTracking === true,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,
@@ -143,7 +144,7 @@ export const headersFor = (session: Session) =>
 export function projectSummary(
   project: Pick<
     Project,
-    "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt" | "projectIcon"
+    "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt" | "projectIcon" | "faviconPath"
   >,
   scratchRoot: string | undefined,
 ) {
@@ -151,6 +152,7 @@ export function projectSummary(
     id: project.id,
     title: project.title,
     icon: projectGlyph(project.title, project.projectIcon),
+    favicon: project.projectIcon ? null : { path: project.faviconPath ?? null },
     path: project.workspaceRoot,
     archived: project.archivedAt != null,
     activity_at: Date.parse(project.updatedAt),

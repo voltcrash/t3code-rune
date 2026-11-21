@@ -120,6 +120,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     },
     () => write({ type: "workspacepaused", watch }),
     (offset) => write({ type: "workspaceclock", watch, offset }),
+    (projects) => write({ type: "refreshfavicons", watch, projects }),
     () => activeVisit,
   );
   workspaceFeed = { watch, controller, ...feed };
@@ -307,6 +308,49 @@ function refreshDetail(record, detail, updated) {
     });
 }
 
+async function transferImage(owner, signal, result, read) {
+  try {
+    await Effect.runPromise(
+      Effect.uninterruptibleMask((restore) =>
+        restore(read.pipe(Effect.scoped, Effect.timeout("20 seconds"))).pipe(
+          Effect.flatMap((data) => {
+            if (signal.aborted) return Effect.void;
+            // Bytes already sent occupy a decoder slot across watch changes until Rust acknowledges them.
+            const sent = { watch: result.watch, handled: Promise.withResolvers() };
+            sentImages.set(result.operation, sent);
+            write({ ...result, data });
+            return Effect.promise(() => sent.handled.promise).pipe(
+              Effect.ensuring(Effect.sync(() => sentImages.delete(result.operation))),
+            );
+          }),
+        ),
+      ).pipe(imageReads.withPermit, Effect.provide(owner.http)),
+      { signal },
+    );
+  } catch {
+    if (!signal.aborted) write({ ...result, retryable: true });
+  }
+}
+
+async function loadProjectFavicon(request) {
+  const feed = workspaceFeed;
+  const owner = session;
+  if (!owner || !feed || feed.watch !== request.watch) return;
+  const result = {
+    type: "image",
+    watch: request.watch,
+    key: request.project,
+    operation: request.operation,
+    favicon: true,
+  };
+  const target = feed.projectFavicon(request.project);
+  if (!target || target.cwd !== request.cwd || (target.path ?? null) !== request.path)
+    return write(result);
+  const signal = AbortSignal.any([owner.signal, feed.controller.signal]);
+  const read = Effect.suspend(() => readImage(owner, target, feed.activeRpc()));
+  await transferImage(owner, signal, result, read);
+}
+
 async function inspectImage(request) {
   const record = watching;
   if (!record || record.id !== request.watch) return;
@@ -329,25 +373,7 @@ async function inspectImage(request) {
   try {
     const [resource] = JSON.parse(request.key);
     if (resource._tag !== "attachment" && resource._tag !== "tool-output-image") return;
-    await Effect.runPromise(
-      Effect.uninterruptibleMask((restore) =>
-        restore(
-          readImage(record.owner, resource).pipe(Effect.scoped, Effect.timeout("20 seconds")),
-        ).pipe(
-          Effect.flatMap((data) => {
-            if (signal.aborted) return Effect.void;
-            // Bytes already sent occupy a decoder slot across watch changes until Rust acknowledges them.
-            const sent = { watch: request.watch, handled: Promise.withResolvers() };
-            sentImages.set(request.operation, sent);
-            write({ ...result, data });
-            return Effect.promise(() => sent.handled.promise).pipe(
-              Effect.ensuring(Effect.sync(() => sentImages.delete(request.operation))),
-            );
-          }),
-        ),
-      ).pipe(imageReads.withPermit, Effect.provide(record.owner.http)),
-      { signal },
-    );
+    await transferImage(record.owner, signal, result, readImage(record.owner, resource));
   } catch {
     if (!signal.aborted) write(result);
   } finally {
@@ -1177,6 +1203,8 @@ try {
     } else if (request?.type === "imagehandled") {
       const sent = sentImages.get(request.operation);
       if (sent?.watch === request.watch) sent.handled.resolve();
+    } else if (request?.type === "projectfavicon") {
+      void loadProjectFavicon(request);
     } else if (request?.type === "inspectimage") {
       void inspectImage(request);
     } else if (request?.type === "inspectfile" || request?.type === "inspecttool") {
