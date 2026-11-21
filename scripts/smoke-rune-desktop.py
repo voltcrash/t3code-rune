@@ -1,25 +1,28 @@
-"""Open the release fixture in a real Linux Rune window using AT-SPI."""
+"""Open the release fixture in a real Rune window from its packaged executable or source build."""
 
 import argparse
-from contextlib import closing
+from contextlib import closing, suppress
 import os
 from pathlib import Path
 import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
-import gi
+if sys.platform == "linux":
+    import gi
 
-gi.require_version("Atspi", "2.0")
-from gi.repository import Atspi, GLib
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi, GLib
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TITLE = "Release launch check"
 MESSAGE = "The release opens and shows this thread."
+THREAD_ID = "launch-check-thread"
 
 
 def descendants(node):
@@ -77,13 +80,21 @@ def launch(tmp, executable):
         command, overrides = source_command(tmp)
     else:
         command, overrides = [executable.absolute()], {"T3CODE_HOME": str(home)}
+    if sys.platform == "darwin":
+        if executable is None:
+            raise ValueError("Pass --executable for the macOS package check")
+        command.extend(["--verify-launch", THREAD_ID, TITLE, MESSAGE])
     env = {**os.environ, **overrides, "T3CODE_TELEMETRY_ENABLED": "false"}
     env.pop("T3CODE_PORT", None)
     userdata = home / "userdata"
     userdata.mkdir(parents=True)
     fixture = ROOT / "scripts/fixtures/desktop-launch/statev2.sqlite"
     shutil.copyfile(fixture, userdata / fixture.name)
-    return subprocess.Popen(command, env=env, stdin=subprocess.PIPE, process_group=0)
+    with (tmp / "launch.stdout").open("wb") as output:
+        return subprocess.Popen(
+            command, env=env, stdin=subprocess.PIPE, start_new_session=True,
+            stdout=output if sys.platform == "darwin" else None,
+        )
 
 
 def seeded_row(node):
@@ -132,28 +143,38 @@ def main():
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="rune-launch-", dir=scratch) as tmp:
         app = launch(Path(tmp), args.executable)
+        passed = False
         try:
-            row = wait_for(app, "finding the seeded sidebar row", seeded_row)
-            if not row.do_action(0):
-                raise RuntimeError("Could not open the seeded thread")
-            wait_for(app, "showing the seeded message", visible_message)
-            if args.executable is not None:
-                close_packaged_window(app)
+            if sys.platform == "linux":
+                row = wait_for(app, "finding the seeded sidebar row", seeded_row)
+                if not row.do_action(0):
+                    raise RuntimeError("Could not open the seeded thread")
+                wait_for(app, "showing the seeded message", visible_message)
+                if args.executable is not None:
+                    close_packaged_window(app)
             app.stdin.close()
-            if app.wait(timeout=10):
+            app.wait(timeout=90 if sys.platform == "darwin" else 10)
+            if sys.platform == "darwin" and app.returncode == 0:
+                with (Path(tmp) / "launch.stdout").open("rb") as output:
+                    if not any(line.rstrip() == b"T3 Code Rune launch check passed" for line in output):
+                        raise RuntimeError("The executable exited without confirming the rendered message")
+            if app.returncode:
                 raise RuntimeError(f"Rune exited with {app.returncode}")
+            passed = True
             print("Rune opened the seeded thread, displayed its recorded message, and exited cleanly.")
         except Exception:
             try:
-                snapshot(app, args.artifacts_dir)
+                if sys.platform == "linux":
+                    snapshot(app, args.artifacts_dir)
             except (OSError, subprocess.TimeoutExpired):
                 pass
             raise
         finally:
+            if not passed:
+                with suppress(ProcessLookupError):
+                    os.killpg(app.pid, signal.SIGKILL)
             app.stdin.close()
-            if app.poll() is None:
-                os.killpg(app.pid, signal.SIGKILL)
-                app.wait()
+            app.wait()
 
 
 if __name__ == "__main__":

@@ -648,7 +648,7 @@ jobs:
       label: macOS arm64
       runner: blacksmith-12vcpu-macos-26
       platform: mac
-      target: dmg
+      target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'dmg,zip' || 'dmg' }}
       arch: arm64
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
@@ -674,13 +674,14 @@ jobs:
       label: macOS x64
       runner: blacksmith-12vcpu-macos-26
       platform: mac
-      target: dmg
+      target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'dmg,zip' || 'dmg' }}
       arch: x64
       rust_target: x86_64-apple-darwin
       resource_key: darwin-x64
+      launch_check: ${{ needs.preflight.outputs.release_channel == 'preview' }}
       # No CLI archive: Node single-executables are unsupported on x64 macOS
       # (the SEA docs list macOS as arm64 only) and the built binary segfaults
-      # on start. The x64 desktop app is Electron and unaffected.
+      # on start. Both desktop packages ship a separate Node executable.
       cli_archive: false
 
   desktop_linux_x64:
