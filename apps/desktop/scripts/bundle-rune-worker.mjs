@@ -1,11 +1,12 @@
 import * as NodePath from "node:path";
 import { build } from "vite-plus/pack";
 
-export async function bundleRuneWorker(outDir) {
+export async function bundleRuneWorker(outDir, version) {
   const desktop = NodePath.resolve(import.meta.dirname, "..");
   await build({
     cwd: desktop,
     config: false,
+    ...(version ? { define: { "import.meta.t3codeVersion": JSON.stringify(version) } } : {}),
     entry: ["scripts/rune-projects.mjs"],
     format: "esm",
     platform: "node",

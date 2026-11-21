@@ -31,7 +31,7 @@ const packaged = process.argv[2] === "--packaged";
 const sourceBuild = process.argv[2] === "--source-build";
 const buildStage = resolveDesktopAppStageLabel({
   isDevelopment: !packaged && !sourceBuild,
-  appVersion: desktopPackage.version,
+  appVersion: import.meta.t3codeVersion ?? desktopPackage.version,
 }).toLowerCase();
 
 let session;
