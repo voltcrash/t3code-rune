@@ -2,7 +2,6 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
-const name = "t3code-rune";
 const maintainer = "T3 Tools <hello@t3.codes>";
 const description = "Desktop GUI for coding agents";
 const commonControl = `Section: devel
@@ -11,11 +10,11 @@ Maintainer: ${maintainer}
 Homepage: https://t3.codes`;
 
 // dpkg-shlibdeps reads ELF symbol versions, including those required by bundled Node addons.
-async function runtimeDependencies(root, tmp) {
+async function runtimeDependencies(root, tmp, name) {
   const files = NodeChildProcess.execFileSync(
     "find",
     [
-      "usr",
+      ".",
       "-type",
       "f",
       "!",
@@ -89,6 +88,7 @@ export async function buildRuneDeb({
   version,
   product,
   desktopId,
+  linuxUpdate,
   desktop,
   license,
 }) {
@@ -97,6 +97,8 @@ export async function buildRuneDeb({
   }).trim();
   if (host !== architecture)
     throw new Error(`Build the ${architecture} package on a matching Debian or Ubuntu host.`);
+  const name = linuxUpdate ? "t3code" : "t3code-rune";
+  const metaId = linuxUpdate ? "com.t3tools.t3code" : desktopId;
   const meta = NodePath.join(root, "usr/share/metainfo");
   const docs = NodePath.join(root, "usr/share/doc", name);
   const control = NodePath.join(root, "DEBIAN");
@@ -108,21 +110,34 @@ export async function buildRuneDeb({
     "utf8",
   );
   await NodeFSP.writeFile(
-    NodePath.join(meta, desktopId + ".metainfo.xml"),
+    NodePath.join(meta, metaId + ".metainfo.xml"),
     xml
-      .replace(/<id>[^<]+<\/id>/, `<id>${desktopId}</id>`)
+      .replace(/<id>[^<]+<\/id>/, `<id>${metaId}</id>`)
       .replace(/<name>[^<]+<\/name>/, `<name>${product}</name>`)
       .replace(/(<launchable type="desktop-id">)[^<]+/, `$1${desktopId}.desktop`)
       .replace(/(<icon type="stock">)[^<]+/, `$1${desktopId}`)
-      .replace(/<binary>[^<]+<\/binary>/, "<binary>t3-code</binary>"),
+      .replace(/<binary>[^<]+<\/binary>/, `<binary>${linuxUpdate ? "t3code" : "t3-code"}</binary>`),
   );
   await NodeFSP.copyFile(license, NodePath.join(docs, "copyright"));
-  const depends = await runtimeDependencies(root, tmp);
+  const depends = await runtimeDependencies(root, tmp, name);
   const installedSize = NodeChildProcess.execFileSync(
     "du",
-    ["--apparent-size", "--block-size=1024", "--summarize", "usr"],
+    ["--apparent-size", "--block-size=1024", "--summarize", "."],
     { cwd: root, encoding: "utf8" },
   ).split(/\s/)[0];
+  if (linuxUpdate) {
+    const binary = `'/opt/${product}/t3code'`;
+    await NodeFSP.writeFile(
+      NodePath.join(control, "postinst"),
+      `#!/bin/sh\nset -e\nif [ "$1" = configure ]; then update-alternatives --install /usr/bin/t3code t3code ${binary} 100; fi\n`,
+      { mode: 0o755 },
+    );
+    await NodeFSP.writeFile(
+      NodePath.join(control, "postrm"),
+      `#!/bin/sh\nset -e\ncase "$1" in remove|disappear|upgrade) if [ ! -e ${binary} ]; then update-alternatives --remove t3code ${binary}; fi ;; esac\n`,
+      { mode: 0o755 },
+    );
+  }
   const debVersion = version.replace(/^(\d+\.\d+\.\d+)-/, "$1~") + "-1";
   await NodeFSP.writeFile(
     NodePath.join(control, "control"),

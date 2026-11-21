@@ -2,6 +2,7 @@ export interface UpdateManifestFile {
   readonly url: string;
   readonly sha512: string;
   readonly size: number;
+  readonly blockMapSize?: number;
 }
 
 export type UpdateManifestScalar = string | number | boolean;
@@ -17,6 +18,7 @@ interface MutableUpdateManifestFile {
   url?: string;
   sha512?: string;
   size?: number;
+  blockMapSize?: number;
 }
 
 function stripSingleQuotes(value: string): string {
@@ -48,6 +50,7 @@ function parseFileRecord(
     url: currentFile.url,
     sha512: currentFile.sha512,
     size: currentFile.size,
+    ...(currentFile.blockMapSize !== undefined && { blockMapSize: currentFile.blockMapSize }),
   };
 }
 
@@ -102,14 +105,15 @@ export function parseUpdateManifest(
       continue;
     }
 
-    const fileSizeMatch = line.match(/^    size:\s*(\d+)$/);
-    if (fileSizeMatch?.[1]) {
+    const fileSizeMatch = line.match(/^    (size|blockMapSize):\s*(\d+)$/);
+    if (fileSizeMatch?.[2]) {
       if (currentFile === null) {
         throw new Error(
           `Invalid ${platformLabel} update manifest at ${sourcePath}:${lineNumber}: size without a file entry.`,
         );
       }
-      currentFile.size = Number(fileSizeMatch[1]);
+      if (fileSizeMatch[1] === "size") currentFile.size = Number(fileSizeMatch[2]);
+      else currentFile.blockMapSize = Number(fileSizeMatch[2]);
       continue;
     }
 
@@ -259,6 +263,7 @@ export function serializeUpdateManifest(
     lines.push(`  - url: ${file.url}`);
     lines.push(`    sha512: ${file.sha512}`);
     lines.push(`    size: ${file.size}`);
+    if (file.blockMapSize !== undefined) lines.push(`    blockMapSize: ${file.blockMapSize}`);
   }
 
   for (const key of Object.keys(manifest.extras).toSorted()) {

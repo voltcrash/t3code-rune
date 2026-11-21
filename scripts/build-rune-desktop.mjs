@@ -91,7 +91,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
   --build-version <version>     Version to embed in the app and artifact names
   --output-dir <dir>            Directory for completed artifacts (default: release)
   --signed                      Sign the macOS or Windows distribution
-  --update-feed                 Build a macOS stable or nightly update with its ZIP and block maps
+  --update-feed                 Stage stable or nightly updates for macOS ZIPs or Linux AppImage,deb
   --skip-build                  Use the matching prebuilt server, client and desktop worker
   --prebuilt-mac-launcher       Also use the macOS preview launcher in the prebuilt bundle
   --keep-stage                  Keep staged packaging files
@@ -165,8 +165,13 @@ const mac = platform === "mac";
 const win = platform === "win";
 const formats = target.split(",");
 const updateFeed = values["update-feed"] ?? false;
-if (updateFeed && (!mac || !formats.includes("zip"))) {
-  throw new Error("--update-feed requires a macOS zip or dmg,zip target.");
+const linuxUpdate = updateFeed && platform === "linux";
+if (
+  updateFeed &&
+  !(mac && formats.includes("zip")) &&
+  !(linuxUpdate && target === "AppImage,deb")
+) {
+  throw new Error("--update-feed requires a macOS ZIP or the Linux AppImage,deb target.");
 }
 const buildDeb = formats.includes("deb");
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
@@ -277,10 +282,10 @@ async function buildRunePackage() {
       helpers: "Contents/Helpers",
     },
     linux: {
-      root: buildDeb ? "debian/t3code-rune" : "T3-Code.AppDir",
-      bin: "usr/bin",
-      resources: "usr/lib/t3-code",
-      helpers: "usr/lib/t3-code",
+      root: buildDeb ? `debian/${linuxUpdate ? "t3code" : "t3code-rune"}` : "T3-Code.AppDir",
+      bin: linuxUpdate ? `opt/${product}` : "usr/bin",
+      resources: linuxUpdate ? `opt/${product}/resources` : "usr/lib/t3-code",
+      helpers: linuxUpdate ? `opt/${product}/resources` : "usr/lib/t3-code",
     },
     win: { root: product, bin: ".", resources: "resources", helpers: "resources" },
   }[platform];
@@ -288,7 +293,8 @@ async function buildRunePackage() {
   const resources = NodePath.join(app, layout.resources);
   const bin = NodePath.join(app, layout.bin);
   const helpers = NodePath.join(app, layout.helpers);
-  const executable = NodePath.join(bin, win ? product + ".exe" : "t3-code");
+  const binaryName = linuxUpdate ? "t3code" : "t3-code";
+  const executable = NodePath.join(bin, win ? product + ".exe" : binaryName);
   const server = NodePath.join(resources, "server/dist");
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
@@ -402,8 +408,12 @@ async function buildRunePackage() {
   );
 
   const artifactName = (format) => {
-    if (updateFeed) return `T3-Code-${version}-${arch}.${format}`;
+    if (linuxUpdate && format === "AppImage") {
+      const suffix = channel === "nightly" ? "-Nightly" : "";
+      return `T3-Code${suffix}-${arch === "x64" ? "x86_64" : arch}.AppImage`;
+    }
     const artifactArch = format === "deb" && arch === "x64" ? "amd64" : arch;
+    if (updateFeed) return `T3-Code-${version}-${artifactArch}.${format}`;
     const extension = format === "nsis" ? "exe" : format;
     return `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
   };
@@ -471,7 +481,7 @@ async function buildRunePackage() {
       }
     }
   } else {
-    const desktopId = "com.t3tools.T3Code.Rune";
+    const desktopId = linuxUpdate ? "t3code" : "com.t3tools.T3Code.Rune";
     const icon = `usr/share/icons/hicolor/1024x1024/apps/${desktopId}.png`;
     const entry = `usr/share/applications/${desktopId}.desktop`;
     await NodeFSP.mkdir(NodePath.dirname(NodePath.join(app, icon)), { recursive: true });
@@ -483,7 +493,14 @@ async function buildRunePackage() {
     );
     await NodeFSP.writeFile(
       NodePath.join(app, entry),
-      desktopEntry.replace(/^Name=.*$/m, `Name=${product}`),
+      desktopEntry
+        .replace(/^Name=.*$/m, `Name=${product}`)
+        .replace(/^Exec=.*$/m, `Exec=${binaryName}`)
+        .replace(/^Icon=.*$/m, `Icon=${desktopId}`)
+        .replace(
+          /^StartupWMClass=.*$/m,
+          `StartupWMClass=${linuxUpdate ? "com.t3tools.T3Code" : desktopId}`,
+        ),
     );
     if (buildDeb) {
       await buildRuneDeb({
@@ -494,6 +511,7 @@ async function buildRunePackage() {
         version,
         product,
         desktopId,
+        linuxUpdate,
         desktop,
         license: NodePath.join(repoRoot, "LICENSE"),
       });
@@ -507,7 +525,7 @@ async function buildRunePackage() {
         ),
       );
       for (const [name, target] of [
-        ["AppRun", "usr/bin/t3-code"],
+        ["AppRun", NodePath.relative(app, executable)],
         [`${desktopId}.desktop`, entry],
         [`${desktopId}.png`, icon],
         [".DirIcon", `${desktopId}.png`],
@@ -530,8 +548,19 @@ async function buildRunePackage() {
     }
   }
   const names = formats.map(artifactName);
-  if (updateFeed) {
-    const { writeMacUpdateFiles } = await import("./lib/rune-mac-update.mjs");
+  if (linuxUpdate) {
+    const { writeLinuxUpdateFiles } = await import("./lib/rune-update.mjs");
+    names.push(
+      ...(await writeLinuxUpdateFiles(published, {
+        version,
+        channel,
+        arch,
+        image: artifactName("AppImage"),
+        deb: artifactName("deb"),
+      })),
+    );
+  } else if (updateFeed) {
+    const { writeMacUpdateFiles } = await import("./lib/rune-update.mjs");
     names.push(
       ...(await writeMacUpdateFiles(published, {
         version,
