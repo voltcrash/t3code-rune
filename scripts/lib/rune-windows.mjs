@@ -1,6 +1,10 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodePath from "node:path";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Effect from "effect/Effect";
+import { signTrustedWindowsFile } from "../build-cli-archive.ts";
+import { AzureTrustedSigningOptionsConfig } from "../build-desktop-artifact.ts";
 import { Data, NtExecutable, NtExecutableResource, Resource } from "resedit";
 
 export async function windowsNodeArchitecture(path, version) {
@@ -49,7 +53,41 @@ export async function stampWindowsExecutable(path, iconPath, version, product) {
   await NodeFSP.writeFile(path, Buffer.from(exe.generate()));
 }
 
-export async function buildRuneInstaller({ app, artifact, icon, version, product, arch, tmp }) {
+export function readWindowsSigning() {
+  const options = Effect.runSync(AzureTrustedSigningOptionsConfig);
+  if (Object.values(options).some((value) => !value.trim())) {
+    throw new Error(
+      "Set the Azure Trusted Signing profile, endpoint, account and publisher before signing.",
+    );
+  }
+  return options;
+}
+
+export function signRuneWindowsFile(path, signing) {
+  return Effect.runPromise(
+    signTrustedWindowsFile(path, signing).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+}
+
+export async function signRuneWindowsPayload(app, signing) {
+  const entries = await NodeFSP.opendir(app, { recursive: true });
+  for await (const entry of entries) {
+    if (entry.isFile() && /\.(exe|dll|node)$/i.test(entry.name)) {
+      await signRuneWindowsFile(NodePath.join(entry.parentPath, entry.name), signing);
+    }
+  }
+}
+
+export async function buildRuneInstaller({
+  app,
+  artifact,
+  icon,
+  version,
+  product,
+  arch,
+  tmp,
+  signed,
+}) {
   const files = [];
   const directories = [];
   const entries = await NodeFSP.readdir(app, { recursive: true, withFileTypes: true });
@@ -90,11 +128,20 @@ export async function buildRuneInstaller({ app, artifact, icon, version, product
   NodeChildProcess.execFileSync(
     "makensis",
     [
+      "-NOCD",
+      ...(signed ? ["-DSIGN_UNINSTALLER"] : []),
       "-INPUTCHARSET",
       "UTF8",
       ...Object.entries(defines).map(([key, value]) => `-D${key}=${value}`),
       script,
     ],
-    { stdio: "inherit" },
+    { cwd: NodePath.resolve(import.meta.dirname, "../.."), stdio: "inherit" },
   );
+}
+
+if (import.meta.main) {
+  const file = process.argv[2];
+  if (!file || process.argv.length !== 3)
+    throw new Error("Expected one Windows uninstaller to sign.");
+  await signRuneWindowsFile(file, readWindowsSigning());
 }

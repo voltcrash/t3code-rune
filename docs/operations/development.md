@@ -325,6 +325,16 @@ vp run dist:desktop:linux --arch arm64
 architecture. Use `--arch x64`, `--arch arm64`, or `--arch universal` to select the target and
 `--keep-stage` to retain packaging files for inspection.
 
+`dist:desktop:win` builds the native per-user installer. Install NSIS 3.08 or later and put
+`makensis` on PATH. Use the Node distribution for the target architecture. For a Linux cross-build,
+pass `--windows-node-dir <extracted-windows-node-directory>`. Pass `--signed` to use the release
+Azure Trusted Signing profile. Set `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`,
+`AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, and `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.
+Windows requires `pwsh`, the TrustedSigning module, and an authenticated Azure identity with signing access.
+On Linux, install Java and jsign 7.6, then put the jsign launcher on PATH or set `T3CODE_JSIGN` to its path.
+Supply signing credentials through `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`.
+Run `vp run dist:desktop:win --help` for all packaging flags.
+
 ### Prepared server bytecode
 
 Electron artifact builds on native macOS, Windows, and Linux x64 and ARM64 generate server

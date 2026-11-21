@@ -13,6 +13,9 @@ RequestExecutionLevel user
 CRCCheck force
 AllowSkipFiles off
 SetCompressor lzma
+!ifdef SIGN_UNINSTALLER
+!uninstfinalize 'node scripts/lib/rune-windows.mjs "%1"' = 0
+!endif
 AutoCloseWindow true
 ShowInstDetails nevershow
 ShowUninstDetails nevershow
