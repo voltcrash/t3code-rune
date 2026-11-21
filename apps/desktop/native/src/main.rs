@@ -17,6 +17,7 @@ mod models;
 mod navigation;
 mod new_thread;
 mod permissions;
+mod project_icon;
 mod questions;
 mod sidebar_layout;
 mod stage;

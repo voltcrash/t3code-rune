@@ -93,6 +93,7 @@
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"
     },
+    "./project-identity": "./src/projectIdentity.ts",
     "./project-favicon-cache": {
       "types": "./src/projectFaviconCache.ts",
       "default": "./src/projectFaviconCache.ts"
