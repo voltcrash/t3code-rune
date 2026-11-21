@@ -216,6 +216,14 @@ export function projectedItemCreatedAt(row: OrchestrationV2ProjectedTurnItem): s
   return DateTime.formatIso(row.item.startedAt ?? row.item.updatedAt);
 }
 
+export function inlineToolResult(item: OrchestrationV2TurnItem) {
+  if (item.type !== "dynamic_tool" || item.status !== "completed") return undefined;
+  const htmlRender = htmlRenderFromToolItem(item);
+  if (htmlRender !== undefined) return { kind: "html-render" as const, htmlRender };
+  const text = sentMessageFromToolItem(item);
+  if (text !== undefined) return { kind: "sent-message" as const, text };
+}
+
 function projectedWorkEntryStatus(
   item: OrchestrationV2TurnItem,
 ): NonNullable<WorkLogEntry["toolLifecycleStatus"]> {
@@ -627,35 +635,9 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
       continue;
     }
 
-    const htmlRender =
-      item.type === "dynamic_tool" && item.status === "completed"
-        ? htmlRenderFromToolItem(item)
-        : undefined;
-    if (htmlRender !== undefined) {
-      entries.push({
-        id: item.id,
-        kind: "html-render",
-        createdAt,
-        runId: item.runId,
-        htmlRender,
-        ...attemptMetadata,
-      });
-      continue;
-    }
-
-    const sentMessage =
-      item.type === "dynamic_tool" && item.status === "completed"
-        ? sentMessageFromToolItem(item)
-        : undefined;
-    if (sentMessage !== undefined) {
-      entries.push({
-        id: item.id,
-        kind: "sent-message",
-        createdAt,
-        runId: item.runId,
-        text: sentMessage,
-        ...attemptMetadata,
-      });
+    const result = inlineToolResult(item);
+    if (result !== undefined) {
+      entries.push({ id: item.id, createdAt, runId: item.runId, ...result, ...attemptMetadata });
       continue;
     }
 

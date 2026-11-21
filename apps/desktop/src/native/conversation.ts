@@ -41,7 +41,7 @@ import { nativeTurnFolds } from "./turnFolds.ts";
 
 type Row = {
   key: string;
-  role: "command" | "reasoning" | "tasks" | "file" | "tool" | "user" | "assistant";
+  role: "command" | "reasoning" | "tasks" | "file" | "tool" | "sent-message" | "user" | "assistant";
   body: string;
   attachments: Array<{ name: string; image?: string }>;
   caption?: string;
