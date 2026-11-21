@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -28,6 +29,7 @@ import {
 } from "./build-desktop-artifact.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
+import { publishRuneArtifacts } from "./lib/rune-artifacts.mjs";
 import { buildRuneDeb } from "./lib/rune-deb.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import {
@@ -41,15 +43,25 @@ const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 const desktop = NodePath.join(repoRoot, "apps/desktop");
 const host = Effect.runSync(HostProcess.Platform);
 const { values } = NodeUtil.parseArgs({
+  allowNegative: true,
   options: {
     arch: { type: "string" },
     "build-version": { type: "string" },
+    "keep-stage": { type: "boolean" },
+    verbose: { type: "boolean" },
     "output-dir": { type: "string" },
+    platform: { type: "string" },
     "skip-build": { type: "boolean" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
   },
 });
+function booleanOption(name, env) {
+  return values[name] ?? Effect.runSync(Config.Boolean(env).pipe(Config.withDefault(false)));
+}
+const skipBuild = booleanOption("skip-build", "T3CODE_DESKTOP_SKIP_BUILD");
+const keepStage = booleanOption("keep-stage", "T3CODE_DESKTOP_KEEP_STAGE");
+const verbose = booleanOption("verbose", "T3CODE_DESKTOP_VERBOSE");
 const windowsNodeDir = values["windows-node-dir"];
 if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
   throw new Error(
@@ -57,11 +69,16 @@ if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")
   );
 }
 const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
-const target = values.target ?? (platform === "linux" ? "AppImage" : "zip");
+const requestedPlatform = values.platform ?? process.env.T3CODE_DESKTOP_PLATFORM;
+if (requestedPlatform !== undefined && requestedPlatform !== platform) {
+  throw new Error(`Build the ${requestedPlatform} Rune package on a matching host.`);
+}
+const target =
+  values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
 if (
-  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb"], win: ["zip", "nsis"] }[platform]?.includes(
-    target,
-  )
+  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb", "AppImage,deb"], win: ["zip", "nsis"] }[
+    platform
+  ]?.includes(target)
 ) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
 }
@@ -71,7 +88,7 @@ const node = await NodeFSP.realpath(
 const hostArch = Effect.runSync(HostProcess.Architecture);
 const runtimeArch =
   platform === "win" ? await windowsNodeArchitecture(node, rootPackage.engines.node) : hostArch;
-const arch = values.arch ?? runtimeArch;
+const arch = values.arch ?? process.env.T3CODE_DESKTOP_ARCH ?? runtimeArch;
 if (!platform || !["arm64", "x64"].includes(runtimeArch)) {
   throw new Error("Build the Rune app on a macOS, Linux or Windows x64 or ARM64 host.");
 }
@@ -90,6 +107,8 @@ const output = NodePath.resolve(
 );
 const mac = platform === "mac";
 const win = platform === "win";
+const formats = target.split(",");
+const buildDeb = formats.includes("deb");
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
 const run = (command, args, options) =>
   NodeChildProcess.execFileSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
@@ -166,7 +185,7 @@ async function buildRunePackage() {
   const icons = resolveDesktopBuildIconAssets(version);
   const brand = resolveDesktopWebAssetBrand(version);
   const serverDist = NodePath.join(repoRoot, "apps/server/dist");
-  if (!values["skip-build"]) {
+  if (!skipBuild) {
     const vp = await Effect.runPromise(
       resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
         Effect.provide(NodeServices.layer),
@@ -175,7 +194,10 @@ async function buildRunePackage() {
     run(vp.command, vp.args, { shell: vp.shell, env: { ...process.env, APP_VERSION: version } });
   }
   await NodeFSP.mkdir(output, { recursive: true });
-  await using staging = await NodeFSP.mkdtempDisposable(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
+  await using cleanup = new AsyncDisposableStack();
+  const staging = await NodeFSP.mkdtempDisposable(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
+  if (keepStage) console.log(`Keeping staged Rune package in ${staging.path}`);
+  else cleanup.use(staging);
   await using publication = await NodeFSP.mkdtempDisposable(NodePath.join(output, ".rune-"));
   const tmp = staging.path;
   const published = publication.path;
@@ -187,7 +209,7 @@ async function buildRunePackage() {
       helpers: "Contents/Helpers",
     },
     linux: {
-      root: target === "deb" ? "debian/t3code-rune" : "T3-Code.AppDir",
+      root: buildDeb ? "debian/t3code-rune" : "T3-Code.AppDir",
       bin: "usr/bin",
       resources: "usr/lib/t3-code",
       helpers: "usr/lib/t3-code",
@@ -209,7 +231,7 @@ async function buildRunePackage() {
   });
   await NodeFSP.access(NodePath.join(server, "client/index.html"));
 
-  if (values["skip-build"])
+  if (skipBuild)
     await NodeFSP.writeFile(
       NodePath.join(resources, "rune-projects.mjs"),
       await readPrebuiltRuneWorker(version, server),
@@ -275,24 +297,21 @@ async function buildRunePackage() {
         ...(windowsNodeDir ? { rustTarget: rustTargets[0] } : {}),
         platform,
         arch,
-        verbose: false,
+        verbose,
       });
       if (mac) {
         yield* stageMacIcons(resources, NodePath.join(repoRoot, icons.macIconPng), false);
-      } else if (platform === "linux" && target === "AppImage") {
-        yield* bundleLinuxLibatomic({
-          repoRoot,
-          contentDir: resources,
-          executablePath: NodePath.join(helpers, "node"),
-        });
       }
       yield* applyWebBrandAssets(brand, NodePath.join(server, "client"));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  const artifactArch = target === "deb" && arch === "x64" ? "amd64" : arch;
-  const extension = target === "nsis" ? "exe" : target;
-  const file = `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
+  const artifactName = (format) => {
+    const artifactArch = format === "deb" && arch === "x64" ? "amd64" : arch;
+    const extension = format === "nsis" ? "exe" : format;
+    return `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
+  };
+  const file = artifactName(formats[0]);
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
@@ -355,19 +374,27 @@ async function buildRunePackage() {
       NodePath.join(app, entry),
       desktopEntry.replace(/^Name=.*$/m, `Name=${product}`),
     );
-    if (target === "deb") {
+    if (buildDeb) {
       await buildRuneDeb({
         root: app,
         tmp,
-        artifact: NodePath.join(published, file),
-        architecture: artifactArch,
+        artifact: NodePath.join(published, artifactName("deb")),
+        architecture: arch === "x64" ? "amd64" : arch,
         version,
         product,
         desktopId,
         desktop,
         license: NodePath.join(repoRoot, "LICENSE"),
       });
-    } else {
+    }
+    if (formats.includes("AppImage")) {
+      if (buildDeb) await NodeFSP.rm(NodePath.join(app, "DEBIAN"), { recursive: true });
+      await Effect.runPromise(
+        bundleLinuxLibatomic({ repoRoot, contentDir: resources, executablePath: bundledNode }).pipe(
+          Effect.scoped,
+          Effect.provide(NodeServices.layer),
+        ),
+      );
       for (const [name, target] of [
         ["AppRun", "usr/bin/t3-code"],
         [`${desktopId}.desktop`, entry],
@@ -391,8 +418,22 @@ async function buildRunePackage() {
       );
     }
   }
-  await NodeFSP.rename(NodePath.join(published, file), NodePath.join(output, file));
-  console.log(NodePath.join(output, file));
+  const names = formats.map(artifactName);
+  const publish = Effect.promise(() => publishRuneArtifacts(published, output, names));
+  // Separate checkouts can publish to the same output directory.
+  const [checkoutDir, outputDir] = await Promise.all(
+    [repoRoot, output].map((path) => NodeFSP.stat(path, { bigint: true })),
+  );
+  const checkoutOutput =
+    checkoutDir.ino && outputDir.ino
+      ? checkoutDir.dev === outputDir.dev && checkoutDir.ino === outputDir.ino
+      : (await NodeFSP.realpath(output)) === (await NodeFSP.realpath(repoRoot));
+  await Effect.runPromise(
+    (checkoutOutput ? publish : withDesktopBuildLock(output, publish)).pipe(
+      Effect.provide(NodeServices.layer),
+    ),
+  );
+  for (const name of names) console.log(NodePath.join(output, name));
 }
 
 await Effect.runPromise(
