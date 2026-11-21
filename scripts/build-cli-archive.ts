@@ -136,7 +136,7 @@ export const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function
   readonly repoRoot: string;
   readonly stageDir: string;
   readonly platform: BuildPlatform;
-  readonly arch: BuildArch;
+  readonly arch: BuildArch | "universal";
   readonly version: string;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -182,7 +182,11 @@ export const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function
       ...createStageWorkspaceConfig({
         platform: input.platform,
         arch: input.arch,
-        ...(workspace.allowBuilds ? { allowBuilds: workspace.allowBuilds } : {}),
+        allowBuilds: {
+          ...workspace.allowBuilds,
+          // A host node-gyp rebuild removes the other Darwin architecture's PTY.
+          ...(input.platform === "mac" ? { "node-pty": false } : {}),
+        },
         patchedDependencies,
         overrides: resolveCatalogDependencies(workspace.overrides ?? {}, catalog, "apps/server"),
       }),
@@ -204,12 +208,25 @@ export const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function
     "vp install --prod (cli archive runtime externals)",
   );
 
-  const platformKey = cliArchivePlatformKey(input.platform, input.arch);
+  const platformKeys =
+    input.arch === "universal"
+      ? ["darwin-arm64", "darwin-x64"]
+      : [cliArchivePlatformKey(input.platform, input.arch)];
   const prebuildsDir = path.join(input.stageDir, "node_modules/node-pty/prebuilds");
+  if (input.platform === "mac") {
+    for (const key of platformKeys) {
+      for (const binary of ["pty.node", "spawn-helper"]) {
+        yield* requireInput(
+          path.join(prebuildsDir, key, binary),
+          "macOS terminals need the shipped node-pty prebuilds.",
+        );
+      }
+    }
+  }
   const foreignPrebuilds = (yield* fs
     .readDirectory(prebuildsDir)
     .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))).filter(
-    (entry) => entry !== platformKey,
+    (entry) => !platformKeys.includes(entry),
   );
   for (const entry of [
     "package.json",

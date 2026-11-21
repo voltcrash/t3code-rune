@@ -21,6 +21,7 @@ import {
   stageResourceMonitor,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
 import { windowsSystemTar } from "./lib/windows-tar.ts";
@@ -29,7 +30,11 @@ const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 const desktop = NodePath.join(repoRoot, "apps/desktop");
 const host = Effect.runSync(HostProcess.Platform);
 const { values } = NodeUtil.parseArgs({
-  options: { target: { type: "string" }, "windows-node-dir": { type: "string" } },
+  options: {
+    arch: { type: "string" },
+    target: { type: "string" },
+    "windows-node-dir": { type: "string" },
+  },
 });
 const windowsNodeDir = values["windows-node-dir"];
 if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
@@ -45,12 +50,17 @@ if (!{ mac: ["dmg", "zip"], linux: ["AppImage"], win: ["zip"] }[platform]?.inclu
 const node = await NodeFSP.realpath(
   windowsNodeDir ? NodePath.join(windowsNodeDir, "node.exe") : process.execPath,
 );
-const arch =
-  platform === "win"
-    ? await windowsNodeArchitecture(node, rootPackage.engines.node)
-    : Effect.runSync(HostProcess.Architecture);
-if (!platform || !["arm64", "x64"].includes(arch)) {
+const hostArch = Effect.runSync(HostProcess.Architecture);
+const runtimeArch =
+  platform === "win" ? await windowsNodeArchitecture(node, rootPackage.engines.node) : hostArch;
+const arch = values.arch ?? runtimeArch;
+if (!platform || !["arm64", "x64"].includes(runtimeArch)) {
   throw new Error("Build the Rune app on a macOS, Linux or Windows x64 or ARM64 host.");
+}
+if (platform === "mac" ? !["arm64", "x64", "universal"].includes(arch) : arch !== runtimeArch) {
+  throw new Error(
+    `Unsupported Rune architecture "${arch}" for the ${platform} ${runtimeArch} runtime.`,
+  );
 }
 if (process.versions.node !== rootPackage.engines.node) {
   throw new Error(`Use Node ${rootPackage.engines.node} to build the bundled runtime.`);
@@ -61,25 +71,10 @@ const win = platform === "win";
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
 const run = (command, args, options) =>
   NodeChildProcess.execFileSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
-if (mac) {
-  const libraries = NodeChildProcess.execFileSync("otool", ["-L", node], { encoding: "utf8" })
-    .trimEnd()
-    .split("\n")
-    .slice(1)
-    .map((line) => line.trim().split(" (")[0]);
-  if (
-    libraries.some((lib) => !lib.startsWith("/usr/lib/") && !lib.startsWith("/System/Library/"))
-  ) {
-    throw new Error(
-      "Use the standalone Node distribution. This node executable links external libraries.",
-    );
-  }
-}
-
 const manifest = NodePath.join(desktop, "native/Cargo.toml");
-const rustTarget = windowsNodeDir
-  ? { x64: "x86_64-pc-windows-gnu", arm64: "aarch64-pc-windows-gnullvm" }[arch]
-  : resolveResourceMonitorRustTargets(platform, arch)[0];
+const rustTargets = windowsNodeDir
+  ? [{ x64: "x86_64-pc-windows-gnu", arm64: "aarch64-pc-windows-gnullvm" }[arch]]
+  : resolveResourceMonitorRustTargets(platform, arch);
 
 async function writeRuneNotices(resources) {
   const metadata = JSON.parse(
@@ -93,7 +88,7 @@ async function writeRuneNotices(resources) {
         "--manifest-path",
         manifest,
         "--filter-platform",
-        rustTarget,
+        rustTargets[0],
       ],
       { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
     ),
@@ -128,21 +123,22 @@ async function writeAppImageRuntime(tmp) {
   return path;
 }
 
-run("cargo", [
-  win ? "rustc" : "build",
-  "--bin",
-  "t3-code",
-  "--release",
-  "--locked",
-  "--manifest-path",
-  manifest,
-  "--target",
-  rustTarget,
-  "--target-dir",
-  NodePath.join(desktop, "native/target"),
-  // PE resource editing requires a shell executable without a COFF symbol table.
-  ...(win ? ["--", "-Cstrip=symbols"] : []),
-]);
+for (const rustTarget of rustTargets)
+  run("cargo", [
+    win ? "rustc" : "build",
+    "--bin",
+    "t3-code",
+    "--release",
+    "--locked",
+    "--manifest-path",
+    manifest,
+    "--target",
+    rustTarget,
+    "--target-dir",
+    NodePath.join(desktop, "native/target"),
+    // PE resource editing requires a shell executable without a COFF symbol table.
+    ...(win ? ["--", "-Cstrip=symbols"] : []),
+  ]);
 const vp = await Effect.runPromise(
   resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
     Effect.provide(NodeServices.layer),
@@ -178,11 +174,24 @@ try {
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
   await NodeFSP.mkdir(server, { recursive: true });
-  await NodeFSP.copyFile(
+  const binaries = rustTargets.map((rustTarget) =>
     NodePath.join(desktop, "native/target", rustTarget, "release", win ? "t3-code.exe" : "t3-code"),
-    executable,
   );
-  await NodeFSP.copyFile(node, NodePath.join(helpers, win ? "node.exe" : "node"));
+  const bundledNode = NodePath.join(helpers, win ? "node.exe" : "node");
+  if (mac) {
+    await stageMacBinary(binaries, executable);
+    await stageMacNode({
+      tmp,
+      arch,
+      hostArch,
+      hostNode: node,
+      version: rootPackage.engines.node,
+      dest: bundledNode,
+    });
+  } else {
+    await NodeFSP.copyFile(binaries[0], executable);
+    await NodeFSP.copyFile(node, bundledNode);
+  }
   await NodeFSP.copyFile(
     NodePath.resolve(NodePath.dirname(node), win ? "LICENSE" : "../LICENSE"),
     NodePath.join(resources, "LICENSE-node"),
@@ -209,7 +218,7 @@ try {
       yield* stageResourceMonitor({
         repoRoot,
         stageResourcesDir: server,
-        rustTarget,
+        ...(windowsNodeDir ? { rustTarget: rustTargets[0] } : {}),
         platform,
         arch,
         verbose: false,
