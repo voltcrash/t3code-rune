@@ -20,7 +20,7 @@ mod thread_actions;
 
 #[path = "sidebar_status.rs"]
 pub(super) mod sidebar_status;
-use super::navigation::{self, Page};
+use super::navigation::{self, Landing, Page};
 use super::questions::{self, Forms, Prompt};
 use super::{
     Desktop, Request,
@@ -230,6 +230,7 @@ impl Conversation {
 
 #[derive(Deserialize)]
 pub(super) struct WorkspaceChanges {
+    landing_project: Option<String>,
     #[serde(default)]
     sequence: u64,
     scratch_available: bool,
@@ -533,13 +534,63 @@ impl Workspace {
 }
 
 impl Desktop {
+    pub(super) fn begin_landing(&mut self, project: String) {
+        if self.pending
+            || !matches!(self.landing, Landing::Index)
+            || !self.can_operate
+            || self.project_path.is_some()
+            || !self
+                .workspace
+                .project(&project)
+                .is_some_and(|p| !p.archived)
+        {
+            return;
+        }
+        self.request_id += 1;
+        self.landing = Landing::Loading {
+            project: project.clone(),
+            request: self.request_id,
+        };
+        self.write_request(
+            Some(self.request_id),
+            Request::PrepareLanding {
+                project: Some(project),
+            },
+        );
+    }
+
+    pub(super) fn leave_landing(&mut self) {
+        if matches!(self.landing, Landing::Loading { .. }) {
+            self.write_request(None, Request::PrepareLanding { project: None });
+        }
+        self.landing = Landing::Left;
+    }
+
+    pub(super) fn retry_landing(&mut self) {
+        if self.landing.project().is_some() {
+            self.leave_landing();
+            self.landing = Landing::Index;
+        }
+    }
+
     pub(super) fn replace_workspace(&mut self, projects: Vec<Project>, threads: Vec<Thread>) {
         self.workspace.replace(projects, threads);
         self.reconcile_workspace();
     }
-    pub(super) fn apply_workspace(&mut self, changes: WorkspaceChanges) {
+    pub(super) fn apply_workspace(&mut self, mut changes: WorkspaceChanges) {
+        let candidate = changes.landing_project.take();
         self.workspace.apply_changes(changes);
         self.reconcile_workspace();
+        if self
+            .landing
+            .project()
+            .is_some_and(|id| !self.workspace.project(id).is_some_and(|p| !p.archived))
+        {
+            self.retry_landing();
+        }
+        if let Some(project) = candidate {
+            self.begin_landing(project);
+        }
     }
     fn reconcile_workspace(&mut self) {
         self.new_threads
@@ -672,6 +723,7 @@ impl Desktop {
     }
 
     pub(super) fn show_projects(&mut self) {
+        self.leave_landing();
         self.leave_visible_thread();
         self.close_conversation_inspectors();
         self.history.visit(Page::Home);
@@ -1077,6 +1129,7 @@ fn add_project(s: &mut Desktop, tx: &mut Tx) {
     if !s.can_operate || s.pending {
         return;
     }
+    s.leave_landing();
     if !s.local {
         s.project_path.get_or_insert_with(|| TextEdit::new(""));
         tx.focus("project-path", true);
@@ -1486,7 +1539,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
     let inset = cx.chrome_insets();
-    let empty = s.workspace.projects.is_empty() && s.project_path.is_none() && !s.pending;
+    let landing = s.landing.project().is_some();
+    let empty = (s.workspace.projects.is_empty()
+        || (matches!(s.landing, Landing::Index)
+            && s.can_operate
+            && !s.workspace.projects.iter().any(|p| !p.archived)))
+        && s.project_path.is_none()
+        && !s.pending;
     let mut header = row()
         .key("thread-titlebar")
         .w_full()
@@ -1524,7 +1583,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             &Kit::neutral(s.dark(cx)),
             &mut overlays,
         ));
-    } else if !empty {
+    } else if !empty && !landing {
         header = header.child(label("Projects", 14.0, 500.0, theme.text));
     }
     header = header.child(spacer());
@@ -1532,6 +1591,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && (s.workspace.show_projects || s.workspace.conversation.is_none())
         && s.project_path.is_none()
         && !empty
+        && !landing
         && s.can_operate
     {
         header = header.child(action_with_tx(
@@ -1593,12 +1653,27 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             && let Some(pane) = &s.workspace.conversation
         {
             timeline(s, pane, theme, s.dark(cx), &mut overlays)
+        } else if matches!(s.landing, Landing::Failed(_)) {
+            col()
+                .grow(1.)
+                .center()
+                .gap(10.)
+                .child(label("Couldn’t start a new thread", 18., 500., theme.text))
+                .child(label(
+                    "The project is still available. Try opening the draft again.",
+                    14.,
+                    400.,
+                    theme.text_secondary,
+                ))
+                .child(action("Try again", theme, !s.pending, |s| {
+                    s.send(Request::Refresh)
+                }))
+        } else if landing {
+            spacer()
+        } else if empty {
+            empty_home(s, theme, narrow)
         } else {
-            if empty {
-                empty_home(s, theme, narrow)
-            } else {
-                projects_view(s, theme)
-            }
+            projects_view(s, theme)
         },
     );
     if composing.is_none()
@@ -1796,6 +1871,7 @@ mod tests {
             reply: Reply::WorkspaceLive {
                 watch,
                 changes: WorkspaceChanges {
+                    landing_project: None,
                     sequence: 1,
                     scratch_available: false,
                     threads,

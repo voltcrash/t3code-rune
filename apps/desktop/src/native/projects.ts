@@ -7,6 +7,7 @@ import {
   shouldRecedeSidebarThread,
 } from "@t3tools/client-runtime/state/sidebar-row-status";
 import {
+  getThreadSortTimestamp,
   resolveSettledThreadTimestamp,
   resolveThreadActivityTimestamp,
 } from "@t3tools/client-runtime/state/thread-sort";
@@ -134,7 +135,7 @@ export const headersFor = (session: Session) =>
   withOrchestrationProtocolHeader({ authorization: `Bearer ${session.token}` });
 
 export function projectSummary(
-  project: Pick<Project, "id" | "title" | "workspaceRoot" | "archivedAt">,
+  project: Pick<Project, "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt">,
   scratchRoot: string | undefined,
 ) {
   return {
@@ -142,6 +143,7 @@ export function projectSummary(
     title: project.title,
     path: project.workspaceRoot,
     archived: project.archivedAt != null,
+    activity_at: Date.parse(project.updatedAt),
     scratch: isScratchProject(project, scratchRoot),
   };
 }
@@ -198,6 +200,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
         ? Date.parse(shell.snoozedUntil)
         : null,
     settled: thread.settledOverride === "settled",
+    activity_at: getThreadSortTimestamp(shell, "updated_at"),
     recent_at: threadRecentUse(threadSearchSubject(shell, null)),
     order_key: thread.activeOrderKey ?? null,
     sort_at:

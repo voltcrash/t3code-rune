@@ -10,6 +10,35 @@ pub(super) enum Page {
 }
 
 #[derive(Default)]
+pub(super) enum Landing {
+    #[default]
+    Index,
+    Loading {
+        project: String,
+        request: u64,
+    },
+    Failed(String),
+    Left,
+}
+
+impl Landing {
+    pub(super) fn matches(&self, id: Option<u64>) -> bool {
+        matches!(self, Self::Loading {request, ..} if Some(*request) == id)
+    }
+    pub(super) fn fail(&mut self) {
+        if let Self::Loading { project, .. } = self {
+            *self = Self::Failed(std::mem::take(project));
+        }
+    }
+    pub(super) fn project(&self) -> Option<&str> {
+        match self {
+            Self::Loading { project, .. } | Self::Failed(project) => Some(project),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Default)]
 pub(super) struct History {
     current: Page,
     back: Vec<Page>,
@@ -17,6 +46,10 @@ pub(super) struct History {
 }
 
 impl History {
+    pub(super) fn replace(&mut self, page: Page) {
+        self.current = page;
+    }
+
     pub fn visit(&mut self, page: Page) {
         if self.current == page {
             return;
@@ -229,6 +262,69 @@ mod tests {
         assert!(!app.history.available(false));
         app.go(true);
         assert_eq!(app.history.current, Page::Thread("b".into()));
+    }
+
+    #[test]
+    fn initial_draft_replaces_home_and_late_options_respect_explicit_navigation() {
+        let record = serde_json::json!({
+            "id": "p", "title": "Project", "path": "/p", "archived": false, "scratch": false
+        });
+        let open = |operate| {
+            let mut app = Desktop::new();
+            app.can_operate = operate;
+            app.pending = true;
+            app.receive(
+                serde_json::from_value(serde_json::json!({
+                    "type": "workspace", "watch": 0, "id": 0, "landing_project": "p",
+                    "scratch_available": false, "projects": [record], "threads": []
+                }))
+                .unwrap(),
+            );
+            assert!(!app.pending);
+            app
+        };
+        let finish = |app: &mut Desktop| {
+            app.receive(
+                serde_json::from_value(serde_json::json!({
+                    "type": "launchoptions", "id": 1, "record": record, "project": "p",
+                    "choices": [], "permissions": {}, "base": "main", "worktree": false
+                }))
+                .unwrap(),
+            )
+        };
+        let mut app = open(true);
+        finish(&mut app);
+        assert_eq!(app.history.current, Page::NewThread("p".into()));
+        assert!(!app.history.available(false));
+        let mut browsing = open(true);
+        browsing.show_projects();
+        finish(&mut browsing);
+        assert_eq!(browsing.history.current, Page::Home);
+        assert!(browsing.new_threads.active.is_none());
+        let mut empty = Desktop::new();
+        empty.can_operate = true;
+        empty.workspace.feed = Some(9);
+        let first_project = || {
+            serde_json::from_value(serde_json::json!({
+                "type": "workspacelive", "watch": 9, "landing_project": "p",
+                "scratch_available": false, "projects": [record], "threads": [],
+                "removed_threads": [], "removed_projects": []
+            }))
+            .unwrap()
+        };
+        empty.receive(first_project());
+        assert!(!empty.pending);
+        assert!(empty.landing.matches(Some(1)));
+        empty.leave_landing();
+        let folder_request = empty.request_id;
+        empty.receive(first_project());
+        assert!(!empty.pending);
+        assert_eq!(empty.request_id, folder_request);
+        finish(&mut empty);
+        assert!(empty.new_threads.active.is_none());
+        let mut viewer = open(false);
+        finish(&mut viewer);
+        assert!(viewer.new_threads.active.is_none());
     }
 
     #[test]
