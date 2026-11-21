@@ -236,6 +236,12 @@ enum Reply {
         thread: String,
         operation: String,
     },
+    DraftModels {
+        watch: u64,
+        project: String,
+        choices: Vec<new_thread::Choice>,
+        permissions: new_thread::ProviderPermissions,
+    },
     LaunchOptions {
         record: Project,
         project: String,
@@ -343,6 +349,10 @@ enum Request<'a> {
     PrepareScratch,
     PrepareLanding {
         project: Option<String>,
+    },
+    WatchDraftModels {
+        watch: u64,
+        project: Option<&'a str>,
     },
     PrepareThread {
         project: String,
@@ -643,6 +653,16 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::DraftModels {
+            watch,
+            project,
+            choices,
+            permissions,
+        } = message.reply
+        {
+            self.receive_draft_models(watch, &project, message.id, choices, permissions);
+            return;
+        }
         if let Reply::FilteredFiles {
             operation,
             entries,
@@ -1034,6 +1054,7 @@ impl Desktop {
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
+            | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
@@ -1412,6 +1433,7 @@ fn start() -> io::Result<()> {
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
+            s.sync_draft_model_watch();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
@@ -1684,7 +1706,7 @@ fn start() -> io::Result<()> {
                         }
                 );
                 s.receive(reply);
-                s.close_stale_permissions();
+                s.sync_permission_menu(tx);
                 s.close_stale_models();
                 if update_palette && let Some(palette) = &s.palette {
                     palette.reveal_selection(tx);

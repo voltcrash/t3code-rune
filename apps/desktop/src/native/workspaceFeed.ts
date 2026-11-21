@@ -1,5 +1,6 @@
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
+import { watchDraftModels } from "./draftModels.ts";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
 import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
@@ -82,6 +83,7 @@ export function watchWorkspace(
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
+  const draftModels = watchDraftModels(signal, (id) => projects.get(id));
   const dirtyProjects = new Set<string>();
   const dirtyThreads = new Set<string>();
   function pickLandingProject() {
@@ -120,6 +122,7 @@ export function watchWorkspace(
         Effect.andThen(
           Effect.sync(() => {
             scheduled = false;
+            draftModels.projectChanged(dirtyProjects);
             const p = takeChanges(projects, dirtyProjects);
             const t = takeChanges(threads, dirtyThreads);
             waiting = true;
@@ -177,8 +180,10 @@ export function watchWorkspace(
       needSnapshot = false;
     }
     const rpc = yield* openEnvironmentRpc(session);
+    draftModels.connect(rpc);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        draftModels.connect(undefined);
         activeRpc = undefined;
         retryFavicons = true;
       }),
@@ -296,6 +301,8 @@ export function watchWorkspace(
   });
   return {
     initialLanding,
+    selectDraftModels: draftModels.select,
+    draftConfig: draftModels.config,
     activeRpc: () => activeRpc,
     projectFavicon(id: string) {
       const row = projects.get(id);

@@ -22,6 +22,8 @@ pub(super) struct NewThreads {
     pub active: Option<String>,
     project_picker: ComboboxState,
     drafts: HashMap<String, LaunchDraft>,
+    catalog_watch: Option<(u64, String, u64)>,
+    catalog_dirty: bool,
 }
 
 struct LaunchDraft {
@@ -31,6 +33,7 @@ struct LaunchDraft {
     checkout_branch: String,
     worktree: bool,
     model: Option<String>,
+    picked_label: Option<String>,
     choices: Vec<Choice>,
     permissions: ProviderPermissions,
     runtime_override: Option<String>,
@@ -66,6 +69,7 @@ impl NewThreads {
                 checkout_branch: base.to_owned(),
                 worktree,
                 model: None,
+                picked_label: None,
                 choices: Vec::new(),
                 permissions: Default::default(),
                 runtime_override: None,
@@ -78,15 +82,7 @@ impl NewThreads {
         if draft.uncertain {
             return;
         }
-        if !choices.iter().any(|c| Some(&c.id) == draft.model.as_ref()) {
-            draft.model = choices
-                .iter()
-                .find(|c| c.preferred)
-                .or_else(|| choices.first())
-                .map(|c| c.id.clone());
-        }
-        draft.choices = choices;
-        draft.permissions = permissions;
+        draft.update_models(choices, permissions);
         draft.checkout_branch = base.to_owned();
         draft.picker = ComboboxState::default();
     }
@@ -115,16 +111,14 @@ impl NewThreads {
         let draft = self.current();
         (!draft.uncertain).then_some(&mut draft.files)
     }
-    pub(super) fn picker_options(&mut self) -> Option<(Vec<permissions::OptionRow>, String)> {
-        let draft = self.current();
-        if draft.uncertain {
+    pub(super) fn picker_options(&self) -> Option<(&[permissions::OptionRow], &str)> {
+        let draft = self.drafts.get(self.active.as_ref()?)?;
+        if draft.uncertain || draft.permission_options().is_empty() {
             return None;
         }
         Some((
-            draft.permission_options().to_vec(),
-            draft
-                .permission()
-                .map_or_else(String::new, |p| p.mode.clone()),
+            draft.permission_options(),
+            draft.permission().map_or("", |p| p.mode.as_str()),
         ))
     }
     pub(super) fn select_permission(&mut self, mode: &str) -> bool {
@@ -168,6 +162,28 @@ impl NewThreads {
 }
 
 impl LaunchDraft {
+    fn update_models(&mut self, choices: Vec<Choice>, permissions: ProviderPermissions) {
+        if self.picked_label.is_none() {
+            self.model = choices
+                .iter()
+                .find(|choice| choice.preferred)
+                .or_else(|| {
+                    choices
+                        .iter()
+                        .find(|choice| Some(&choice.id) == self.model.as_ref())
+                })
+                .or_else(|| choices.first())
+                .map(|choice| choice.id.clone());
+        }
+        self.choices = choices;
+        self.permissions = permissions;
+    }
+    fn select_model(&mut self, id: &str) {
+        if let Some(choice) = self.choices.iter().find(|choice| choice.id == id) {
+            self.model = Some(choice.id.clone());
+            self.picked_label = Some(choice.name.clone());
+        }
+    }
     fn choice(&self) -> Option<&Choice> {
         self.choices
             .iter()
@@ -194,6 +210,75 @@ impl LaunchDraft {
 }
 
 impl Desktop {
+    fn model_watch_target(&self) -> Option<(u64, &str)> {
+        let id = self.new_threads.active.as_deref()?;
+        let draft = self.new_threads.drafts.get(id)?;
+        if draft.uncertain || !self.can_operate {
+            return None;
+        }
+        Some((self.workspace.feed?, id))
+    }
+
+    pub(super) fn sync_draft_model_watch(&mut self) {
+        if self.pending {
+            return;
+        }
+        let target = self.model_watch_target();
+        let previous = self.new_threads.catalog_watch.as_ref();
+        if !self.new_threads.catalog_dirty
+            && target == previous.map(|(watch, id, _)| (*watch, id.as_str()))
+        {
+            return;
+        }
+        let next = target.map(|(watch, id)| (watch, id.to_owned()));
+        self.new_threads.catalog_dirty = false;
+        let old = self.new_threads.catalog_watch.take();
+        if let Some((watch, project)) = next {
+            let operation = self.next_request_id();
+            if self.write_request(
+                Some(operation),
+                Request::WatchDraftModels {
+                    watch,
+                    project: Some(&project),
+                },
+            ) {
+                self.new_threads.catalog_watch = Some((watch, project, operation));
+            }
+        } else if let Some((watch, _, _)) = old {
+            self.write_request(
+                None,
+                Request::WatchDraftModels {
+                    watch,
+                    project: None,
+                },
+            );
+        }
+    }
+
+    pub(super) fn receive_draft_models(
+        &mut self,
+        watch: u64,
+        project: &str,
+        operation: Option<u64>,
+        choices: Vec<Choice>,
+        permissions: ProviderPermissions,
+    ) {
+        if self.model_watch_target() == Some((watch, project))
+            && self
+                .new_threads
+                .catalog_watch
+                .as_ref()
+                .is_some_and(|(w, id, op)| *w == watch && id == project && Some(*op) == operation)
+        {
+            if self.pending {
+                self.new_threads.catalog_dirty = true;
+                return;
+            }
+            self.new_threads
+                .current()
+                .update_models(choices, permissions);
+        }
+    }
     pub fn prepare_thread(&mut self, project: &str) {
         if self.can_operate && !self.pending {
             self.send(Request::PrepareThread {
@@ -274,7 +359,11 @@ pub(super) fn view(
     .label("Model")
     .current(draft.model.as_deref())
     .trigger(crate::models::trigger(
-        draft.choice().map_or("Choose a model", |c| c.name.as_str()),
+        draft
+            .choice()
+            .map(|c| c.name.as_str())
+            .or(draft.picked_label.as_deref())
+            .unwrap_or("Choose a model"),
         theme,
         !locked,
         width,
@@ -283,8 +372,7 @@ pub(super) fn view(
     .search_placeholder("Search models")
     .on_choose(|s, id, _| {
         if !s.pending {
-            let draft = s.new_threads.current();
-            draft.model = Some(id.to_owned());
+            s.new_threads.current().select_model(id);
         }
     })
     .build(kit, overlays);
@@ -333,7 +421,7 @@ pub(super) fn view(
             compact,
         ));
     }
-    if draft.choice().is_some() {
+    if !draft.permission_options().is_empty() {
         footer = footer.child(permissions::control(
             s,
             draft
@@ -491,6 +579,43 @@ mod tests {
         assert!(drafts.current().ready());
         drafts.current().runtime_override = Some("approval-required".into());
         let original = drafts.current().operation.clone();
+        let mut app = Desktop::new();
+        app.workspace.feed = Some(5);
+        app.can_operate = true;
+        app.new_threads = drafts;
+        let update = |app: &mut Desktop, watch: u64, name: &str| {
+            let message = serde_json::json!({
+                "type": "draftmodels", "watch": watch, "project": "a", "id": 7,
+                "choices": [{"id":name,"name":name,"provider":"Replay","instance":"replay",
+                    "runtime":"approval-required","preferred":true}],
+                "permissions": {"replay":[{"mode":"approval-required","label":"Supervised","description":""}]},
+            });
+            app.receive(serde_json::from_value(message).unwrap());
+        };
+        app.new_threads.catalog_watch = Some((5, "a".into(), 7));
+        app.new_threads
+            .current()
+            .picker
+            .step(rune_kit::ComboboxEvent::Toggle {
+                current: Some("one"),
+            });
+        update(&mut app, 5, "live");
+        assert_eq!(app.new_threads.current().model.as_deref(), Some("live"));
+        assert!(app.new_threads.current().picker.is_open());
+        app.new_threads.current().select_model("live");
+        update(&mut app, 5, "other");
+        assert_eq!(app.new_threads.current().model.as_deref(), Some("live"));
+        assert!(!app.new_threads.current().ready());
+        update(&mut app, 5, "live");
+        assert!(app.new_threads.current().ready());
+        app.new_threads.current().picked_label = None;
+        update(&mut app, 5, "one");
+        update(&mut app, 4, "stale");
+        assert_eq!(app.new_threads.current().model.as_deref(), Some("one"));
+        app.pending = true;
+        update(&mut app, 5, "during-launch");
+        assert_eq!(app.new_threads.current().model.as_deref(), Some("one"));
+        let mut drafts = app.new_threads;
         drafts.mark_unconfirmed("a", true);
         drafts.configure("b".into(), vec![choice("two")], modes(), true, "main");
         assert!(drafts.current().prompt.text.is_empty());

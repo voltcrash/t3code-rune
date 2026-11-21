@@ -144,7 +144,14 @@ export const headersFor = (session: Session) =>
 export function projectSummary(
   project: Pick<
     Project,
-    "id" | "title" | "workspaceRoot" | "archivedAt" | "updatedAt" | "projectIcon" | "faviconPath"
+    | "id"
+    | "title"
+    | "workspaceRoot"
+    | "archivedAt"
+    | "updatedAt"
+    | "projectIcon"
+    | "faviconPath"
+    | "defaultModelSelection"
   >,
   scratchRoot: string | undefined,
 ) {
@@ -154,6 +161,7 @@ export function projectSummary(
     icon: projectGlyph(project.title, project.projectIcon),
     favicon: project.projectIcon ? null : { path: project.faviconPath ?? null },
     path: project.workspaceRoot,
+    ...(project.defaultModelSelection && { defaultModelSelection: project.defaultModelSelection }),
     archived: project.archivedAt != null,
     activity_at: Date.parse(project.updatedAt),
     scratch: isScratchProject(project, scratchRoot),

@@ -1,27 +1,19 @@
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
-import {
-  isProviderInstancePickerReady,
-  providerInstanceEntriesFor,
-  resolveProjectDefaultProviderModelSelection,
-} from "@t3tools/client-runtime/state/provider-instances";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
-  clampManagedRuntimeMode,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
-  RuntimeMode,
   ThreadId,
   T3_PROJECT_FILE_NAME,
   WS_METHODS,
-  type ModelSelection,
   type OrchestrationV2ThreadLaunchInput,
+  type ServerConfig,
 } from "@t3tools/contracts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
@@ -29,8 +21,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 import { prepareAttachments, retryAttachments } from "./attachments.ts";
-import { permissionLabel, permissionOptions } from "./permissions.ts";
-import { availableModels } from "./models.ts";
+import { draftModelCatalog, draftModelReply } from "./draftModels.ts";
+import { permissionLabel } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, projectSummary, type Session } from "./projects.ts";
 
@@ -45,11 +37,12 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
   session: Session,
   project: string,
   rpc: EnvironmentRpc,
+  currentConfig?: ServerConfig,
 ) {
   const client = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
   const [config, shell] = yield* Effect.all(
     [
-      rpc[WS_METHODS.serverGetConfig]({}),
+      currentConfig ? Effect.succeed(currentConfig) : rpc[WS_METHODS.serverGetConfig]({}),
       client.shellSnapshot({ headers: headersFor(session), query: { omitIdleSubagents: "1" } }),
     ],
     { concurrency: "unbounded" },
@@ -77,52 +70,19 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
       : null;
   const projectSettings = resolveProjectSettings(config.settings, projectId, record, projectFile);
   const { settings } = projectSettings;
-  const { selection: preferred } = resolveNewThreadModelSelection({
-    defaultSelection:
-      settings.defaultModelSelection ??
-      resolveProjectDefaultProviderModelSelection(config.providers, config.settings, projectId),
-    fallbackSelection: settings.fallbackModelSelection,
-    providers: config.providers,
-    settings: config.settings,
+  const models = draftModelCatalog(
+    config,
     projectId,
-    now: yield* Clock.currentTimeMillis,
-  });
-  const entries = providerInstanceEntriesFor(config.providers, config.settings, projectId);
-  const permissions: Record<string, ReturnType<typeof permissionOptions>> = Object.create(null);
-  const choices = entries.filter(isProviderInstancePickerReady).flatMap((entry) => {
-    const supported = entry.snapshot.supportedRuntimeModes;
-    const modes = RuntimeMode.literals.filter(
-      (mode) => !supported?.length || supported.includes(mode),
-    );
-    const mode = modes.includes(settings.defaultRuntimeMode)
-      ? settings.defaultRuntimeMode
-      : modes[0];
-    const runtime = mode && clampManagedRuntimeMode(config.managedPolicy, mode, modes);
-    if (!runtime) return [];
-    permissions[entry.instanceId] = permissionOptions(modes, config.managedPolicy);
-    return availableModels(entry, settings, record.workspaceRoot).map((model) => {
-      const isPreferred =
-        preferred?.instanceId === entry.instanceId && preferred.model === model.slug;
-      const selection: ModelSelection = isPreferred
-        ? preferred
-        : { instanceId: entry.instanceId, model: model.slug };
-      return {
-        id: JSON.stringify([entry.instanceId, model.slug]),
-        name: model.name,
-        provider: entry.displayName,
-        runtime,
-        selection,
-        preferred: isPreferred,
-      };
-    });
-  });
+    record.workspaceRoot,
+    settings,
+    yield* Clock.currentTimeMillis,
+  );
   return {
     record: projectSummary(record, config.scratchWorkspaceRoot),
     cwd: record.workspaceRoot,
     startFromOrigin: settings.newWorktreesStartFromOrigin,
     project,
-    choices,
-    permissions,
+    ...models,
     worktree:
       resolveNewThreadEnvMode({
         projectSettings,
@@ -138,10 +98,11 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
 export const readLaunchOptions = Effect.fn("nativeDesktop.readLaunchOptions")(function* (
   session: Session,
   existingProject: string | null,
+  currentConfig?: ServerConfig,
 ) {
   const rpc = yield* openEnvironmentRpc(session);
   const project = existingProject ?? (yield* rpc[WS_METHODS.projectsEnsureScratch]({})).projectId;
-  const options = yield* launchContext(session, project, rpc);
+  const options = yield* launchContext(session, project, rpc, currentConfig);
   const branch = options.record.scratch
     ? null
     : yield* rpc[WS_METHODS.subscribeVcsBranch]({ cwd: options.cwd }).pipe(
@@ -154,15 +115,7 @@ export const readLaunchOptions = Effect.fn("nativeDesktop.readLaunchOptions")(fu
     record: options.record,
     worktree: !options.record.scratch && options.worktree,
     base: branch?.refName ?? (options.startFromOrigin ? "" : "HEAD"),
-    permissions: options.permissions,
-    choices: options.choices.map(({ id, name, provider, selection, runtime, preferred }) => ({
-      instance: selection.instanceId,
-      id,
-      name,
-      provider,
-      runtime,
-      preferred,
-    })),
+    ...draftModelReply(options),
   };
 });
 
