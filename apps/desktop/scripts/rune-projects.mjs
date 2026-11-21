@@ -1,4 +1,4 @@
-import { claimThreadOpen } from "@t3tools/client-runtime/state/thread-search";
+import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
@@ -19,12 +19,13 @@ import { readCommandOutput } from "../src/native/commandOutput.ts";
 import { followWindow, readWindow, windowReply } from "../src/native/conversation.ts";
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage, stopThreadRun } from "../src/native/messages.ts";
+import * as NodeFS from "node:fs";
+import * as NodeSqlite from "node:sqlite";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
 import {
-  recordOpen,
   HomePathNeedsBrowseAccess,
   changeProject,
   pairWithEnvironment,
@@ -51,6 +52,8 @@ const write = (value) => {
   if (!lifetime.signal.aborted) process.stdout.write(JSON.stringify(value) + "\n");
 };
 const close = () => {
+  leaveThread();
+  session?.legacyVisits?.close();
   stopWorkspaceFeed();
   stopWatching();
   pendingLaunches.clear();
@@ -64,6 +67,23 @@ process.stdout.once("error", () => {
   input.close();
 });
 
+let activeVisit;
+let visibleThread;
+function updateVisibleVisit() {
+  const id = visibleThread;
+  if (!id || activeVisit || watching?.thread !== id || watching.owner !== session) return;
+  activeVisit = trackVisibleThread(session, id, (at) => workspaceFeed?.seen(id, at));
+  workspaceFeed?.opened(id, Date.now());
+  activeVisit.update(
+    workspaceFeed?.visitSource(id) ?? visitFromWindow(session, watching.state.projection),
+  );
+}
+function leaveThread(id = visibleThread) {
+  if (id !== visibleThread) return;
+  visibleThread = undefined;
+  activeVisit?.close();
+  activeVisit = undefined;
+}
 let workspaceFeed;
 function stopWorkspaceFeed() {
   workspaceFeed?.controller.abort();
@@ -79,13 +99,18 @@ function startWorkspaceFeed(owner, initial, watch) {
     initial,
     signal,
     (changes) => {
-      if (watching?.owner === owner && changes.removed_threads.includes(watching.thread))
+      if (watching?.owner === owner && changes.removed_threads.includes(watching.thread)) {
+        leaveThread(watching.thread);
         stopWatching();
+      }
       write({ type: "workspacelive", watch, ...changes });
     },
     () => write({ type: "workspacepaused", watch }),
+    (offset) => write({ type: "workspaceclock", watch, offset }),
+    () => activeVisit,
   );
   workspaceFeed = { watch, controller, ...feed };
+  if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
 }
 
 function stopWatching() {
@@ -108,6 +133,7 @@ function watch(owner, thread, id, state) {
     synchronized: false,
   };
   watching = record;
+  updateVisibleVisit();
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(
     owner,
@@ -124,7 +150,10 @@ function watch(owner, thread, id, state) {
         }
       }
       write({ type: "live", watch: id, thread, sequence: state.sequence, update });
-      if (update.kind === "deleted") stopWatching();
+      if (update.kind === "deleted") {
+        leaveThread(thread);
+        stopWatching();
+      }
       if (update.kind === "window" || update.kind === "splice") {
         if (record.file) refreshDetail(record, record.file);
         for (const tool of record.tools.values())
@@ -340,8 +369,10 @@ async function openThread(owner, request, reply) {
       same?.state,
     );
     if (session !== owner || lifetime.signal.aborted) return;
-    if (state.projection.thread.deletedAt !== null || state.projection.thread.archivedAt !== null)
+    if (state.projection.thread.deletedAt !== null || state.projection.thread.archivedAt !== null) {
+      leaveThread(request.thread);
       return reply({ type: "threadunavailable", thread: request.thread });
+    }
     if (!request.cursor && state === same?.state && request.sequence === state.sequence) {
       reply({ type: "unchanged" });
     } else {
@@ -350,7 +381,10 @@ async function openThread(owner, request, reply) {
     watch(owner, request.thread, request.id, state);
   } catch (error) {
     if (error?._tag === "EnvironmentResourceNotFoundError" && error.reason === "thread_not_found") {
-      if (session === owner) reply({ type: "threadunavailable", thread: request.thread });
+      if (session === owner) {
+        leaveThread(request.thread);
+        reply({ type: "threadunavailable", thread: request.thread });
+      }
       return;
     }
     if (same && session === owner && !lifetime.signal.aborted)
@@ -393,21 +427,28 @@ async function interruptRun(owner, request, reply) {
   }
 }
 
+const desktop = NodePath.resolve(import.meta.dirname, sourceBuild ? "../.." : "..");
+const devHome = process.argv[2] === "--integrated-dev" && process.env.T3CODE_RUNE_DEV_HOME;
+const t3Home = packaged
+  ? NodePath.resolve(
+      process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
+    )
+  : devHome || NodePath.resolve(desktop, "../../.t3/rune");
+function openVisitDatabase() {
+  NodeFS.mkdirSync(t3Home, { recursive: true });
+  return new NodeSqlite.DatabaseSync(NodePath.join(t3Home, "desktop-visits.sqlite"), {
+    timeout: 1000,
+  });
+}
 function localServer() {
   if (!server) {
-    const desktop = NodePath.resolve(import.meta.dirname, sourceBuild ? "../.." : "..");
     const cwd = packaged
       ? NodePath.join(import.meta.dirname, "server")
       : NodePath.resolve(desktop, "../server");
-    const devHome = process.argv[2] === "--integrated-dev" && process.env.T3CODE_RUNE_DEV_HOME;
     const started = startLocalServer({
       cwd,
       entryPath: NodePath.join(cwd, packaged || sourceBuild ? "dist/bin.mjs" : "src/bin.ts"),
-      t3Home: packaged
-        ? NodePath.resolve(
-            process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
-          )
-        : devHome || NodePath.resolve(desktop, "../../.t3/rune"),
+      t3Home,
       ...(devHome
         ? {
             dev: { port: Number(process.env.T3CODE_PORT), webUrl: process.env.VITE_DEV_SERVER_URL },
@@ -419,6 +460,8 @@ function localServer() {
       if (server !== started) return;
       server = undefined;
       if (!localSession) return;
+      leaveThread();
+      session?.legacyVisits?.close();
       stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
@@ -469,6 +512,8 @@ async function handleWorkspaceRequest(request, reply) {
   let editing = false;
   try {
     if (request.type === "disconnect") {
+      leaveThread();
+      session?.legacyVisits?.close();
       stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
@@ -477,13 +522,15 @@ async function handleWorkspaceRequest(request, reply) {
       return;
     }
     if (request.type === "local" || request.type === "pair") {
+      leaveThread();
+      session?.legacyVisits?.close();
       if (request.type === "local") {
         const host = localServer();
-        const connected = await host.connect(lifetime.signal);
+        const connected = await host.connect(lifetime.signal, openVisitDatabase);
         if (server !== host) throw new Error("Local server stopped");
         session = localSession = connected;
       } else {
-        session = await pairWithEnvironment(request.link, lifetime.signal);
+        session = await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
         localSession = undefined;
       }
       stopWorkspaceFeed();
@@ -539,24 +586,6 @@ async function handleWorkspaceRequest(request, reply) {
         }
         if (reading === session)
           reply({ type: "threadlaunched", project: request.project, thread });
-      }
-      return;
-    } else if (request.type === "visitthread") {
-      const record = watching;
-      if (!record || record.owner !== session || record.thread !== request.thread) return;
-      const at = Date.now();
-      const send = claimThreadOpen(session.environmentId, record.thread, at);
-      workspaceFeed?.opened(record.thread, at);
-      const thread = record.state.projection.thread;
-      if (send && session.canOperate && session.visitTracking && workspaceFeed) {
-        void Effect.runPromise(
-          recordOpen(session, thread).pipe(
-            Effect.scoped,
-            Effect.timeout("5 seconds"),
-            Effect.provide(session.http),
-          ),
-          { signal: workspaceFeed.controller.signal },
-        ).catch(() => {});
       }
       return;
     } else if (request.type === "thread" && session) {
@@ -651,9 +680,16 @@ async function handleWorkspaceRequest(request, reply) {
     reading = session;
     const workspace = await readWorkspace(reading);
     if (session === reading) {
-      if (watching && !workspace.view.threads.some((thread) => thread.id === watching.thread))
+      if (watching && !workspace.view.threads.some((thread) => thread.id === watching.thread)) {
+        leaveThread(watching.thread);
         stopWatching();
-      reply({ type: "workspace", watch: request.id, ...workspace.view });
+      }
+      reply({
+        type: "workspace",
+        watch: request.id,
+        clock_offset: workspace.clockOffset,
+        ...workspace.view,
+      });
       startWorkspaceFeed(reading, workspace, request.id);
     }
   } catch (error) {
@@ -682,7 +718,11 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "workspacehandled") {
+    if (request?.type === "visitthread") {
+      if (visibleThread !== request.thread) leaveThread();
+      visibleThread = request.thread;
+      updateVisibleVisit();
+    } else if (request?.type === "workspacehandled") {
       if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
     } else if (request?.type === "terminal") {
       const record = watching;

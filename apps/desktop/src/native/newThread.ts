@@ -282,6 +282,9 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   );
   pending.delete(request.operation);
   const thread = result.projection.thread;
+  const run = result.projection.runs.at(-1);
+  const active =
+    run && ["preparing", "queued", "starting", "running", "waiting"].includes(run.status);
   return {
     sequence: result.sequence,
     thread: {
@@ -293,7 +296,18 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
       title: thread.title,
       branch: thread.branch,
       model: thread.modelSelection.model,
-      status: result.projection.runs.at(-1)?.status ?? "idle",
+      status:
+        run?.status === "preparing"
+          ? "preparing"
+          : run?.status === "failed"
+            ? "failed"
+            : active
+              ? "working"
+              : "ready",
+      status_at: active
+        ? DateTime.toEpochMillis(run.startedAt ?? run.requestedAt)
+        : DateTime.toEpochMillis(run?.completedAt ?? thread.updatedAt),
+      recedes: run?.status !== "failed",
       settled: thread.settledOverride === "settled",
     },
   };

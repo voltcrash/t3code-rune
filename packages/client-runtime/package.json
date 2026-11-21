@@ -409,6 +409,10 @@
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"
     },
+    "./state/sidebar-row-status": {
+      "types": "./src/state/sidebarRowStatus.ts",
+      "default": "./src/state/sidebarRowStatus.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
