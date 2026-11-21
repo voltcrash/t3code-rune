@@ -13,6 +13,8 @@ use turn_folds::VisibleRow;
 pub(crate) mod file_diff;
 #[path = "palette.rs"]
 pub(super) mod palette;
+#[path = "plan.rs"]
+mod plan;
 #[path = "sidebar_header.rs"]
 mod sidebar_header;
 #[path = "thread_actions.rs"]
@@ -104,6 +106,7 @@ pub(super) struct MessageRow {
     attachments: Vec<images::Attachment>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
+    plan: Option<plan::Plan>,
     tool: Option<tool::Tool>,
     exit_code: Option<i32>,
     #[serde(default)]
@@ -1462,6 +1465,9 @@ fn timeline(
                     VisibleRow::Header(group) => return pane.folds.header(group, &pane.id, theme),
                     VisibleRow::Message(index) => &pane.rows[index],
                 };
+                if let Some(plan) = &message.plan {
+                    return plan.card(s, message, theme, &message_kit, &style);
+                }
                 if let Some(caption) = &message.caption {
                     if let Some(tool) = &message.tool {
                         return tool::row_view(s, message, tool, caption, theme, &message_kit);
@@ -1803,6 +1809,7 @@ mod tests {
                     attachments: vec![],
                     tool: None,
                     file: None,
+                    plan: None,
                     caption: None,
                     exit_code: None,
                     failed: false,
@@ -1964,6 +1971,7 @@ mod tests {
             attachments: Vec::new(),
             tool: None,
             file: None,
+            plan: None,
             caption: None,
             exit_code: None,
             failed: false,

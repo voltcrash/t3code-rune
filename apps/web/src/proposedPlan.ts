@@ -1,4 +1,8 @@
-import { stripDisplayedPlanMarkdown, proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
+import {
+  stripDisplayedPlanMarkdown,
+  proposedPlanTitle,
+  proposedPlanPreviewEnd,
+} from "@t3tools/shared/proposedPlanText";
 import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "./i18n/messages";
@@ -11,39 +15,16 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
   resolve: MessageResolver = m,
 ): string {
   const maxLines = options?.maxLines ?? 8;
-  const lines = stripDisplayedPlanMarkdown(planMarkdown)
+  const body = stripDisplayedPlanMarkdown(planMarkdown);
+  const end = proposedPlanPreviewEnd(body, maxLines);
+  const preview = body
+    .slice(0, end)
     .trimEnd()
     .split(/\r?\n/)
-    .map((line) => line.trimEnd());
-  const previewLines: string[] = [];
-  let visibleLineCount = 0;
-  let hasMoreContent = false;
-
-  for (const line of lines) {
-    const isVisibleLine = line.trim().length > 0;
-    if (isVisibleLine && visibleLineCount >= maxLines) {
-      hasMoreContent = true;
-      break;
-    }
-    previewLines.push(line);
-    if (isVisibleLine) {
-      visibleLineCount += 1;
-    }
-  }
-
-  while (previewLines.length > 0 && previewLines.at(-1)?.trim().length === 0) {
-    previewLines.pop();
-  }
-
-  if (previewLines.length === 0) {
-    return proposedPlanTitle(planMarkdown) ?? resolve(msg("Plan preview unavailable."));
-  }
-
-  if (hasMoreContent) {
-    previewLines.push("", "...");
-  }
-
-  return previewLines.join("\n");
+    .map((line) => line.trimEnd())
+    .join("\n");
+  if (!preview) return proposedPlanTitle(planMarkdown) ?? resolve(msg("Plan preview unavailable."));
+  return end === undefined ? preview : preview + "\n\n...";
 }
 
 function sanitizePlanFileSegment(input: string): string {
