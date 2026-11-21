@@ -98,6 +98,30 @@ impl Desktop {
             .map(|target| OpenMenu { target, point });
     }
 
+    fn set_pin(&mut self, id: &str, pinned: bool) {
+        self.workspace.actions.menu = None;
+        if self.pending || !self.can_pin {
+            return;
+        }
+        let Some(watch) = self.workspace.feed else {
+            return;
+        };
+        let Some(&i) = self.workspace.by_thread.get(id) else {
+            return;
+        };
+        if self.workspace.threads[i].pinned != pinned {
+            self.write_request(
+                None,
+                Request::SetPin {
+                    thread: id.into(),
+                    watch,
+                    pinned,
+                    operation: Uuid::new_v4().to_string(),
+                },
+            );
+        }
+    }
+
     fn set_settlement(&mut self, id: &str, settled: bool, origin: Origin) {
         self.workspace.actions.menu = None;
         let ws = &self.workspace;
@@ -206,11 +230,12 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn settle_shortcut(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    pub(crate) fn thread_action_shortcut(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
         if !self.can_operate
             || !ev.mods.shift
             || ev.mods.alt
-            || !ev.is_command('s')
+            || !(ev.is_command('s') || ev.is_command('p') && self.can_pin)
+            || self.workspace.project_scope.is_open()
             || tx.focused() == Some("thread-terminal-grid")
             || self.new_threads.active.is_some()
         {
@@ -220,7 +245,11 @@ impl Desktop {
             return false;
         };
         if !tx.key_repeat() {
-            self.set_settlement(&t.id.clone(), !t.settled, Origin::Sidebar);
+            if ev.is_command('p') {
+                self.set_pin(&t.id.clone(), !t.pinned);
+            } else {
+                self.set_settlement(&t.id.clone(), !t.settled, Origin::Sidebar);
+            }
         }
         true
     }
@@ -391,6 +420,43 @@ pub(super) fn header(
         .build(kit, overlays)
 }
 
+const PIN: rune::Icon = rune::Icon {
+    name: "pin",
+    view: 24.,
+    body: r#"<path d="M12 17v5 M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+const UNPIN: rune::Icon = rune::Icon {
+    name: "pin-off",
+    view: 24.,
+    body: r#"<path d="M12 17v5 M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89 M2 2l20 20 M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+pub(super) fn pin_indicator(s: &Desktop, thread: &Thread, theme: &tok::Theme) -> El {
+    let pin = icon(&PIN, 12.).color(theme.text_secondary.alpha(0.65));
+    if !s.can_pin {
+        return pin.role("img").label("Pinned");
+    }
+    let id = thread.id.clone();
+    rune::el()
+        .size(12., 12.)
+        .key(format!("unpin-{id}"))
+        .role("button")
+        .label("Unpin thread")
+        .help("Unpin thread")
+        .focusable(!s.pending)
+        .disabled(s.pending)
+        .hover_group()
+        .child(pin.group_opacity(1., 0.).a11y_hidden())
+        .child(
+            icon(&UNPIN, 12.)
+                .absolute(0., 0.)
+                .color(theme.text)
+                .group_opacity(0., 1.)
+                .a11y_hidden(),
+        )
+        .on_press(move |s: &mut Desktop| s.set_pin(&id, false))
+}
+
 fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
     let open = s
         .workspace
@@ -423,6 +489,16 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
             .icon(&glyphs::CHECK)
             .disabled(s.pending)
             .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
+        );
+    }
+    if s.can_pin {
+        let id = thread.id.clone();
+        let pinned = !thread.pinned;
+        menu = menu.item(
+            MenuItem::new(if pinned { "Pin thread" } else { "Unpin thread" })
+                .icon(if pinned { &PIN } else { &UNPIN })
+                .disabled(s.pending)
+                .on_select(move |s: &mut Desktop| s.set_pin(&id, pinned)),
         );
     }
     let id = thread.id.clone();

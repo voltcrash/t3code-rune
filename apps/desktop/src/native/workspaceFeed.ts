@@ -1,3 +1,4 @@
+import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
@@ -98,6 +99,7 @@ export function watchWorkspace(
   let scratchChanged = false;
   let waiting = false;
   let scheduled = false;
+  let lastPin: { key: string; sequence: number } | undefined;
   let publishedSequence = sequence;
   let requestedSequence = sequence;
   const flush = () => {
@@ -264,6 +266,14 @@ export function watchWorkspace(
     publishThrough(committed: number) {
       requestedSequence = committed;
       flush();
+    },
+    nextPinOrderKey() {
+      const keys = Array.from(threads.values(), (row) => (row.pinned ? row.order_key : null));
+      if (lastPin && lastPin.sequence > sequence) keys.push(lastPin.key);
+      return topOfPinnedRunOrderKey(keys) ?? undefined;
+    },
+    pinCommitted(key: string, committed: number) {
+      lastPin = { key, sequence: committed };
     },
     hasThread(id: string) {
       return threads.has(id);
