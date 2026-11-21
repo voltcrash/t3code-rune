@@ -208,6 +208,10 @@ describe("check:changed", () => {
       "apps/web/src/components/sidebar/SidebarThreadRow.tsx",
       "apps/desktop/src/backend/DesktopBackendManager.ts",
       "apps/desktop/src/electron/ElectronProtocol.ts",
+      "apps/desktop/native/src/workspace.rs",
+      "apps/desktop/src/native/workspaceFeed.ts",
+      "apps/desktop/src/native/environmentRpc.ts",
+      "apps/desktop/scripts/launch-rune.mjs",
       "packages/contracts/src/settings.ts",
       "scripts/fixtures/desktop-launch/statev2.sqlite",
     ]) {
@@ -223,6 +227,7 @@ describe("check:changed", () => {
     }
     // A script-only change still builds the app it opens.
     assert.isTrue(decide(["scripts/smoke-desktop-app.ts"], packages, false).outputs.build);
+    assert.isTrue(decide(["scripts/smoke-rune-desktop.py"], packages, false).outputs.build);
   });
 
   it.each([

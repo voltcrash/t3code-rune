@@ -52,9 +52,12 @@ const MOBILE_NATIVE =
   /^apps\/mobile\/.*\.(swift|kt|kts)$|^apps\/mobile\/(\.swiftlint\.yml|detekt\.yml|\.editorconfig|Brewfile)$|^scripts\/mobile-native-static-check\.ts$|^package\.json$|^\.github\/workflows\/ci\.yml$|^\.github\/scripts\/ci-changes\.cjs$|^\.github\/actions\/ci-changes\//;
 
 // Startup, migration, settlement, and sidebar paths that decide whether an upgraded user's
-// threads show after launch. Build runs scripts/smoke-desktop-app.ts for them, so they do not
+// threads show after launch. Build opens the seeded native app for them, so they do not
 // first fail in the release launch check.
 const DESKTOP_LAUNCH = [
+  /^apps\/desktop\/native\/(Cargo\.(toml|lock)|src\/(main|workspace|navigation|sidebar_header|sidebar_status)\.rs)$/,
+  /^apps\/desktop\/scripts\/(build-rune|bundle-rune-worker|launch-rune|rune-projects)\.mjs$/,
+  /^apps\/desktop\/src\/native\/(conversation|environmentRpc|localServer|projects|workspaceFeed)\.ts$/,
   /^apps\/desktop\/src\/((main|boot|compileCache|serverCompileCache)\.ts$|(app|backend|window)\/)/,
   /^apps\/desktop\/src\/electron\/(ElectronApp|ElectronProtocol|ElectronWindow)\.ts$/,
   /^apps\/web\/src\/((main|AppRoot|appInit)\.tsx|(bootstrap|router)\.ts)$/,
@@ -63,7 +66,7 @@ const DESKTOP_LAUNCH = [
   /^apps\/server\/src\/persistence\/Migrations/,
   /^apps\/server\/src\/orchestration-v2\/((ThreadSettlementService|ProjectionStore)\.ts$|legacy\/)/,
   /^packages\/contracts\/src\/settings\.ts$/,
-  /^scripts\/(smoke-desktop-app\.ts|fixtures\/desktop-launch\/)/,
+  /^scripts\/(smoke-desktop-app\.ts|smoke-rune-desktop\.py|fixtures\/desktop-launch\/)/,
 ];
 
 const OWN_TEST_JOB = new Set(["t3", "@t3tools/web", "@t3tools/monorepo"]);

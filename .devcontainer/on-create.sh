@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time container setup, baked into prebuilds. Content-dependent work
-# (dependency install, Chromium) lives in update-content.sh.
+# (dependency install and the web dependency cache) lives in update-content.sh.
 set -euo pipefail
 
 sudo apt-get update
