@@ -384,7 +384,7 @@ export class LinuxDesktopBuildPrerequisitesMissingError extends Schema.TaggedErr
         : []),
       "",
       "For other distributions, see docs/operations/development.md#linux-appimage-prerequisites.",
-      "Then rerun `vp run dist:desktop:linux`.",
+      "Then rerun the desktop artifact command with the same platform, target and architecture.",
     ].join("\n");
   }
 }

@@ -311,10 +311,11 @@ vp run dist:desktop:linux
 vp run dist:desktop:win
 ```
 
-`dist:desktop:linux` targets x64. For a native Linux ARM64 build, run:
+`dist:desktop:linux` builds the native Rune AppImage and Debian package together. It defaults to x64.
+On an ARM64 Linux host, run:
 
 ```sh
-vp run dist:desktop:artifact --platform linux --target AppImage --arch arm64
+vp run dist:desktop:linux --arch arm64
 ```
 
 DMGs default to the host architecture. Use `--arch` to choose another target and `--keep-stage`
@@ -323,7 +324,7 @@ options.
 
 ### Prepared server bytecode
 
-Native macOS and Windows desktop artifact builds, and native Linux x64 and ARM64 builds, generate server
+Electron artifact builds on native macOS, Windows, and Linux x64 and ARM64 generate server
 bytecode with the packaged Electron executable, after ASAR creation and before signing. Generation imports the CLI and server
 module declarations without launching server services; worker-only modules compile normally.
 AppImage backends use temporary links for each mount and remove them on normal exit. Later launches
