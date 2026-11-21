@@ -13,6 +13,8 @@ mod attachments;
 mod composer;
 mod image_decode;
 mod launch_check;
+#[cfg(target_os = "linux")]
+mod linux_menu;
 mod models;
 mod navigation;
 mod new_thread;
@@ -29,6 +31,10 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    #[cfg(target_os = "linux")]
+    MenuAction {
+        action: linux_menu::Action,
+    },
     WindowZoom {
         factor: f64,
     },
@@ -271,6 +277,10 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    #[cfg(target_os = "linux")]
+    X11Menu {
+        window: u32,
+    },
     WorkspaceFiles {
         #[serde(flatten)]
         location: workspace::workspace_files::Location,
@@ -999,6 +1009,8 @@ impl Desktop {
                     pane.begin_watch(self.request_id);
                 }
             }
+            #[cfg(target_os = "linux")]
+            Reply::MenuAction { .. } => unreachable!(),
             Reply::Live { .. }
             | Reply::PlanSaved { .. }
             | Reply::Downloaded { .. }
@@ -1362,6 +1374,10 @@ fn start() -> io::Result<()> {
             s.poll_answer(tx) || stop || clock || renamed || resized
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
+            #[cfg(target_os = "linux")]
+            if linux_menu::shortcut(s, ev, tx) {
+                return true;
+            }
             if s.zoom_key(ev, tx) {
                 return true;
             }
@@ -1504,6 +1520,8 @@ fn start() -> io::Result<()> {
             desktop.send(Request::Local);
             desktop
         });
+    #[cfg(target_os = "linux")]
+    let app = linux_menu::register(app);
     let handle = app.handle();
     if mode.is_some() {
         let owner = handle.clone();
@@ -1553,6 +1571,11 @@ fn start() -> io::Result<()> {
                 continue;
             }
             handle.update(move |s, tx| {
+                #[cfg(target_os = "linux")]
+                if let Reply::MenuAction { action } = reply.reply {
+                    action.activate(s, tx);
+                    return;
+                }
                 if let Reply::Typography {
                     sans,
                     code,
