@@ -327,7 +327,10 @@ architecture. Use `--arch x64`, `--arch arm64`, or `--arch universal` to select 
 
 `dist:desktop:win` builds the native per-user installer. Install NSIS 3.08 or later and put
 `makensis` on PATH. Use the Node distribution for the target architecture. For a Linux cross-build,
-pass `--windows-node-dir <extracted-windows-node-directory>`. Pass `--signed` to use the release
+pass `--windows-node-dir <extracted-windows-node-directory>`. To include the WSL runtime,
+pass `--wsl-runtime <path-to-linux-cli.tar.gz>` or set `T3CODE_DESKTOP_WSL_RUNTIME` to that path.
+Use the Linux CLI release archive for the same version and architecture as the Windows package.
+Pass `--signed` to use the release
 Azure Trusted Signing profile. Set `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`,
 `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, and `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.
 Windows requires `pwsh`, the TrustedSigning module, and an authenticated Azure identity with signing access.
