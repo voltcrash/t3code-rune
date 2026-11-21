@@ -225,19 +225,40 @@ impl Palette {
         }
         if !matches!(self.page, Page::PickProject) {
             let recent = matches!(self.page, Page::Root) && query.is_empty();
-            let limit = if recent { 12 } else { usize::MAX };
-            let threads = ws.threads.iter().enumerate().filter(|(_, t)| {
-                if let Page::Project(id) = &self.page
-                    && &t.project != id
-                {
-                    return false;
+            let mut threads: Vec<_> = ws
+                .threads
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| {
+                    if let Page::Project(id) = &self.page
+                        && &t.project != id
+                    {
+                        return false;
+                    }
+                    if recent && history.on_thread(&t.id) {
+                        return false;
+                    }
+                    t.search_title.contains(&query)
+                        || ws
+                            .project(&t.project)
+                            .is_some_and(|p| p.search_title.contains(&query))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if recent {
+                let by_recency = |&a: &usize, &b: &usize| {
+                    ws.threads[b]
+                        .recent_at
+                        .total_cmp(&ws.threads[a].recent_at)
+                        .then(ws.threads[a].id.cmp(&ws.threads[b].id))
+                };
+                if threads.len() > 12 {
+                    threads.select_nth_unstable_by(12, by_recency);
+                    threads.truncate(12);
                 }
-                t.search_title.contains(&query)
-                    || ws
-                        .project(&t.project)
-                        .is_some_and(|p| p.search_title.contains(&query))
-            });
-            for (i, _) in threads.take(limit) {
+                threads.sort_unstable_by(by_recency);
+            }
+            for i in threads {
                 items.push(Item {
                     key: Action::Thread(i).key(ws),
                     group: if recent { "Recent threads" } else { "Threads" },
@@ -564,6 +585,35 @@ mod tests {
     use crate::{LiveUpdate, Reply, WorkerMessage};
 
     #[test]
+    fn recent_threads_rank_activity_before_applying_the_twelve_row_limit() {
+        let mut app = Desktop::new();
+        let threads = (0..14)
+            .map(|i| {
+                serde_json::from_value(serde_json::json!({
+            "id": i.to_string(), "project": "p", "title": format!("Thread {i}"),
+            "branch": null, "model": "m", "status": "idle", "settled": false,
+            "recent_at": i, "sort_at": i, "order_key": if i == 13 { Some("manual") } else { None }
+        })).unwrap()
+            })
+            .collect();
+        app.workspace.replace(vec![], threads);
+        app.palette = Some(Palette::new());
+        app.filter_palette(false);
+        let titles: Vec<_> = app
+            .palette
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .filter(|item| item.group == "Recent threads")
+            .map(|item| item.action.title(&app.workspace))
+            .collect();
+        assert_eq!(titles.len(), 12);
+        assert_eq!(titles.first().unwrap(), "Thread 13");
+        assert_eq!(titles.last().unwrap(), "Thread 2");
+    }
+
+    #[test]
     fn removing_a_thread_above_the_selection_keeps_the_same_keyboard_and_pointer_target() {
         let mut app = Desktop::new();
         let threads = ["A", "B", "C", "D"].map(|id| super::super::Thread {
@@ -574,6 +624,7 @@ mod tests {
             branch: None,
             status: "idle".into(),
             sort_at: 0,
+            recent_at: 0.,
             order_key: None,
             model: String::new(),
             settled: false,
@@ -595,6 +646,21 @@ mod tests {
                 thread: "A".into(),
                 sequence: 1,
                 update: LiveUpdate::Deleted,
+            },
+        });
+        assert!(app.workspace.has_thread("A"));
+        app.workspace.feed = Some(2);
+        app.receive(WorkerMessage {
+            id: None,
+            reply: Reply::WorkspaceLive {
+                watch: 2,
+                changes: super::super::WorkspaceChanges {
+                    scratch_available: false,
+                    projects: vec![],
+                    threads: vec![],
+                    removed_projects: vec![],
+                    removed_threads: vec!["A".into()],
+                },
             },
         });
         let p = app.palette.as_ref().unwrap();

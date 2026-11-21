@@ -284,6 +284,7 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   const thread = result.projection.thread;
   return {
     id: result.threadId,
+    recent_at: DateTime.toEpochMillis(thread.updatedAt),
     sort_at: DateTime.toEpochMillis(thread.createdAt),
     order_key: thread.activeOrderKey ?? null,
     project: thread.projectId,

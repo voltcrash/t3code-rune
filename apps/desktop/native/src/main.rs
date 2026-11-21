@@ -416,10 +416,11 @@ impl Desktop {
             update,
         } = message.reply
         {
-            let thread_count = self.workspace.thread_count();
+            let was_open = self.workspace.conversation.is_some();
             self.workspace.apply_live(watch, &thread, sequence, update);
             self.close_stale_terminal();
-            if thread_count != self.workspace.thread_count() {
+            if was_open && self.workspace.conversation.is_none() {
+                self.history.close_thread(&thread);
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
                     self.filter_palette(true);
@@ -543,7 +544,9 @@ impl Desktop {
                 }
             }
             Reply::ThreadUnavailable { thread } => {
-                self.workspace.remove_thread(&thread);
+                self.workspace.close_unavailable_thread(&thread);
+                self.history.close_thread(&thread);
+                self.close_stale_terminal();
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
                     self.filter_palette(true);
@@ -906,15 +909,16 @@ fn start() -> io::Result<()> {
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
                     && s.pending
                     && reply.id == Some(s.request_id);
-                let deleting = matches!(
+                let update_palette = matches!(
                     reply.reply,
-                    Reply::Live {
-                        update: LiveUpdate::Deleted,
-                        ..
-                    }
+                    Reply::WorkspaceLive { .. }
+                        | Reply::Live {
+                            update: LiveUpdate::Deleted,
+                            ..
+                        }
                 );
                 s.receive(reply);
-                if deleting && let Some(palette) = &s.palette {
+                if update_palette && let Some(palette) = &s.palette {
                     palette.reveal_selection(tx);
                 }
                 if focus {

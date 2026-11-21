@@ -154,7 +154,7 @@ export function watchWorkspace(
           if (item.kind === "snapshot") {
             sequence = item.snapshot.snapshotSequence;
             failures = 0;
-            replace(workspaceRows(item.snapshot, scratchRoot));
+            replace(workspaceRows(item.snapshot, session.environmentId, scratchRoot));
             return;
           }
           if (item.sequence <= sequence) return;
@@ -165,7 +165,7 @@ export function watchWorkspace(
               threads,
               dirtyThreads,
               item.thread.id,
-              active ? threadSummary(item.thread) : undefined,
+              active ? threadSummary(item.thread, session.environmentId) : undefined,
             );
           } else if (item.kind === "project.updated") {
             changeRow(

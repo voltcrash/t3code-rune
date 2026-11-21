@@ -25,6 +25,16 @@ impl History {
         self.forward.clear();
     }
 
+    pub(super) fn on_thread(&self, id: &str) -> bool {
+        matches!(&self.current, Page::Thread(current) if current == id)
+    }
+
+    pub(super) fn close_thread(&mut self, id: &str) {
+        if self.on_thread(id) {
+            self.current = Page::Home;
+        }
+    }
+
     pub(super) fn available(&self, forward: bool) -> bool {
         if forward {
             !self.forward.is_empty()
@@ -200,6 +210,15 @@ mod tests {
         app.receive(
             serde_json::from_value(serde_json::json!({
                 "id": app.request_id, "type": "threadunavailable", "thread": "a"
+            }))
+            .unwrap(),
+        );
+        assert!(app.workspace.has_thread("a"));
+        app.workspace.feed = Some(9);
+        app.receive(
+            serde_json::from_value(serde_json::json!({
+                "type": "workspacelive", "watch": 9, "scratch_available": false,
+                "threads": [], "projects": [], "removed_threads": ["a"], "removed_projects": []
             }))
             .unwrap(),
         );

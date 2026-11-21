@@ -1,3 +1,6 @@
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { threadSearchSubject } from "@t3tools/client-runtime/state/thread-search";
+import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
 import {
@@ -65,6 +68,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   });
   const scopes = parseOAuthScope(session.scope) ?? [];
   return {
+    environmentId: descriptor.environmentId,
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,
@@ -119,7 +123,11 @@ export function visibleThread(thread: OrchestrationV2ThreadShell) {
   );
 }
 
-export function threadSummary(thread: OrchestrationV2ThreadShell) {
+export function threadSummary(
+  thread: OrchestrationV2ThreadShell,
+  environmentId: Session["environmentId"],
+) {
+  const shell = presentThreadShell(environmentId, thread);
   return {
     id: thread.id,
     project: thread.projectId,
@@ -128,6 +136,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell) {
     status: thread.status,
     model: thread.modelSelection.model,
     settled: thread.settledOverride === "settled",
+    recent_at: threadRecentUse(threadSearchSubject(shell, null)),
     order_key: thread.activeOrderKey ?? null,
     sort_at:
       thread.settledOverride === "settled"
@@ -143,12 +152,13 @@ export function threadSummary(thread: OrchestrationV2ThreadShell) {
 
 export function workspaceRows(
   snapshot: OrchestrationV2ShellSnapshot,
+  environmentId: Session["environmentId"],
   scratchRoot: string | undefined,
 ) {
   return {
     scratch_available: Boolean(scratchRoot),
     projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
-    threads: snapshot.threads.filter(visibleThread).map(threadSummary),
+    threads: snapshot.threads.filter(visibleThread).map((row) => threadSummary(row, environmentId)),
   };
 }
 
@@ -180,7 +190,7 @@ export const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (ses
     sequence: snapshot.snapshotSequence,
     identities: snapshot.projectIdentities,
     scratchRoot,
-    view: workspaceRows(snapshot, scratchRoot),
+    view: workspaceRows(snapshot, session.environmentId, scratchRoot),
   };
 });
 

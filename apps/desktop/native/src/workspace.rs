@@ -54,6 +54,8 @@ pub(super) struct Thread {
     #[serde(default)]
     pub(super) sort_at: i64,
     order_key: Option<String>,
+    #[serde(default)]
+    recent_at: f64,
     model: String,
     settled: bool,
 }
@@ -362,10 +364,10 @@ impl Workspace {
     }
 
     pub fn insert_launched(&mut self, mut thread: Thread) {
-        thread.search_title = thread.title.to_lowercase();
-        if let Some(&i) = self.by_thread.get(&thread.id) {
-            self.threads.remove(i);
+        if self.by_thread.contains_key(&thread.id) {
+            return;
         }
+        thread.search_title = thread.title.to_lowercase();
         self.threads.push(thread);
         self.threads.sort_by(Thread::sidebar_order);
         self.by_thread = row_index(&self.threads, |t| &t.id);
@@ -416,27 +418,14 @@ impl Workspace {
     pub(super) fn has_thread(&self, id: &str) -> bool {
         self.by_thread.contains_key(id)
     }
-    pub(super) fn thread_count(&self) -> usize {
-        self.threads.len()
-    }
 
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }
-    pub fn remove_thread(&mut self, id: &str) {
+    pub fn close_unavailable_thread(&mut self, id: &str) {
         if self.conversation.as_ref().is_some_and(|pane| pane.id == id) {
             self.conversation = None;
             self.diff = Default::default();
-        }
-        self.drafts.remove(id);
-        self.terminal_heights.remove(id);
-        self.questions.remove(id);
-        if let Some(index) = self.by_thread.remove(id) {
-            self.threads.remove(index);
-            for i in index..self.threads.len() {
-                self.by_thread.insert(self.threads[i].id.clone(), i);
-            }
-            self.filter();
         }
     }
 
@@ -460,7 +449,7 @@ impl Workspace {
                 pane.set_active_run(run);
                 pane.sequence = Some(sequence);
             }
-            LiveUpdate::Deleted => self.remove_thread(id),
+            LiveUpdate::Deleted => self.close_unavailable_thread(id),
             LiveUpdate::Window { window } => pane.replace(window, &mut self.questions),
             LiveUpdate::Status { state } if !pane.needs_reload => pane.set_status(state),
             LiveUpdate::Append { index, key, text }
@@ -1649,6 +1638,7 @@ mod tests {
             branch: None,
             status: "completed".into(),
             sort_at,
+            recent_at: sort_at as f64,
             order_key: None,
             model: String::new(),
             settled: false,
@@ -1680,6 +1670,24 @@ mod tests {
         assert_eq!(app.workspace.by_thread.get("a"), Some(&1));
         assert_eq!(app.workspace.threads[1].search_title, "renamed");
         assert_eq!(app.workspace.conversation.as_ref().unwrap().id, "a");
+        app.workspace
+            .insert_launched(thread("a", "Late launch receipt", 0));
+        assert_eq!(app.workspace.threads[1].search_title, "renamed");
+        app.workspace.conversation.as_mut().unwrap().begin_watch(22);
+        app.receive(WorkerMessage {
+            id: None,
+            reply: Reply::Live {
+                watch: 22,
+                thread: "a".into(),
+                sequence: 10,
+                update: LiveUpdate::Deleted,
+            },
+        });
+        assert!(app.workspace.conversation.is_none());
+        assert!(
+            app.workspace.has_thread("a"),
+            "archive and restore may coalesce in the shell"
+        );
         app.receive(update(21, vec![], vec!["a".into()]));
         assert!(app.workspace.conversation.is_none());
         assert!(app.pending);
