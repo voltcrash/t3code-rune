@@ -133,7 +133,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
-    timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
+    timeout-minutes: ${{ inputs.platform == 'win' && 70 || inputs.target == 'AppImage,deb' && 60 || 30 }}
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ inputs.clerk_publishable_key }}
       T3CODE_CLERK_JWT_TEMPLATE: ${{ inputs.clerk_jwt_template }}
@@ -215,7 +215,7 @@ jobs:
           key: resource-monitor-${{ inputs.rust_target }}-${{ hashFiles('.cargo/config.toml', 'native/resource-monitor/Cargo.lock', 'native/resource-monitor/Cargo.toml', 'native/resource-monitor/src/**') }}
 
       - name: Cache Linux capture helpers
-        if: inputs.platform == 'linux'
+        if: inputs.platform == 'linux' && inputs.target != 'AppImage,deb'
         id: capture_helper_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -229,7 +229,7 @@ jobs:
       # checks an archive found here against the SHA-256 pinned in those toolset
       # files and downloads again on a mismatch, so only raw archives are cached.
       - name: Cache Linux packaging tool archives
-        if: inputs.platform == 'linux'
+        if: inputs.platform == 'linux' && inputs.target != 'AppImage,deb'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -247,7 +247,7 @@ jobs:
           fi
 
       - name: Setup Rust
-        if: steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
+        if: inputs.target == 'AppImage,deb' || steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -502,7 +502,7 @@ jobs:
           compression-level: 0
 
       - name: Install Linux desktop build libraries
-        if: inputs.platform == 'linux'
+        if: inputs.platform == 'linux' && inputs.target != 'AppImage,deb'
         shell: bash
         run: |
           sudo apt-get update
@@ -516,6 +516,28 @@ jobs:
           else
               convert -version
           fi
+
+      - name: Install Rune Linux packaging tools
+        if: inputs.target == 'AppImage,deb'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev libxkbcommon-dev pkg-config dpkg-dev patchelf file squashfs-tools
+          dir="$RUNNER_TEMP/rune-appimagetool"
+          mkdir -p "$dir/bin"
+          cd "$dir"
+          case "$(uname -m)" in
+            x86_64) checksum=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+            aarch64) checksum=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
+            *) exit 1 ;;
+          esac
+          curl -fsSL --retry 3 -o appimagetool.AppImage "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-$(uname -m).AppImage"
+          echo "$checksum  appimagetool.AppImage" | sha256sum -c -
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract >/dev/null
+          ln -s "$dir/squashfs-root/AppRun" "$dir/bin/appimagetool"
+          echo "$dir/bin" >> "$GITHUB_PATH"
 
       # The WSL backend runs the Linux CLI archive inside the distro, so the
       # Windows desktop embeds the same-arch archive the release attaches.
@@ -578,7 +600,18 @@ jobs:
           name: cli-linux-${{ inputs.arch }}
           path: wsl-runtime
 
+      - name: Build Rune Linux preview
+        if: inputs.target == 'AppImage,deb'
+        shell: bash
+        env:
+          pnpm_config_cache_dir: ${{ steps.stage_pnpm.outputs.dir }}/cache
+          pnpm_config_store_dir: ${{ steps.stage_pnpm.outputs.dir }}/store
+          pnpm_config_prefer_offline: "true"
+          T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: true
+        run: vp run dist:desktop:rune --platform linux --target AppImage,deb --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose
+
       - name: Build desktop artifact
+        if: inputs.target != 'AppImage,deb'
         shell: bash
         env:
           # pnpm only goes to the registry for packages or versions the cache lacks.
@@ -741,7 +774,16 @@ jobs:
             appimage=$(ls "$GITHUB_WORKSPACE"/release/*.AppImage)
             chmod +x "$appimage"
             (cd "$RUNNER_TEMP" && "$appimage" --appimage-extract >/dev/null)
-            xvfb-run -a "${check[@]}" --executable "$RUNNER_TEMP/squashfs-root/t3code"
+            if [[ "${{ inputs.target }}" == 'AppImage,deb' ]]; then
+              sudo apt-get install -y xauth xdotool imagemagick dbus-x11 at-spi2-core gir1.2-atspi-2.0 python3-gi python3-xlib libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers
+              dbus-run-session -- xvfb-run -a sh -ec '
+                gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus \
+                  --method org.freedesktop.DBus.Properties.Set org.a11y.Status IsEnabled "<true>"
+                exec /usr/bin/python3 scripts/smoke-rune-desktop.py --executable "$RUNNER_TEMP/squashfs-root/AppRun" --artifacts-dir "$RUNNER_TEMP/desktop-launch-check"
+              '
+            else
+              xvfb-run -a "${check[@]}" --executable "$RUNNER_TEMP/squashfs-root/t3code"
+            fi
           fi
 
       - name: Upload launch check output
