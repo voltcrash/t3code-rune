@@ -1160,6 +1160,23 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     rune_kit::root(root, overlays)
 }
 
+fn disclosure_chevron(expanded: bool, size: f32) -> El {
+    // Rotating an element requires a GPU layer, even for a static icon on Windows.
+    const RIGHT: rune::Icon = rune::Icon {
+        name: "chevron-right",
+        view: 16.,
+        body: r#"<path d="M6.5 5L9.5 8L6.5 11" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>"#,
+    };
+    rune::icon(
+        if expanded {
+            &rune_kit::glyphs::CHEVRON_DOWN
+        } else {
+            &RIGHT
+        },
+        size,
+    )
+}
+
 fn product_name() -> &'static str {
     option_env!("T3CODE_RUNE_PRODUCT_NAME").unwrap_or("T3 Code")
 }

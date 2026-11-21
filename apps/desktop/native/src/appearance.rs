@@ -243,12 +243,7 @@ fn typography(s: &Desktop, narrow: bool, theme: &tok::Theme) -> El {
                 .radius(12.)
                 .hover(theme.separator)
                 .child(
-                    icon(&glyphs::CHEVRON_DOWN, 14.)
-                        .rotate(if s.typography_advanced {
-                            0.
-                        } else {
-                            -std::f32::consts::FRAC_PI_2
-                        })
+                    crate::disclosure_chevron(s.typography_advanced, 14.)
                         .color(theme.text_secondary),
                 )
                 .child(label("Advanced", 12., 500., theme.text_secondary))
