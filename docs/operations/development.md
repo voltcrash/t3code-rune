@@ -71,7 +71,9 @@ icons and installer artwork. By default the builder resolves the version from th
   use `vp run dist:desktop:rune --target deb` on the target architecture and install the result
   with `sudo apt install ./<filename>.deb`.
 - On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
-  launch the T3 Code executable beside its `resources` folder.
+  launch the T3 Code executable beside its `resources` folder. For a per-user installer,
+  install NSIS 3, put `makensis` on PATH, and run `vp run dist:desktop:rune --target nsis`.
+  The installer adds Start menu and desktop shortcuts and an entry in Windows Installed apps.
 
 To cross-build on Linux, pass `--windows-node-dir <directory>` with the extracted Windows Node
 distribution for the repository’s version. Install `zip` and the matching toolchain. Windows x64
