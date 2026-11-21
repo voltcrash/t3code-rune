@@ -613,19 +613,35 @@ fn worker_command(integrated_dev: bool) -> io::Result<std::process::Command> {
     use std::process::Command;
 
     #[cfg(target_os = "macos")]
-    {
+    let package = {
         let exe = std::env::current_exe()?;
-        if let Some(contents) = exe.parent().and_then(|dir| dir.parent())
-            && contents.ends_with("Contents")
-            && exe.starts_with(contents.join("MacOS"))
-        {
-            let resources = contents.join("Resources");
-            let mut command = Command::new(contents.join("Helpers/node"));
-            command
-                .arg(resources.join("rune-projects.mjs"))
-                .arg("--packaged");
-            return Ok(command);
-        }
+        exe.parent()
+            .filter(|dir| dir.ends_with("Contents/MacOS"))
+            .and_then(|dir| dir.parent())
+            .map(|dir| (dir.join("Helpers/node"), dir.join("Resources")))
+    };
+    #[cfg(target_os = "linux")]
+    let package = {
+        let exe = std::env::current_exe()?;
+        let resources = exe
+            .parent()
+            .filter(|dir| dir.ends_with("usr/bin"))
+            .and_then(|dir| dir.parent())
+            .map(|dir| dir.join("lib/t3-code"));
+        rune::set_app_id(if resources.is_some() {
+            "com.t3tools.T3Code.Rune"
+        } else {
+            "com.t3tools.T3Code.Rune.Development"
+        });
+        resources.map(|dir| (dir.join("node"), dir))
+    };
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if let Some((node, resources)) = package {
+        let mut command = Command::new(node);
+        command
+            .arg(resources.join("rune-projects.mjs"))
+            .arg("--packaged");
+        return Ok(command);
     }
 
     let node = std::env::var_os("T3CODE_RUNE_NODE").ok_or_else(|| {
