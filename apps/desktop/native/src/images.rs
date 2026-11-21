@@ -208,7 +208,7 @@ pub(super) fn thumbnail(
             [x as f32 * scale, y as f32 * scale]
         })
         .unwrap_or([152., 72.]);
-    thumb = thumb.w(width).h(height);
+    thumb = thumb.w_full().max_w(width).aspect_ratio(width / height);
     if let Some(watch) = pane.watch {
         let mounted = entry.map(|e| e.mounted.clone()).unwrap_or_default();
         let visible = mounted.clone();

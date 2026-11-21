@@ -439,7 +439,15 @@ pub(super) fn view(
         heading
     };
     let list = target.list(&draft.files, theme, locked);
-    let surface = composer::surface("new-thread", field, controls, theme, list, Some(footer));
+    let surface = composer::surface(
+        "new-thread",
+        field,
+        controls,
+        theme,
+        list,
+        Some(footer),
+        24.,
+    );
     let mut content = col()
         .w_full()
         .grow(1.0)

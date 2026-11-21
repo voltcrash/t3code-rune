@@ -234,6 +234,7 @@ pub(super) fn view(
     theme: &tok::Theme,
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
+    lane_inset: f32,
 ) -> El {
     let dark = s.dark(cx);
     let id = thread.id.as_str();
@@ -343,7 +344,7 @@ pub(super) fn view(
         target.list(&draft.files, theme, s.pending)
     };
     target.drop_area(
-        surface(id, field, controls, theme, list, None),
+        surface(id, field, controls, theme, list, None, lane_inset),
         asking || s.pending,
     )
 }
@@ -377,6 +378,7 @@ pub(super) fn surface(
     theme: &tok::Theme,
     list: Option<El>,
     footer: Option<El>,
+    lane_inset: f32,
 ) -> El {
     let surface = col()
         .key(format!("composer-{id}"))
@@ -395,7 +397,7 @@ pub(super) fn surface(
         .child(controls);
     col()
         .w_full()
-        .px(24.0)
+        .px(lane_inset)
         .pt(8.0)
         .pb(20.0)
         .gap(4.)
