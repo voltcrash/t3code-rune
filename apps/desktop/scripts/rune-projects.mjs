@@ -1,3 +1,5 @@
+import { claimThreadOpen } from "@t3tools/client-runtime/state/thread-search";
+import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
@@ -22,6 +24,7 @@ import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
 import {
+  recordOpen,
   HomePathNeedsBrowseAccess,
   changeProject,
   pairWithEnvironment,
@@ -48,6 +51,7 @@ const write = (value) => {
   if (!lifetime.signal.aborted) process.stdout.write(JSON.stringify(value) + "\n");
 };
 const close = () => {
+  stopWorkspaceFeed();
   stopWatching();
   pendingLaunches.clear();
   lifetime.abort();
@@ -59,6 +63,30 @@ process.stdout.once("error", () => {
   close();
   input.close();
 });
+
+let workspaceFeed;
+function stopWorkspaceFeed() {
+  workspaceFeed?.controller.abort();
+  workspaceFeed = undefined;
+}
+
+function startWorkspaceFeed(owner, initial, watch) {
+  stopWorkspaceFeed();
+  const controller = new AbortController();
+  const signal = AbortSignal.any([owner.signal, controller.signal]);
+  const feed = watchWorkspace(
+    owner,
+    initial,
+    signal,
+    (changes) => {
+      if (watching?.owner === owner && changes.removed_threads.includes(watching.thread))
+        stopWatching();
+      write({ type: "workspacelive", watch, ...changes });
+    },
+    () => write({ type: "workspacepaused", watch }),
+  );
+  workspaceFeed = { watch, controller, ...feed };
+}
 
 function stopWatching() {
   const prior = watching;
@@ -391,6 +419,7 @@ function localServer() {
       if (server !== started) return;
       server = undefined;
       if (!localSession) return;
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       session = localSession = undefined;
@@ -440,6 +469,7 @@ async function handleWorkspaceRequest(request, reply) {
   let editing = false;
   try {
     if (request.type === "disconnect") {
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       session = localSession = undefined;
@@ -456,6 +486,7 @@ async function handleWorkspaceRequest(request, reply) {
         session = await pairWithEnvironment(request.link, lifetime.signal);
         localSession = undefined;
       }
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       reply({
@@ -484,7 +515,7 @@ async function handleWorkspaceRequest(request, reply) {
         );
         if (reading === session) reply({ type: "launchoptions", ...options });
       } else {
-        const thread = await Effect.runPromise(
+        const launch = await Effect.runPromise(
           launchThread(reading, request, pendingLaunches).pipe(
             Effect.timeout(request.files?.length ? "5 minutes" : "60 seconds"),
             Effect.scoped,
@@ -492,7 +523,40 @@ async function handleWorkspaceRequest(request, reply) {
           ),
           { signal: reading.signal },
         );
-        if (reading === session) reply({ type: "threadlaunched", thread });
+        if (reading !== session) return;
+        let thread = null;
+        try {
+          thread = (await workspaceFeed?.launched(launch.thread, launch.sequence)) ?? null;
+        } catch {
+          if (session === reading)
+            reply({
+              type: "threadlaunched",
+              project: request.project,
+              thread: null,
+              error: "Thread started. Reconnect to load it.",
+            });
+          return;
+        }
+        if (reading === session)
+          reply({ type: "threadlaunched", project: request.project, thread });
+      }
+      return;
+    } else if (request.type === "visitthread") {
+      const record = watching;
+      if (!record || record.owner !== session || record.thread !== request.thread) return;
+      const at = Date.now();
+      const send = claimThreadOpen(session.environmentId, record.thread, at);
+      workspaceFeed?.opened(record.thread, at);
+      const thread = record.state.projection.thread;
+      if (send && session.canOperate && session.visitTracking && workspaceFeed) {
+        void Effect.runPromise(
+          recordOpen(session, thread).pipe(
+            Effect.scoped,
+            Effect.timeout("5 seconds"),
+            Effect.provide(session.http),
+          ),
+          { signal: workspaceFeed.controller.signal },
+        ).catch(() => {});
       }
       return;
     } else if (request.type === "thread" && session) {
@@ -587,9 +651,10 @@ async function handleWorkspaceRequest(request, reply) {
     reading = session;
     const workspace = await readWorkspace(reading);
     if (session === reading) {
-      if (watching && !workspace.threads.some((thread) => thread.id === watching.thread))
+      if (watching && !workspace.view.threads.some((thread) => thread.id === watching.thread))
         stopWatching();
-      reply({ type: "workspace", ...workspace });
+      reply({ type: "workspace", watch: request.id, ...workspace.view });
+      startWorkspaceFeed(reading, workspace, request.id);
     }
   } catch (error) {
     if (reading && session !== reading) return;
@@ -617,7 +682,9 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "terminal") {
+    if (request?.type === "workspacehandled") {
+      if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
+    } else if (request?.type === "terminal") {
       const record = watching;
       if (record && record.id === request.watch) {
         if (request.action === "open") openTerminal(record, request, write);

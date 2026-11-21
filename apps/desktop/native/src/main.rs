@@ -33,7 +33,16 @@ enum Reply {
         #[serde(default)]
         terminal_write: bool,
     },
+    WorkspaceLive {
+        watch: u64,
+        #[serde(flatten)]
+        changes: workspace::WorkspaceChanges,
+    },
+    WorkspacePaused {
+        watch: u64,
+    },
     Workspace {
+        watch: u64,
         scratch_available: bool,
         projects: Vec<Project>,
         threads: Vec<Thread>,
@@ -113,7 +122,9 @@ enum Reply {
         worktree: bool,
     },
     ThreadLaunched {
-        thread: Thread,
+        project: String,
+        thread: Option<Thread>,
+        error: Option<String>,
     },
     LaunchFailed {
         project: String,
@@ -145,6 +156,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    VisitThread {
+        thread: &'a str,
+    },
+    WorkspaceHandled {
+        watch: u64,
+    },
     Terminal {
         watch: u64,
         operation: String,
@@ -330,6 +347,19 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::WorkspaceLive { watch, changes } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.apply_workspace(changes);
+                self.write_request(None, Request::WorkspaceHandled { watch });
+            }
+            return;
+        }
+        if let Reply::WorkspacePaused { watch } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.paused = true;
+            }
+            return;
+        }
         if let Reply::ToolDetail {
             key,
             operation,
@@ -391,10 +421,11 @@ impl Desktop {
             update,
         } = message.reply
         {
-            let thread_count = self.workspace.thread_count();
+            let was_open = self.workspace.conversation.is_some();
             self.workspace.apply_live(watch, &thread, sequence, update);
             self.close_stale_terminal();
-            if thread_count != self.workspace.thread_count() {
+            if was_open && self.workspace.conversation.is_none() {
+                self.history.close_thread(&thread);
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
                     self.filter_palette(true);
@@ -468,10 +499,13 @@ impl Desktop {
                 self.pending = true;
             }
             Reply::Workspace {
+                watch,
                 projects,
                 threads,
                 scratch_available,
             } => {
+                self.workspace.feed = Some(watch);
+                self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
                 self.replace_workspace(projects, threads);
             }
@@ -490,12 +524,23 @@ impl Desktop {
                     .configure(project, choices, worktree, &base);
                 self.workspace.show_projects = false;
             }
-            Reply::ThreadLaunched { thread } => {
-                let id = thread.id.clone();
-                self.history.launched(&thread.project, &id);
-                self.new_threads.forget(&thread.project);
-                self.workspace.insert_launched(thread);
-                self.open_thread(&id);
+            Reply::ThreadLaunched {
+                project,
+                thread,
+                error,
+            } => {
+                self.new_threads.forget(&project);
+                if let Some(thread) = thread {
+                    let id = thread.id.clone();
+                    self.history.launched(&project, &id);
+                    self.workspace.insert_launched(thread);
+                    self.open_thread(&id);
+                } else {
+                    self.show_projects();
+                    self.error = error.or_else(|| {
+                        Some("The thread started and is no longer in this workspace.".into())
+                    });
+                }
                 self.history.retain(&self.workspace, &self.new_threads);
             }
             Reply::LaunchFailed {
@@ -515,7 +560,9 @@ impl Desktop {
                 }
             }
             Reply::ThreadUnavailable { thread } => {
-                self.workspace.remove_thread(&thread);
+                self.workspace.close_unavailable_thread(&thread);
+                self.history.close_thread(&thread);
+                self.close_stale_terminal();
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
                     self.filter_palette(true);
@@ -528,6 +575,8 @@ impl Desktop {
             }
             Reply::Live { .. }
             | Reply::StopResult { .. }
+            | Reply::WorkspaceLive { .. }
+            | Reply::WorkspacePaused { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
@@ -876,15 +925,16 @@ fn start() -> io::Result<()> {
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
                     && s.pending
                     && reply.id == Some(s.request_id);
-                let deleting = matches!(
+                let update_palette = matches!(
                     reply.reply,
-                    Reply::Live {
-                        update: LiveUpdate::Deleted,
-                        ..
-                    }
+                    Reply::WorkspaceLive { .. }
+                        | Reply::Live {
+                            update: LiveUpdate::Deleted,
+                            ..
+                        }
                 );
                 s.receive(reply);
-                if deleting && let Some(palette) = &s.palette {
+                if update_palette && let Some(palette) = &s.palette {
                     palette.reveal_selection(tx);
                 }
                 if focus {

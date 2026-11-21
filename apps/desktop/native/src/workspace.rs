@@ -51,8 +51,28 @@ pub(super) struct Thread {
     search_title: String,
     branch: Option<String>,
     status: String,
+    #[serde(default)]
+    pub(super) sort_at: i64,
+    order_key: Option<String>,
+    #[serde(default)]
+    recent_at: f64,
     model: String,
     settled: bool,
+}
+
+impl Thread {
+    fn sidebar_order(&self, other: &Self) -> std::cmp::Ordering {
+        self.order_key.cmp(&other.order_key).then_with(|| {
+            if self.order_key.is_none() {
+                other
+                    .sort_at
+                    .cmp(&self.sort_at)
+                    .then(self.id.cmp(&other.id))
+            } else {
+                self.id.cmp(&other.id)
+            }
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -192,7 +212,25 @@ impl Conversation {
     }
 }
 
+#[derive(Deserialize)]
+pub(super) struct WorkspaceChanges {
+    scratch_available: bool,
+    projects: Vec<Project>,
+    threads: Vec<Thread>,
+    removed_projects: Vec<String>,
+    removed_threads: Vec<String>,
+}
+
+fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize> {
+    rows.iter()
+        .enumerate()
+        .map(|(i, row)| (id(row).clone(), i))
+        .collect()
+}
+
 pub(super) struct Workspace {
+    pub(super) feed: Option<u64>,
+    pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
     pub questions: Forms,
     pub(super) scratch_available: bool,
@@ -220,6 +258,8 @@ impl Workspace {
     }
     pub fn new() -> Self {
         Self {
+            feed: None,
+            paused: false,
             diff: Default::default(),
             scratch_available: false,
             projects: Vec::new(),
@@ -248,16 +288,48 @@ impl Workspace {
         for t in &mut threads {
             t.search_title = t.title.to_lowercase();
         }
-        self.by_project = projects
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.id.clone(), i))
-            .collect();
-        self.by_thread = threads
-            .iter()
-            .enumerate()
-            .map(|(i, t)| (t.id.clone(), i))
-            .collect();
+        self.by_project = row_index(&projects, |p| &p.id);
+        threads.sort_by(Thread::sidebar_order);
+        self.by_thread = row_index(&threads, |t| &t.id);
+        self.projects = projects;
+        self.threads = threads;
+        self.reconcile();
+    }
+
+    fn apply_changes(&mut self, changes: WorkspaceChanges) {
+        self.scratch_available = changes.scratch_available;
+        for project in changes.projects {
+            self.put_project(project);
+        }
+        if !changes.removed_projects.is_empty() {
+            let removed: HashSet<_> = changes.removed_projects.into_iter().collect();
+            self.projects.retain(|p| !removed.contains(&p.id));
+            self.by_project = row_index(&self.projects, |p| &p.id);
+        }
+        let mut reorder = !changes.removed_threads.is_empty();
+        for mut thread in changes.threads {
+            thread.search_title = thread.title.to_lowercase();
+            if let Some(&index) = self.by_thread.get(&thread.id) {
+                reorder |= !thread.sidebar_order(&self.threads[index]).is_eq();
+                self.threads[index] = thread;
+            } else {
+                self.by_thread.insert(thread.id.clone(), self.threads.len());
+                self.threads.push(thread);
+                reorder = true;
+            }
+        }
+        if !changes.removed_threads.is_empty() {
+            let removed: HashSet<_> = changes.removed_threads.into_iter().collect();
+            self.threads.retain(|t| !removed.contains(&t.id));
+        }
+        if reorder {
+            self.threads.sort_by(Thread::sidebar_order);
+            self.by_thread = row_index(&self.threads, |t| &t.id);
+        }
+        self.reconcile();
+    }
+
+    fn reconcile(&mut self) {
         if self
             .conversation
             .as_ref()
@@ -271,13 +343,16 @@ impl Workspace {
         self.terminal_heights
             .retain(|id, _| self.by_thread.contains_key(id));
         self.drafts.retain(|id, _| self.by_thread.contains_key(id));
-        self.project_scope.update(&projects);
-        self.projects = projects;
-        self.threads = threads;
+        self.project_scope.update(&self.projects);
         self.filter();
     }
 
-    pub fn upsert_project(&mut self, mut project: Project) {
+    pub fn upsert_project(&mut self, project: Project) {
+        self.put_project(project);
+        self.filter();
+    }
+
+    fn put_project(&mut self, mut project: Project) {
         project.search_title = project.title.to_lowercase();
         if let Some(&index) = self.by_project.get(&project.id) {
             self.projects[index] = project;
@@ -286,21 +361,16 @@ impl Workspace {
                 .insert(project.id.clone(), self.projects.len());
             self.projects.push(project);
         }
-        self.filter();
     }
 
     pub fn insert_launched(&mut self, mut thread: Thread) {
-        thread.search_title = thread.title.to_lowercase();
-        if let Some(&i) = self.by_thread.get(&thread.id) {
-            self.threads.remove(i);
+        if self.by_thread.contains_key(&thread.id) {
+            return;
         }
-        self.threads.insert(0, thread);
-        self.by_thread = self
-            .threads
-            .iter()
-            .enumerate()
-            .map(|(i, t)| (t.id.clone(), i))
-            .collect();
+        thread.search_title = thread.title.to_lowercase();
+        self.threads.push(thread);
+        self.threads.sort_by(Thread::sidebar_order);
+        self.by_thread = row_index(&self.threads, |t| &t.id);
         self.filter();
     }
     pub(super) fn launch_projects(&self) -> Vec<rune_kit::ComboboxOption> {
@@ -348,27 +418,14 @@ impl Workspace {
     pub(super) fn has_thread(&self, id: &str) -> bool {
         self.by_thread.contains_key(id)
     }
-    pub(super) fn thread_count(&self) -> usize {
-        self.threads.len()
-    }
 
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }
-    pub fn remove_thread(&mut self, id: &str) {
+    pub fn close_unavailable_thread(&mut self, id: &str) {
         if self.conversation.as_ref().is_some_and(|pane| pane.id == id) {
             self.conversation = None;
             self.diff = Default::default();
-        }
-        self.drafts.remove(id);
-        self.terminal_heights.remove(id);
-        self.questions.remove(id);
-        if let Some(index) = self.by_thread.remove(id) {
-            self.threads.remove(index);
-            for i in index..self.threads.len() {
-                self.by_thread.insert(self.threads[i].id.clone(), i);
-            }
-            self.filter();
         }
     }
 
@@ -392,7 +449,7 @@ impl Workspace {
                 pane.set_active_run(run);
                 pane.sequence = Some(sequence);
             }
-            LiveUpdate::Deleted => self.remove_thread(id),
+            LiveUpdate::Deleted => self.close_unavailable_thread(id),
             LiveUpdate::Window { window } => pane.replace(window, &mut self.questions),
             LiveUpdate::Status { state } if !pane.needs_reload => pane.set_status(state),
             LiveUpdate::Append { index, key, text }
@@ -436,9 +493,20 @@ impl Workspace {
 impl Desktop {
     pub(super) fn replace_workspace(&mut self, projects: Vec<Project>, threads: Vec<Thread>) {
         self.workspace.replace(projects, threads);
+        self.reconcile_workspace();
+    }
+    pub(super) fn apply_workspace(&mut self, changes: WorkspaceChanges) {
+        self.workspace.apply_changes(changes);
+        self.reconcile_workspace();
+    }
+    fn reconcile_workspace(&mut self) {
         self.new_threads
             .retain(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
         self.history.retain(&self.workspace, &self.new_threads);
+        self.close_stale_terminal();
+        if self.palette.is_some() {
+            self.filter_palette(true);
+        }
     }
     pub(super) fn prepare_scratch(&mut self) {
         if self.can_operate && self.workspace.scratch_available && !self.pending {
@@ -478,6 +546,14 @@ impl Desktop {
         if self.pending {
             return;
         }
+        let opened = self.workspace.show_projects
+            || self.new_threads.active.is_some()
+            || !self.history.on_thread(id)
+            || self
+                .workspace
+                .conversation
+                .as_ref()
+                .is_none_or(|pane| pane.id != id);
         self.history.visit(Page::Thread(id.into()));
         self.new_threads.active = None;
         self.workspace.show_projects = false;
@@ -487,6 +563,9 @@ impl Desktop {
             .as_ref()
             .is_some_and(|p| p.id == id)
         {
+            if opened {
+                self.write_request(None, Request::VisitThread { thread: id });
+            }
             return;
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
@@ -518,6 +597,9 @@ impl Desktop {
             revision: 0,
         });
         self.refresh_thread();
+        if opened {
+            self.write_request(None, Request::VisitThread { thread: id });
+        }
     }
 
     pub(super) fn toggle_sidebar(&mut self) {
@@ -826,6 +908,14 @@ fn sidebar(
         )
         .child(sidebar_header::view(s, theme, dark, overlays))
         .child(list);
+    if s.workspace.paused {
+        sidebar = sidebar.child(action(
+            "Sidebar updates paused. Reconnect",
+            theme,
+            !s.pending,
+            |s| s.send(Request::Refresh),
+        ));
+    }
     if settled > 0 && query_empty {
         sidebar = sidebar.child(
             action(&format!("Settled  {settled}"), theme, true, |s| {
@@ -1547,6 +1637,73 @@ mod tests {
         ));
         assert!(pane.status == LiveStatus::Paused);
         assert!(pane.approval_menu.is_none());
+        assert!(app.pending);
+    }
+
+    #[test]
+    fn sidebar_updates_keep_pending_requests_and_ignore_replaced_subscriptions() {
+        use super::super::{Reply, WorkerMessage};
+        let mut app = Desktop::new();
+        let thread = |id: &str, title: &str, sort_at| Thread {
+            id: id.into(),
+            project: "p".into(),
+            title: title.into(),
+            search_title: String::new(),
+            branch: None,
+            status: "completed".into(),
+            sort_at,
+            recent_at: sort_at as f64,
+            order_key: None,
+            model: String::new(),
+            settled: false,
+        };
+        app.workspace
+            .replace(vec![], vec![thread("a", "Original", 1)]);
+        app.workspace.feed = Some(21);
+        app.open_thread("a");
+        app.pending = true;
+        let update = |watch, threads, removed_threads| WorkerMessage {
+            id: None,
+            reply: Reply::WorkspaceLive {
+                watch,
+                changes: WorkspaceChanges {
+                    scratch_available: false,
+                    threads,
+                    projects: vec![],
+                    removed_projects: vec![],
+                    removed_threads,
+                },
+            },
+        };
+        app.receive(update(
+            21,
+            vec![thread("a", "Renamed", 1), thread("b", "New", 2)],
+            vec![],
+        ));
+        app.receive(update(20, vec![], vec!["a".into()]));
+        assert_eq!(app.workspace.by_thread.get("a"), Some(&1));
+        assert_eq!(app.workspace.threads[1].search_title, "renamed");
+        assert_eq!(app.workspace.conversation.as_ref().unwrap().id, "a");
+        app.workspace
+            .insert_launched(thread("a", "Late launch receipt", 0));
+        assert_eq!(app.workspace.threads[1].search_title, "renamed");
+        app.workspace.conversation.as_mut().unwrap().begin_watch(22);
+        app.receive(WorkerMessage {
+            id: None,
+            reply: Reply::Live {
+                watch: 22,
+                thread: "a".into(),
+                sequence: 10,
+                update: LiveUpdate::Deleted,
+            },
+        });
+        assert!(app.workspace.conversation.is_none());
+        assert!(
+            app.workspace.has_thread("a"),
+            "archive and restore may coalesce in the shell"
+        );
+        app.receive(update(21, vec![], vec!["a".into()]));
+        assert!(app.workspace.conversation.is_none());
         assert!(app.pending);
     }
 
