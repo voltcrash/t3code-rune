@@ -59,6 +59,8 @@ and the same checkout-local desktop data.
 and the repository’s pinned standalone Node distribution. Artifacts go to `release/` or the directory
 given by `--output-dir`. Use `--build-version` to package a specific release, including its nightly
 icons and installer artwork. By default the builder resolves the version from the Git tag or manifest.
+To reuse the same JavaScript across platform builds, run `vp run build:desktop:bundle` once, then
+pass `--skip-build` to the Rune packager. Set `APP_VERSION` for the bundle if using `--build-version`.
 
 - On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
   the app, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the

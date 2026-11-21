@@ -425,7 +425,8 @@ export default defineConfig(({ command }) => {
     build: {
       outDir: "dist",
       emptyOutDir: true,
-      manifest: true,
+      // Release artifact uploads omit dot-directories. The Rune terminal reads the WASM asset names.
+      manifest: "asset-manifest.json",
       sourcemap: buildSourcemap,
       ...(builtDev ? { watch: { exclude: rolldownWatchExclude } } : {}),
       rolldownOptions: {

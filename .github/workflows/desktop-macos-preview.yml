@@ -104,5 +104,6 @@ jobs:
           path: |
             apps/server/dist
             apps/desktop/dist-electron
+            apps/desktop/dist/rune-bundle/rune-projects.mjs
           if-no-files-found: error
           retention-days: 1
