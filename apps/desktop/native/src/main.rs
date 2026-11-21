@@ -17,6 +17,7 @@ mod navigation;
 mod new_thread;
 mod permissions;
 mod questions;
+mod sidebar_layout;
 mod stage;
 mod terminal;
 mod workspace;
@@ -25,6 +26,11 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    SidebarLayout {
+        width: Option<u32>,
+        open: Option<bool>,
+        error: Option<String>,
+    },
     Appearance {
         mode: appearance::Mode,
         error: Option<String>,
@@ -201,6 +207,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    SetSidebarWidth {
+        width: Option<u32>,
+    },
+    SetSidebarOpen {
+        open: bool,
+    },
     SetAppearance {
         mode: appearance::Mode,
     },
@@ -337,6 +349,7 @@ enum Request<'a> {
 }
 
 struct Desktop {
+    sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
     settings_open: bool,
     appearance_error: Option<String>,
@@ -367,6 +380,7 @@ impl Desktop {
     fn new() -> Self {
         Self {
             output: None,
+            sidebar_layout: Default::default(),
             answer_advance: None,
             appearance: Default::default(),
             settings_open: false,
@@ -454,6 +468,15 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::SidebarLayout { width, open, error } = message.reply {
+            if let Some(error) = error {
+                self.error = Some(error);
+            } else {
+                self.sidebar_layout.width = width;
+                self.sidebar_layout.open = open.unwrap_or(true);
+            }
+            return;
+        }
         if let Reply::Appearance { mode, error } = message.reply {
             self.appearance = mode;
             self.appearance_error = error;
@@ -742,6 +765,7 @@ impl Desktop {
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadRenamed { .. }
+            | Reply::SidebarLayout { .. }
             | Reply::Appearance { .. }
             | Reply::WorkspacePaused { .. }
             | Reply::ThreadModels { .. }
@@ -759,11 +783,13 @@ impl Desktop {
                 self.error = Some(message);
             }
             Reply::Disconnected | Reply::LocalClosed => {
+                self.sidebar_layout.end_drag();
                 let lost = matches!(message.reply, Reply::LocalClosed);
                 let output = self.output.take();
                 *self = Self {
                     output,
                     request_id: self.request_id,
+                    sidebar_layout: self.sidebar_layout,
                     appearance: self.appearance,
                     error: lost.then(|| {
                         "The local environment stopped. Reconnect to start it again.".to_owned()
@@ -979,7 +1005,8 @@ fn start() -> io::Result<()> {
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
-            s.poll_answer(tx) || stop || clock || renamed
+            let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
+            s.poll_answer(tx) || stop || clock || renamed || resized
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             if !ev.mods.alt && !ev.mods.shift && ev.is_command(',') {

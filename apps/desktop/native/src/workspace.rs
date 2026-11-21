@@ -270,7 +270,6 @@ pub(super) struct Workspace {
     search_target: Option<String>,
     project_scope: sidebar_header::ProjectScope,
     pub(super) show_projects: bool,
-    sidebar: bool,
     show_settled: bool,
 }
 
@@ -310,7 +309,6 @@ impl Workspace {
             search_target: None,
             project_scope: Default::default(),
             show_projects: false,
-            sidebar: true,
             show_settled: false,
         }
     }
@@ -656,7 +654,14 @@ impl Desktop {
 
     pub(super) fn toggle_sidebar(&mut self) {
         self.workspace.project_scope.close();
-        self.workspace.sidebar = !self.workspace.sidebar;
+        self.sidebar_layout.end_drag();
+        self.sidebar_layout.open = !self.sidebar_layout.open;
+        self.write_request(
+            None,
+            Request::SetSidebarOpen {
+                open: self.sidebar_layout.open,
+            },
+        );
     }
 
     pub(super) fn leave_visible_thread(&mut self) {
@@ -1064,7 +1069,7 @@ fn sidebar(
         .w(width)
         .h_full()
         .clip_rounded(0.)
-        .children(s.stage.backdrop(dark))
+        .children(s.stage.backdrop(dark, width))
         .child(content)
 }
 
@@ -1475,9 +1480,8 @@ fn timeline(
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
-    let narrow = cx
-        .layout_with("workspace", |rect| rect[2] < 640.0)
-        .unwrap_or(false);
+    let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
+    let narrow = viewport[0] < 640.;
     let composing = s.new_threads.active.as_deref();
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
@@ -1491,12 +1495,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .center_y()
         .gap(8.0)
         .px(16.0);
-    if !s.workspace.sidebar {
-        header = header
-            .pl(inset.leading + 12.0)
-            .child(action("Show sidebar", theme, true, |s| {
-                s.workspace.sidebar = true
-            }));
+    if !s.sidebar_layout.open {
+        header = header.pl(inset.leading + 12.0).child(action(
+            "Show sidebar",
+            theme,
+            true,
+            Desktop::toggle_sidebar,
+        ));
     }
     if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
         header = header
@@ -1608,12 +1613,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         }
         main = main.child(composer::view(s, thread, theme, cx, &mut overlays));
     }
-    if let Some(drawer) = crate::terminal::view(
-        s,
-        theme,
-        s.dark(cx),
-        cx.layout_size("workspace").unwrap_or([1100., 780.])[1],
-    ) {
+    if let Some(drawer) = crate::terminal::view(s, theme, s.dark(cx), viewport[1]) {
         main = main.child(drawer);
     }
     let diff_open = s.workspace.diff.visible(s);
@@ -1622,19 +1622,29 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    let show_sidebar = s.workspace.sidebar && (!diff_open || split_panel);
+    let show_sidebar = s.sidebar_layout.open && (!diff_open || split_panel);
+    let bounds = crate::sidebar_layout::Bounds::new(viewport[0], inset.leading);
+    let width = if narrow {
+        176.
+    } else {
+        bounds.shown(s.sidebar_layout)
+    };
     s.workspace.row_clock.mounted.set(show_sidebar);
     if show_sidebar {
         root = root
             .child(sidebar(
                 s,
                 inset.leading,
-                if narrow { 176.0 } else { 256.0 },
+                width,
                 theme,
                 s.dark(cx),
                 &mut overlays,
             ))
-            .child(el().w(1.0).h_full().fill(theme.separator));
+            .child(if narrow {
+                el().w(1.).h_full().fill(theme.separator)
+            } else {
+                el().w(1.)
+            });
     }
     thread_actions::sidebar_menu(s, &Kit::neutral(s.dark(cx)), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
@@ -1650,6 +1660,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         }
     } else {
         root.child(main)
+    };
+    let workspace = if show_sidebar && !narrow {
+        workspace.child(crate::sidebar_layout::rail(width, bounds, theme))
+    } else {
+        workspace
     };
     images::overlay(s, theme, &mut overlays);
     crate::appearance::overlay(s, cx, theme, &mut overlays);

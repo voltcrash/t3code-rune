@@ -487,27 +487,42 @@ const t3Home = packaged
       process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
     )
   : devHome || NodePath.resolve(desktop, "../../.t3/rune");
-const appearancePath = NodePath.join(t3Home, "desktop-appearance");
+function readPreference(name) {
+  try {
+    return NodeFS.readFileSync(NodePath.join(t3Home, name), "utf8").trim();
+  } catch (error) {
+    if (error.code !== "ENOENT") process.stderr.write(`Couldn’t read ${name}.\n`);
+    return undefined;
+  }
+}
+
+function savePreference(name, value) {
+  const path = NodePath.join(t3Home, name);
+  if (value === null) {
+    NodeFS.rmSync(path, { force: true });
+    return;
+  }
+  const temp = path + "." + NodeCrypto.randomUUID();
+  NodeFS.mkdirSync(t3Home, { recursive: true });
+  try {
+    NodeFS.writeFileSync(temp, String(value) + "\n", { mode: 0o600, flag: "wx" });
+    NodeFS.renameSync(temp, path);
+  } finally {
+    NodeFS.rmSync(temp, { force: true });
+  }
+}
+
 function validAppearance(mode) {
   return mode === "system" || mode === "light" || mode === "dark";
 }
-let appearance = "system";
-try {
-  const saved = NodeFS.readFileSync(appearancePath, "utf8").trim();
-  if (validAppearance(saved)) appearance = saved;
-} catch (error) {
-  if (error.code !== "ENOENT")
-    process.stderr.write("Couldn’t read the desktop appearance preference.\n");
-}
+const savedAppearance = readPreference("desktop-appearance");
+let appearance = validAppearance(savedAppearance) ? savedAppearance : "system";
 write({ type: "appearance", mode: appearance });
 
 function setAppearance(mode) {
-  const temp = appearancePath + "." + NodeCrypto.randomUUID();
   try {
     if (!validAppearance(mode)) throw new Error("Unknown appearance");
-    NodeFS.mkdirSync(t3Home, { recursive: true });
-    NodeFS.writeFileSync(temp, mode + "\n", { mode: 0o600, flag: "wx" });
-    NodeFS.renameSync(temp, appearancePath);
+    savePreference("desktop-appearance", mode);
     appearance = mode;
     write({ type: "appearance", mode });
   } catch {
@@ -516,9 +531,29 @@ function setAppearance(mode) {
       mode: appearance,
       error: "Couldn’t save the appearance on this computer.",
     });
-    try {
-      NodeFS.rmSync(temp, { force: true });
-    } catch {}
+  }
+}
+
+const validWidth = (width) => Number.isInteger(width) && width > 0 && width <= 0xffffffff;
+const savedWidth = Number(readPreference("desktop-sidebar-width"));
+write({
+  type: "sidebarlayout",
+  width: validWidth(savedWidth) ? savedWidth : null,
+  open: readPreference("desktop-sidebar-open") !== "false",
+});
+
+function setSidebarLayout(request) {
+  try {
+    if (request.type === "setsidebaropen" && typeof request.open === "boolean") {
+      savePreference("desktop-sidebar-open", request.open);
+    } else if (
+      request.type === "setsidebarwidth" &&
+      (request.width === null || validWidth(request.width))
+    ) {
+      savePreference("desktop-sidebar-width", request.width);
+    }
+  } catch {
+    write({ type: "sidebarlayout", error: "Couldn’t save the sidebar layout on this computer." });
   }
 }
 
@@ -918,6 +953,8 @@ try {
     const reply = (value) => write({ id: request?.id, ...value });
     if (request?.type === "setappearance") {
       setAppearance(request.mode);
+    } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {
+      setSidebarLayout(request);
     } else if (request?.type === "visitthread") {
       if (visibleThread !== request.thread) leaveThread();
       visibleThread = request.thread;

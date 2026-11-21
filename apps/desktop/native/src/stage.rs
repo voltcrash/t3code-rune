@@ -16,10 +16,12 @@ impl Stage {
         !matches!(self, Self::Beta)
     }
 
-    pub fn backdrop(self, dark: bool) -> Option<El> {
-        static DEV_LIGHT: OnceLock<Pixels> = OnceLock::new();
-        static DEV_DARK: OnceLock<Pixels> = OnceLock::new();
-        static NIGHTLY: OnceLock<Pixels> = OnceLock::new();
+    pub fn backdrop(self, dark: bool, width: f32) -> Option<El> {
+        // Tiles follow the 8192 × 96 web artwork at its fixed 80-point height.
+        const TILES: usize = 27;
+        static DEV_LIGHT: [OnceLock<Pixels>; TILES] = [const { OnceLock::new() }; TILES];
+        static DEV_DARK: [OnceLock<Pixels>; TILES] = [const { OnceLock::new() }; TILES];
+        static NIGHTLY: [OnceLock<Pixels>; TILES] = [const { OnceLock::new() }; TILES];
         let (cache, art) = match self {
             Self::Dev => (
                 if dark { &DEV_DARK } else { &DEV_LIGHT },
@@ -31,14 +33,29 @@ impl Stage {
             ),
             Self::Beta => return None,
         };
-        let pixels = cache.get_or_init(|| rasterize(art, dark));
-        Some(el().absolute(0., 0.).size(256., 80.).pixels(pixels))
+        let mut strip = el().absolute(0., 0.).size(width, 80.);
+        for (index, tile) in cache
+            .iter()
+            .take((width / 256.).ceil() as usize)
+            .enumerate()
+        {
+            let pixels = tile.get_or_init(|| rasterize(art, dark, index));
+            strip = strip.child(
+                el().absolute(index as f32 * 256., 0.)
+                    .size(256., 80.)
+                    .pixels(pixels),
+            );
+        }
+        Some(strip)
     }
 }
 
-fn rasterize(art: &str, dark: bool) -> Pixels {
-    // 256 × 80 pt is the widest sidebar. Cropping from the left preserves the web SVG’s scale.
-    let mut svg = art.replacen("0 0 8192 96", "0 0 307.2 96", 1);
+fn rasterize(art: &str, dark: bool, index: usize) -> Pixels {
+    let mut svg = art.replacen(
+        "0 0 8192 96",
+        &format!("{} 0 307.2 96", index as f64 * 307.2),
+        1,
+    );
     for (token, color) in [
         (
             "var(--stage-art-bottom)",
