@@ -21,8 +21,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: {
-        command:
-          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
+        command: "node scripts/build-rune.mjs",
         dependsOn: ["t3#build"],
         cache: false,
       },
@@ -33,7 +32,7 @@ export default defineConfig({
         cache: false,
       },
       dev: {
-        command: "node scripts/dev-rune.mjs --watch",
+        command: "node scripts/launch-rune.mjs --watch",
         cache: false,
       },
       "dev:bundle": {

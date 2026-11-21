@@ -51,7 +51,9 @@ on the printed web port. Disconnect in the desktop window to pair with another e
 `dev:server` and `dev:web` start those processes separately.
 
 For a standalone native window with separate state, `vp run dev:desktop:rune` starts a local
-server in the checkout’s `.t3/rune`.
+server in the checkout’s `.t3/rune`. To run a release build from this checkout, use
+`vp run build:desktop` and then `vp run start:desktop`. It uses the compiled Node server
+and the same checkout-local desktop data.
 
 `vp run dist:desktop:rune` builds the native desktop app for the host architecture using Rust
 and the repository’s pinned standalone Node distribution. Artifacts go to `release/`.

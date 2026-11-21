@@ -3,6 +3,9 @@
 # (dependency install, Chromium) lives in update-content.sh.
 set -euo pipefail
 
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends libxkbcommon-dev
+
 # The Vite+ CLI is the repo task runner (vp i, vp run dev, vp test run).
 # Download to a file first: a curl failure inside $( ) would yield an empty
 # script and a false success. VP_NODE_MANAGER=no skips the installer's node

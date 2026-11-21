@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import plist from "plist";
-import { build } from "vite-plus/pack";
+import { bundleRuneWorker } from "../apps/desktop/scripts/bundle-rune-worker.mjs";
 
 import rootPackage from "../package.json" with { type: "json" };
 import desktopPackage from "../apps/desktop/package.json" with { type: "json" };
@@ -188,26 +188,7 @@ try {
   });
   await NodeFSP.access(NodePath.join(server, "client/index.html"));
 
-  await build({
-    cwd: desktop,
-    config: false,
-    entry: ["scripts/rune-projects.mjs"],
-    format: "esm",
-    platform: "node",
-    target: `node${process.versions.node.split(".")[0]}`,
-    dts: false,
-    clean: false,
-    shims: true,
-    outDir: resources,
-    sourcemap: false,
-    outputOptions: { codeSplitting: false },
-    deps: {
-      alwaysBundle: (id) =>
-        !id.startsWith("node:") && !["bufferutil", "utf-8-validate"].includes(id),
-      neverBundle: ["bufferutil", "utf-8-validate"],
-      onlyBundle: false,
-    },
-  });
+  await bundleRuneWorker(resources);
 
   await Effect.runPromise(
     Effect.gen(function* () {

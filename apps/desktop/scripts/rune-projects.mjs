@@ -27,8 +27,9 @@ import {
 } from "../src/native/projects.ts";
 
 const packaged = process.argv[2] === "--packaged";
+const sourceBuild = process.argv[2] === "--source-build";
 const buildStage = resolveDesktopAppStageLabel({
-  isDevelopment: !packaged,
+  isDevelopment: !packaged && !sourceBuild,
   appVersion: desktopPackage.version,
 }).toLowerCase();
 
@@ -364,16 +365,19 @@ async function interruptRun(owner, request, reply) {
 
 function localServer() {
   if (!server) {
-    const cwd = NodePath.resolve(import.meta.dirname, packaged ? "server" : "../../server");
+    const desktop = NodePath.resolve(import.meta.dirname, sourceBuild ? "../.." : "..");
+    const cwd = packaged
+      ? NodePath.join(import.meta.dirname, "server")
+      : NodePath.resolve(desktop, "../server");
     const devHome = process.argv[2] === "--integrated-dev" && process.env.T3CODE_RUNE_DEV_HOME;
     const started = startLocalServer({
       cwd,
-      entryPath: NodePath.join(cwd, packaged ? "dist/bin.mjs" : "src/bin.ts"),
+      entryPath: NodePath.join(cwd, packaged || sourceBuild ? "dist/bin.mjs" : "src/bin.ts"),
       t3Home: packaged
         ? NodePath.resolve(
             process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
           )
-        : devHome || NodePath.resolve(import.meta.dirname, "../../../.t3/rune"),
+        : devHome || NodePath.resolve(desktop, "../../.t3/rune"),
       ...(devHome
         ? {
             dev: { port: Number(process.env.T3CODE_PORT), webUrl: process.env.VITE_DEV_SERVER_URL },
