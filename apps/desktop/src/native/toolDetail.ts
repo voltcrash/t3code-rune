@@ -5,6 +5,7 @@ import { resolveExternalWebLink } from "@t3tools/shared/url";
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
 import {
   formatWorkEntryLabel,
+  inlineToolResult,
   projectedWorkEntry,
 } from "@t3tools/client-runtime/work-log/timeline";
 import {
@@ -31,6 +32,10 @@ import { openEnvironmentRpc } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
 
 export function toolRow(key: string, row: OrchestrationV2ProjectedTurnItem, root?: string) {
+  const result = inlineToolResult(row.item);
+  if (result?.kind === "sent-message") {
+    return { key, role: result.kind, body: result.text, attachments: [] };
+  }
   const entry = projectedWorkEntry(row);
   return {
     key,
