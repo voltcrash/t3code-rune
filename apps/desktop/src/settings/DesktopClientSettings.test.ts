@@ -250,8 +250,10 @@ describe("DesktopClientSettings", () => {
           environment.clientSettingsPath,
           `{
             "settings": {
-              "timestampFormat": "12-hour"
-            }
+              "timestampFormat": "12-hour",
+              "futurePreference": "keep"
+            },
+            "profileVersion": 2
           }\n`,
         );
 
@@ -260,6 +262,22 @@ describe("DesktopClientSettings", () => {
         if (Option.isSome(persisted)) {
           assert.equal(persisted.value.timestampFormat, "12-hour");
         }
+        const updated = yield* DesktopClientSettings.setClientFontSmoothing(
+          environment.clientSettingsPath,
+          false,
+        );
+        assert.isFalse(updated.fontSmoothing);
+        assert.deepEqual(
+          JSON.parse(yield* fileSystem.readFileString(environment.clientSettingsPath)),
+          {
+            settings: {
+              timestampFormat: "12-hour",
+              futurePreference: "keep",
+              fontSmoothing: false,
+            },
+            profileVersion: 2,
+          },
+        );
       }),
     ),
   );
@@ -281,6 +299,10 @@ describe("DesktopClientSettings", () => {
         assert.equal(error.operation, "decode-document");
         assert.equal(error.path, environment.clientSettingsPath);
         assert.instanceOf(error.cause, Schema.SchemaError);
+        yield* DesktopClientSettings.setClientFontSmoothing(
+          environment.clientSettingsPath,
+          false,
+        ).pipe(Effect.flip);
         assert.equal(
           yield* fileSystem.readFileString(environment.clientSettingsPath),
           document.contents,

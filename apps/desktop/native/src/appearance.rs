@@ -68,6 +68,7 @@ impl Desktop {
         self.permission_menu = None;
         self.close_sidebar_menus();
         self.settings_open = true;
+        self.typography_advanced = false;
         self.appearance_error = None;
         tx.focus("settings-panel", true);
     }
@@ -75,6 +76,13 @@ impl Desktop {
     fn close_settings(&mut self, tx: &mut Tx) {
         self.settings_open = false;
         tx.focus("settings-trigger", true);
+    }
+
+    fn set_font_smoothing(&mut self, smoothing: bool) {
+        if !self.saving_smoothing && self.font_smoothing.is_some_and(|value| value != smoothing) {
+            self.saving_smoothing =
+                self.write_request(None, Request::SetFontSmoothing { smoothing });
+        }
     }
 }
 
@@ -215,6 +223,117 @@ fn tile(mode: Mode, selected: bool, width: f32, theme: &tok::Theme) -> El {
         })
 }
 
+fn typography(s: &Desktop, narrow: bool, theme: &tok::Theme) -> El {
+    let mut group = col()
+        .w_full()
+        .radius(12.)
+        .border(1., theme.separator)
+        .child(
+            row()
+                .key("advanced-typography")
+                .role("button")
+                .label("Advanced")
+                .focusable(true)
+                .expanded(s.typography_advanced)
+                .w_full()
+                .h(40.)
+                .px(if narrow { 12. } else { 16. })
+                .gap(6.)
+                .center_y()
+                .radius(12.)
+                .hover(theme.separator)
+                .child(
+                    icon(&glyphs::CHEVRON_DOWN, 14.)
+                        .rotate(if s.typography_advanced {
+                            0.
+                        } else {
+                            -std::f32::consts::FRAC_PI_2
+                        })
+                        .color(theme.text_secondary),
+                )
+                .child(label("Advanced", 12., 500., theme.text_secondary))
+                .on_press(|s: &mut Desktop| s.typography_advanced = !s.typography_advanced),
+        );
+    if s.typography_advanced {
+        let checked = s.font_smoothing.unwrap_or(true);
+        let enabled = s.font_smoothing.is_some();
+        let thumb = if narrow { 20. } else { 16. };
+        let toggle = el()
+            .key("font-smoothing")
+            .role("switch")
+            .label("Font smoothing")
+            .checked(checked)
+            .focusable(true)
+            .disabled(!enabled)
+            .size(2. * thumb - 2., thumb + 2.)
+            .radius(thumb)
+            .fill(if checked { theme.text } else { theme.separator })
+            .child(
+                el().absolute(if checked { thumb - 2. } else { 2. }, 2.)
+                    .size(thumb - 2., thumb - 2.)
+                    .radius(thumb)
+                    .fill(theme.bg),
+            )
+            .on_press(move |s: &mut Desktop| s.set_font_smoothing(!checked));
+        let mut title =
+            row()
+                .center_y()
+                .gap(4.)
+                .child(label("Font smoothing", 14., 500., theme.text));
+        if !checked {
+            const UNDO: Icon = Icon {
+                name: "undo-2",
+                view: 24.,
+                body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12"/></g>"#,
+            };
+            title = title.child(
+                el().key("reset-font-smoothing")
+                    .role("button")
+                    .label("Reset font smoothing to default")
+                    .help("Reset to default")
+                    .focusable(true)
+                    .disabled(!enabled)
+                    .size(22., 22.)
+                    .radius(4.)
+                    .center()
+                    .hover(theme.separator)
+                    .child(icon(&UNDO, 12.).color(theme.text_secondary))
+                    .on_press_tx(|s: &mut Desktop, tx| {
+                        s.set_font_smoothing(true);
+                        tx.focus("font-smoothing", true);
+                    }),
+            );
+        }
+        let description = "Use thinner grayscale text smoothing instead of the macOS default.";
+        let copy = col()
+            .min_w(0.)
+            .grow(1.)
+            .gap(3.)
+            .child(title)
+            .child(label(description, 12., 400., theme.text_secondary).wrap());
+        let setting = if narrow {
+            col().gap(12.)
+        } else {
+            row().center_y().gap(16.)
+        };
+        group = group
+            .child(el().w_full().h(1.).fill(theme.separator))
+            .child(
+                setting
+                    .w_full()
+                    .padding(if narrow { 12. } else { 16. })
+                    .child(copy)
+                    .child(toggle),
+            );
+    }
+    col()
+        .w_full()
+        .pt(16.)
+        .gap(8.)
+        .child(label("Typography", 16., 600., theme.text).pl(12.))
+        .child(group)
+}
+
 pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlays: &mut Vec<El>) {
     if !s.settings_open {
         return;
@@ -278,6 +397,9 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                         .map(|mode| tile(mode, s.appearance == mode, (content - 24.) / 3., theme)),
                 ),
         );
+    if cfg!(target_os = "macos") {
+        body = body.child(typography(s, w < 640., theme));
+    }
     if let Some(err) = &s.appearance_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());
     }
@@ -316,7 +438,18 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                 .h_full()
                 .child(header)
                 .child(el().w_full().h(1.).fill(theme.separator))
-                .child(col().w_full().items_center().child(body)),
+                .child(
+                    col()
+                        .key("appearance-scroll")
+                        .w_full()
+                        .grow(1.)
+                        .min_h(0.)
+                        .scroll(rune::ScrollSpec {
+                            stick_bottom: false,
+                        })
+                        .items_center()
+                        .child(body.pb(24.)),
+                ),
         )
         .modal_tx(true, Desktop::close_settings)
         .modal_click_outside(true);

@@ -10,7 +10,10 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
-import { readClientSettings } from "../src/settings/DesktopClientSettings.ts";
+import {
+  readClientSettings,
+  setClientFontSmoothing,
+} from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -617,23 +620,43 @@ const homes = packaged
       },
     })
   : { server: sourceHome, preferences: sourceHome };
-void Effect.runPromise(
-  FileSystem.FileSystem.use((fs) =>
-    readClientSettings(fs, NodePath.join(homes.server, "userdata", "client-settings.json")),
-  ).pipe(
+const clientSettingsPath = NodePath.join(homes.server, "userdata", "client-settings.json");
+let typographySettings = DEFAULT_CLIENT_SETTINGS;
+function publishTypography(error) {
+  write({
+    type: "typography",
+    sans: typographySettings.fontFamilySans,
+    code: typographySettings.fontFamilyCode,
+    smoothing: typographySettings.fontSmoothing,
+    error,
+  });
+}
+let typographyWrites = Effect.runPromise(
+  FileSystem.FileSystem.use((fs) => readClientSettings(fs, clientSettingsPath)).pipe(
     Effect.provide(NodeFileSystem.layer),
     Effect.provideService(Logger.LogToStderr, true),
     Effect.catch(() => Effect.succeed(Option.none())),
   ),
 ).then((saved) => {
-  const settings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
-  write({
-    type: "typography",
-    sans: settings.fontFamilySans,
-    code: settings.fontFamilyCode,
-    smoothing: settings.fontSmoothing,
-  });
+  typographySettings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
+  publishTypography();
 });
+
+async function setFontSmoothing(smoothing) {
+  try {
+    if (typeof smoothing !== "boolean") throw new Error("Invalid font smoothing");
+    typographySettings = await Effect.runPromise(
+      setClientFontSmoothing(clientSettingsPath, smoothing).pipe(
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodePathLayer.layer),
+        Effect.provideService(Logger.LogToStderr, true),
+      ),
+    );
+    publishTypography();
+  } catch {
+    publishTypography("Couldn’t save font smoothing on this computer.");
+  }
+}
 
 function readPreference(name) {
   try {
@@ -1201,6 +1224,8 @@ try {
     const reply = (value) => write({ id: request?.id, ...value });
     if (request?.type === "setappearance") {
       setAppearance(request.mode);
+    } else if (request?.type === "setfontsmoothing") {
+      typographyWrites = typographyWrites.then(() => setFontSmoothing(request.smoothing));
     } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {
       setSidebarLayout(request);
     } else if (request?.type === "visitthread") {
@@ -1247,7 +1272,7 @@ try {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
-  await Promise.all([workspaceRequests, downloads]);
+  await Promise.all([workspaceRequests, downloads, typographyWrites]);
 } finally {
   close();
   await server?.stopped;
