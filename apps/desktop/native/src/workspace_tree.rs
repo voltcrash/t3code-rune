@@ -1,6 +1,9 @@
+#[path = "workspace_tree/filter.rs"]
+mod filter;
 use super::workspace_files::{Input, Location};
 use super::{Desktop, action, label};
-use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, Tx, col, el, icon, row, tok};
+use filter::Matches;
+use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, TextEdit, Tx, col, el, icon, row, tok};
 use rune_kit::{Kit, TreeItem, TreeRow, TreeStyle, glyphs};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -19,17 +22,47 @@ pub(crate) struct Entry {
     kind: Kind,
     #[serde(default)]
     ignored: bool,
+    #[serde(skip)]
+    search_path: std::cell::OnceCell<String>,
 }
 impl Entry {
+    fn new(path: String, kind: Kind) -> Self {
+        Self {
+            path,
+            kind,
+            ignored: false,
+            search_path: Default::default(),
+        }
+    }
+    fn search_path(&self) -> &str {
+        self.search_path.get_or_init(|| {
+            let mut path = self.path.to_lowercase();
+            if self.kind == Kind::Directory {
+                path.push('/');
+            }
+            path
+        })
+    }
     fn name(&self) -> &str {
         self.path.rsplit('/').next().unwrap_or(&self.path)
     }
 }
 
+#[derive(Default)]
 struct Directory {
     entries: Vec<Rc<Entry>>,
     error: Option<String>,
     truncated: bool,
+}
+
+impl Directory {
+    fn sort(&mut self) {
+        self.entries.sort_by(|a, b| {
+            (a.kind == Kind::File)
+                .cmp(&(b.kind == Kind::File))
+                .then_with(|| rune_kit::natural_cmp(a.name(), b.name()))
+        });
+    }
 }
 
 struct Visible {
@@ -46,6 +79,8 @@ pub(crate) struct Explorer {
     visible: Vec<Visible>,
     cursor: Option<String>,
     revision: u64,
+    query: TextEdit,
+    matches: Option<Matches>,
 }
 
 impl Explorer {
@@ -59,19 +94,32 @@ impl Explorer {
             visible: Vec::new(),
             cursor: None,
             revision: 0,
+            query: TextEdit::new(""),
+            matches: None,
         }
+    }
+    fn focus_row(&mut self, path: &str, tx: &mut Tx) {
+        self.cursor = Some(path.into());
+        tx.focus("workspace-tree", true);
+        tx.scroll_into_view_in("workspace-tree-rows", path);
     }
     fn rebuild(&mut self) {
         self.visible.clear();
-        if let Some(root) = self.directories.get("") {
+        let directories = self
+            .matches
+            .as_ref()
+            .map_or(&self.directories, |f| &f.directories);
+        if let Some(root) = directories.get("") {
             let mut queue: Vec<_> = root.entries.iter().rev().map(|e| (e, 0)).collect();
             while let Some((entry, depth)) = queue.pop() {
                 self.visible.push(Visible {
                     entry: Rc::clone(entry),
                     depth,
                 });
-                if self.expanded.contains(&entry.path)
-                    && let Some(dir) = self.directories.get(&entry.path)
+                if self.matches.as_ref().map_or_else(
+                    || self.expanded.contains(&entry.path),
+                    |f| !f.closed.contains(&entry.path),
+                ) && let Some(dir) = directories.get(&entry.path)
                 {
                     queue.extend(dir.entries.iter().rev().map(|e| (e, depth + 1)));
                 }
@@ -93,26 +141,30 @@ impl Explorer {
             let (parent, name) = e.path.rsplit_once('/').unwrap_or(("", &e.path));
             parent == directory && !name.is_empty() && name != "." && name != ".."
         });
-        entries.sort_by(|a, b| {
-            (a.kind == Kind::File)
-                .cmp(&(b.kind == Kind::File))
-                .then_with(|| rune_kit::natural_cmp(a.name(), b.name()))
-        });
-        self.directories.insert(
-            directory,
-            Directory {
-                entries: entries.into_iter().map(Rc::new).collect(),
-                error,
-                truncated,
-            },
-        );
-        self.rebuild();
+        let mut page = Directory {
+            entries: entries.into_iter().map(Rc::new).collect(),
+            error,
+            truncated,
+        };
+        page.sort();
+        self.directories.insert(directory, page);
+        self.refresh_matches();
     }
 }
 
 impl Desktop {
     pub(crate) fn close_explorer(&mut self) {
         if let Some(tree) = self.workspace.explorer.take() {
+            if let Some(filter) = tree.matches {
+                self.file_request(
+                    tree.location.clone(),
+                    filter.operation,
+                    Input::Filter {
+                        query: String::new(),
+                        cancel: true,
+                    },
+                );
+            }
             self.file_request(
                 tree.location,
                 tree.generation,
@@ -155,12 +207,20 @@ impl Desktop {
             return;
         };
         let expanded = std::mem::take(&mut tree.expanded);
-        let selected = tree.cursor.clone();
+        let selected = tree
+            .matches
+            .as_ref()
+            .map_or_else(|| tree.cursor.clone(), |f| f.previous_cursor.clone());
+        let query = tree.query.text.clone();
         self.close_explorer();
         self.show_file_tree(tx);
         if let Some(tree) = &mut self.workspace.explorer {
             tree.expanded = expanded;
             tree.cursor = selected;
+            tree.query = TextEdit::new(&query);
+        }
+        if !query.trim().is_empty() {
+            self.filter_tree();
         }
         self.reload_file_preview();
     }
@@ -217,7 +277,7 @@ impl Desktop {
             }
         }
     }
-    fn select_entry(&mut self, path: &str, open: bool, tx: &mut Tx) {
+    fn select_entry(&mut self, path: &str, open: bool, preview_only: bool, tx: &mut Tx) {
         let Some(tree) = &mut self.workspace.explorer else {
             return;
         };
@@ -225,13 +285,21 @@ impl Desktop {
             return;
         };
         let dir = v.entry.kind == Kind::Directory;
-        tree.cursor = Some(path.into());
-        tx.focus("workspace-tree", true);
-        tx.scroll_into_view_in("workspace-tree-rows", path);
+        tree.focus_row(path, tx);
         if !dir {
             let loc = tree.location.clone();
             self.open_workspace_file(loc, path.into());
+            if preview_only {
+                tx.focus_when_shown("Close file", true);
+            }
         } else if open {
+            if let Some(f) = &mut tree.matches {
+                if !f.closed.remove(path) {
+                    f.closed.insert(path.into());
+                }
+                tree.rebuild();
+                return;
+            }
             if !tree.expanded.remove(path) {
                 tree.expanded.insert(path.into());
             }
@@ -245,7 +313,7 @@ impl Desktop {
     }
 }
 
-fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx) -> bool {
+fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx, preview_only: bool) -> bool {
     let Some(tree) = &s.workspace.explorer else {
         return false;
     };
@@ -262,9 +330,11 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Enter => true,
         Key::Text(ref t) if t == " " => true,
         Key::Right => {
-            current.entry.kind == Kind::Directory && !tree.expanded.contains(&current.entry.path)
+            current.entry.kind == Kind::Directory && !tree.directory_open(&current.entry.path)
         }
-        Key::Left => tree.expanded.contains(&current.entry.path),
+        Key::Left => {
+            current.entry.kind == Kind::Directory && tree.directory_open(&current.entry.path)
+        }
         _ => false,
     };
     let target = if toggle {
@@ -300,12 +370,12 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let path = tree.visible[target].entry.path.clone();
     if !toggle || !tx.key_repeat() {
-        s.select_entry(&path, toggle, tx);
+        s.select_entry(&path, toggle, preview_only, tx);
     }
     true
 }
 
-pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
+pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit, preview_only: bool) -> El {
     let tree = s.workspace.explorer.as_ref().unwrap();
     let style = TreeStyle::from_kit(kit).chevron_only_folders(true);
     let k = kit.clone();
@@ -333,7 +403,7 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
                 let e = &v.entry;
                 let path = e.path.clone();
                 let folder = e.kind == Kind::Directory;
-                let open = folder.then(|| tree.expanded.contains(&path));
+                let open = folder.then(|| tree.directory_open(&path));
                 let state = TreeRow::new(&path, v.depth)
                     .expanded(open)
                     .selected(tree.cursor.as_ref() == Some(&path));
@@ -343,6 +413,9 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
                     rune_kit::file_icon(&path)
                 };
                 let mut item = TreeItem::new(e.name()).icon(glyph);
+                if tree.matches.is_some() {
+                    item = item.highlight(tree.query.text.trim());
+                }
                 if e.ignored {
                     item = item.label_color(k.c.text_muted);
                 }
@@ -356,7 +429,9 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
                         row = row.help(msg);
                     }
                 }
-                row.on_press_tx(move |s: &mut Desktop, tx| s.select_entry(&path, true, tx))
+                row.on_press_tx(move |s: &mut Desktop, tx| {
+                    s.select_entry(&path, true, preview_only, tx)
+                })
             },
         )
         .virtual_rows_version((tree.generation, tree.revision));
@@ -368,7 +443,7 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
         .grow(1.)
         .min_h(0.)
         .w_full()
-        .on_key(key);
+        .on_key(move |s: &mut Desktop, ev, tx| key(s, ev, tx, preview_only));
     if let Some(cur) = &tree.cursor {
         list = list.active_descendant(cur);
     }
@@ -380,7 +455,15 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
             stick_bottom: false,
         })
         .child(rows);
-    let message = if let Some(root) = tree.directories.get("") {
+    let message = if let Some(f) = &tree.matches {
+        f.error
+            .as_deref()
+            .or(tree.visible.is_empty().then_some(if f.pending {
+                "Loading files…"
+            } else {
+                "No matching files."
+            }))
+    } else if let Some(root) = tree.directories.get("") {
         root.error
             .as_deref()
             .or(root.entries.is_empty().then_some("This folder is empty."))
@@ -407,11 +490,14 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
                 .wrap(),
         );
     }
-    if tree
-        .directories
-        .iter()
-        .any(|(k, d)| d.truncated && (k.is_empty() || tree.expanded.contains(k)))
-    {
+    if tree.matches.as_ref().map_or_else(
+        || {
+            tree.directories
+                .iter()
+                .any(|(k, d)| d.truncated && (k.is_empty() || tree.expanded.contains(k)))
+        },
+        |f| f.truncated,
+    ) {
         viewport = viewport.child(
             label(
                 "More files available. Refine your search.",
@@ -441,12 +527,7 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit) -> El {
                 .child(icon(&super::palette::REFRESH, 14.).color(theme.text_secondary))
                 .on_press_tx(Desktop::refresh_file_tree),
         )
-        .child(super::action_with_tx(
-            "Search files",
-            theme,
-            true,
-            Desktop::toggle_file_picker,
-        ));
+        .child(filter::field(tree, theme, kit));
     col()
         .grow(1.)
         .min_w(0.)
@@ -482,11 +563,12 @@ pub(super) fn panel(
     trailing: f32,
     width: f32,
 ) -> El {
-    let tree = tree_view(s, theme, kit);
+    let preview_only = width < 416.;
+    let tree = tree_view(s, theme, kit, preview_only);
     if s.workspace.file_preview.is_some() {
         let source = super::workspace_files::view(s, theme, kit, leading, trailing);
-        if width < 416. {
-            return source;
+        if preview_only {
+            return source.on_key(|s: &mut Desktop, ev, tx| filter::find(s, ev, tx, true));
         }
         return row()
             .grow(1.)
@@ -499,7 +581,8 @@ pub(super) fn panel(
                     .w((width - 256.).clamp(160., 256.))
                     .h_full()
                     .child(tree),
-            );
+            )
+            .on_key(|s: &mut Desktop, ev, tx| filter::find(s, ev, tx, false));
     }
     col()
         .grow(1.)
@@ -522,6 +605,7 @@ pub(super) fn panel(
         )
         .child(el().h(1.).w_full().fill(theme.separator))
         .child(tree)
+        .on_key(|s: &mut Desktop, ev, tx| filter::find(s, ev, tx, false))
 }
 
 #[cfg(test)]
@@ -539,11 +623,7 @@ mod tests {
         tree.expanded.extend(["docs".to_owned(), "src".to_owned()]);
         tree.loading.insert(String::new());
         app.workspace.explorer = Some(tree);
-        let entry = |path: &str, kind| Entry {
-            path: path.into(),
-            kind,
-            ignored: false,
-        };
+        let entry = |path: &str, kind| Entry::new(path.into(), kind);
         app.directory_loaded(
             12,
             String::new(),

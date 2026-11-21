@@ -408,11 +408,12 @@ async function openThread(owner, request, reply) {
 
 async function workspaceFiles(request, reply) {
   const record = watching;
-  const search = request.action === "search";
+  const filter = request.action === "filter";
+  const search = request.action === "search" || filter;
   const list = request.action === "list";
-  const channel = list ? "directories" : search ? "fileSearch" : "fileRead";
+  const channel = list ? "directories" : filter ? "fileFilter" : search ? "fileSearch" : "fileRead";
   const target = {
-    type: list ? "fileentries" : search ? "filematches" : "filesource",
+    type: list ? "fileentries" : filter ? "filteredfiles" : search ? "filematches" : "filesource",
     operation: request.operation,
     ...(list && { directory: request.directory }),
   };

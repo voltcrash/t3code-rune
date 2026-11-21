@@ -1,4 +1,4 @@
-use super::{Desktop, Request, action, label};
+use super::{Desktop, Request, action_with_tx, label};
 use rune::{El, GrowthSpec, Span, TextStyle, col, el, rich, row, tok};
 use rune_kit::{Kit, syntax};
 use serde::Serialize;
@@ -15,6 +15,7 @@ pub(crate) struct Location {
 #[serde(tag = "action", rename_all = "lowercase")]
 pub(crate) enum Input {
     Search { query: String, cancel: bool },
+    Filter { query: String, cancel: bool },
     Read { path: String, cancel: bool },
     List { directory: String, cancel: bool },
 }
@@ -124,6 +125,13 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn dismiss_file_preview(&mut self, tx: &mut rune::Tx) {
+        self.close_file_preview();
+        if self.workspace.explorer.is_some() {
+            tx.focus_when_shown("workspace-tree", true);
+        }
+    }
+
     pub(super) fn open_workspace_file(&mut self, location: Location, path: String) {
         if self.file_location().as_ref() != Some(&location) {
             return;
@@ -222,11 +230,11 @@ pub(super) fn view(
                 .truncate()
                 .help(&preview.path),
         )
-        .child(action(
+        .child(action_with_tx(
             "Close file",
             theme,
             true,
-            Desktop::close_file_preview,
+            Desktop::dismiss_file_preview,
         ));
     let mut panel = col()
         .grow(1.)
