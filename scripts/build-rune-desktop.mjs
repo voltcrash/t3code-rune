@@ -9,7 +9,10 @@ import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import plist from "plist";
-import { bundleRuneWorker } from "../apps/desktop/scripts/bundle-rune-worker.mjs";
+import {
+  bundleRuneWorker,
+  readPrebuiltRuneWorker,
+} from "../apps/desktop/scripts/bundle-rune-worker.mjs";
 
 import rootPackage from "../package.json" with { type: "json" };
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
@@ -42,6 +45,7 @@ const { values } = NodeUtil.parseArgs({
     arch: { type: "string" },
     "build-version": { type: "string" },
     "output-dir": { type: "string" },
+    "skip-build": { type: "boolean" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
   },
@@ -161,32 +165,15 @@ async function buildRunePackage() {
   const product = resolveDesktopProductName(version);
   const icons = resolveDesktopBuildIconAssets(version);
   const brand = resolveDesktopWebAssetBrand(version);
-  for (const rustTarget of rustTargets)
-    run(
-      "cargo",
-      [
-        win ? "rustc" : "build",
-        "--bin",
-        "t3-code",
-        "--release",
-        "--locked",
-        "--manifest-path",
-        manifest,
-        "--target",
-        rustTarget,
-        "--target-dir",
-        NodePath.join(desktop, "native/target"),
-        // PE resource editing requires a shell executable without a COFF symbol table.
-        ...(win ? ["--", "-Cstrip=symbols"] : []),
-      ],
-      { env: { ...process.env, T3CODE_RUNE_PRODUCT_NAME: product } },
+  const serverDist = NodePath.join(repoRoot, "apps/server/dist");
+  if (!values["skip-build"]) {
+    const vp = await Effect.runPromise(
+      resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
+        Effect.provide(NodeServices.layer),
+      ),
     );
-  const vp = await Effect.runPromise(
-    resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
-      Effect.provide(NodeServices.layer),
-    ),
-  );
-  run(vp.command, vp.args, { shell: vp.shell, env: { ...process.env, APP_VERSION: version } });
+    run(vp.command, vp.args, { shell: vp.shell, env: { ...process.env, APP_VERSION: version } });
+  }
   await NodeFSP.mkdir(output, { recursive: true });
   await using staging = await NodeFSP.mkdtempDisposable(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
   await using publication = await NodeFSP.mkdtempDisposable(NodePath.join(output, ".rune-"));
@@ -216,6 +203,39 @@ async function buildRunePackage() {
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
   await NodeFSP.mkdir(server, { recursive: true });
+  await NodeFSP.cp(serverDist, server, {
+    recursive: true,
+    filter: (file) => !file.endsWith(".map"),
+  });
+  await NodeFSP.access(NodePath.join(server, "client/index.html"));
+
+  if (values["skip-build"])
+    await NodeFSP.writeFile(
+      NodePath.join(resources, "rune-projects.mjs"),
+      await readPrebuiltRuneWorker(version, server),
+    );
+  else await bundleRuneWorker(resources, version);
+
+  for (const rustTarget of rustTargets)
+    run(
+      "cargo",
+      [
+        win ? "rustc" : "build",
+        "--bin",
+        "t3-code",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        manifest,
+        "--target",
+        rustTarget,
+        "--target-dir",
+        NodePath.join(desktop, "native/target"),
+        // PE resource editing requires a shell executable without a COFF symbol table.
+        ...(win ? ["--", "-Cstrip=symbols"] : []),
+      ],
+      { env: { ...process.env, T3CODE_RUNE_PRODUCT_NAME: product } },
+    );
   const binaries = rustTargets.map((rustTarget) =>
     NodePath.join(desktop, "native/target", rustTarget, "release", win ? "t3-code.exe" : "t3-code"),
   );
@@ -240,14 +260,6 @@ async function buildRunePackage() {
   );
   await NodeFSP.copyFile(NodePath.join(repoRoot, "LICENSE"), NodePath.join(resources, "LICENSE"));
   await writeRuneNotices(resources);
-  await NodeFSP.cp(NodePath.join(repoRoot, "apps/server/dist"), server, {
-    recursive: true,
-    filter: (file) => !file.endsWith(".map"),
-  });
-  await NodeFSP.access(NodePath.join(server, "client/index.html"));
-
-  await bundleRuneWorker(resources, version);
-
   await Effect.runPromise(
     Effect.gen(function* () {
       yield* stageRuntimeExternals({

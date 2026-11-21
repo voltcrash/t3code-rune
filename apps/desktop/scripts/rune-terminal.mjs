@@ -33,7 +33,7 @@ async function loadRuntime() {
       mode === "--packaged" ? "server/dist/client" : "../../../server/dist/client",
     );
     const manifest = JSON.parse(
-      await NodeFSP.readFile(NodePath.join(client, ".vite/manifest.json"), "utf8"),
+      await NodeFSP.readFile(NodePath.join(client, "asset-manifest.json"), "utf8"),
     );
     paths = names.map((name) => NodePath.join(client, manifest[assets + "/" + name].file));
   } else {

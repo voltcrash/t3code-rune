@@ -33,16 +33,21 @@ class StagePreviewBundleTests(unittest.TestCase):
 
     def test_preserves_valid_bundle_layout_and_bytes(self):
         self.bundle([("server/", b""), ("server/dist/", b""),
+                     ("desktop/dist/", b""), ("desktop/dist/rune-bundle/", b""),
+                     ("desktop/dist/rune-bundle/rune-projects.mjs", b"worker"),
+                     ("server/dist/client/asset-manifest.json", b"{}"),
                      ("desktop/dist-electron/chunks/helper.cjs", b"chunk")])
         self.stage()
         for name in staging.REQUIRED_FILES:
             self.assertEqual((self.destination / name).read_bytes(), b"bundle data, never executed")
         self.assertEqual((self.destination / "desktop/dist-electron/chunks/helper.cjs").read_bytes(), b"chunk")
+        self.assertEqual((self.destination / "desktop/dist/rune-bundle/rune-projects.mjs").read_bytes(), b"worker")
 
     def test_rejects_builder_overwrite_and_unsafe_paths_before_writing(self):
         for name in [
             "desktop/node_modules/electron-builder/cli.js",
             "desktop/package.json",
+            "desktop/dist/rune-bundle/package.json",
             "server/dist/../../desktop/package.json",
             "../package.json",
             "/server/dist/absolute",
@@ -71,6 +76,10 @@ class StagePreviewBundleTests(unittest.TestCase):
 
     def test_requires_entry_points(self):
         self.bundle(missing="desktop/dist-electron/main.cjs")
+        with self.assertRaises(ValueError):
+            self.stage()
+        self.assertFalse(self.destination.exists())
+        self.bundle([("desktop/dist/rune-bundle/rune-projects.mjs", b"worker")])
         with self.assertRaises(ValueError):
             self.stage()
         self.assertFalse(self.destination.exists())
