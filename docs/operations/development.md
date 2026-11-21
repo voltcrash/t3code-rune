@@ -60,7 +60,9 @@ and the repository’s pinned standalone Node distribution. Artifacts go to `rel
 
 - On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
   **T3 Code.app**, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
-  disk image and drag **T3 Code** to **Applications**.
+  disk image and drag **T3 Code** to **Applications**. Pass `--arch x64` for Intel Macs or
+  `--arch universal` for an installer that runs on both Intel and Apple Silicon. Install the
+  corresponding Rust targets with `rustup target add x86_64-apple-darwin aarch64-apple-darwin`.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
 - On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
