@@ -4,7 +4,7 @@ use rune_kit::glyphs;
 use serde::{Deserialize, Serialize};
 
 pub(crate) const SANS: &str = if cfg!(target_os = "macos") {
-    r#"".SF NS", Inter, system-ui, sans-serif"#
+    "System Font, Inter, system-ui, sans-serif"
 } else {
     "Inter, Segoe UI, system-ui, sans-serif"
 };

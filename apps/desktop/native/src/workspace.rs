@@ -1490,7 +1490,7 @@ fn projects_view(s: &Desktop, theme: &tok::Theme, dark: bool) -> El {
     area.child(list)
 }
 
-fn chat_lane_inset(viewport_width: f32) -> f32 {
+pub(super) fn chat_lane_inset(viewport_width: f32) -> f32 {
     if viewport_width >= 640. { 48. } else { 12. }
 }
 
