@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { GhosttyTerminalCore } from "@t3tools/client-runtime/terminal/ghostty/core";
+import { GhosttySelection } from "@t3tools/client-runtime/terminal/ghostty/selection";
 import { GhosttyRuntime } from "@t3tools/client-runtime/terminal/ghostty/runtime";
 import { TERMINAL_PALETTES } from "@t3tools/client-runtime/terminal/ghostty/palette";
 import {
@@ -54,13 +55,19 @@ function theme(dark) {
   };
 }
 
-function runs(row, background) {
+function highlight(background, dark) {
+  const overlay = dark ? { r: 180, g: 203, b: 255 } : { r: 37, g: 63, b: 99 };
+  const alpha = dark ? 0.25 : 0.2;
+  const blend = (key) => Math.round(background[key] * (1 - alpha) + overlay[key] * alpha);
+  return rgb({ r: blend("r"), g: blend("g"), b: blend("b") });
+}
+function runs(row, background, dark) {
   const result = [];
   for (const [x, cell] of row.cells.entries()) {
     if (cell.wide >= 2) continue;
     const value = cell.invisible ? " " : cell.text || " ";
     const fg = rgb(cell.foreground),
-      bg = rgb(cell.background);
+      bg = cell.selected ? highlight(cell.background, dark) : rgb(cell.background);
     if (
       value === " " &&
       bg === background &&
@@ -116,7 +123,61 @@ export function openTerminal(watch, request, write) {
     error = null;
   const id = { threadId: watch.thread, terminalId: DEFAULT_TERMINAL_ID };
   const run = (effect) => Effect.runPromise(effect.pipe(Effect.provide(owner.http)), { signal });
+  let selection;
+  let drag;
+  let scrollTimer;
   let sharedGrid = null;
+  function stopSelectionDrag() {
+    clearInterval(scrollTimer);
+    scrollTimer = undefined;
+    drag = undefined;
+  }
+  function visibleCell(point) {
+    const width = Math.min(cols, sharedGrid?.cols ?? cols);
+    const height = Math.min(rows, sharedGrid?.rows ?? rows);
+    return {
+      x: Math.min(Math.max(point.x, 0), width - 1),
+      y: Math.min(Math.max(point.y, 0), height - 1),
+    };
+  }
+  function extendDrag(scroll = false) {
+    if (!drag) return;
+    const cell = visibleCell(drag);
+    if (scroll && drag.scroll) core.scroll(drag.scroll);
+    if (selection.extend(cell)) {
+      force = true;
+      invalidate();
+    }
+  }
+  function select(event) {
+    if (event.phase === "down") {
+      stopSelectionDrag();
+      selection.begin(visibleCell(event), event.clicks);
+      drag = { ...event, scroll: 0 };
+    } else if (drag) {
+      if (event.cancelled) {
+        selection.clear();
+        stopSelectionDrag();
+      } else {
+        const scroll = event.phase === "up" ? 0 : event.scroll;
+        const moved = drag.x !== event.x || drag.y !== event.y;
+        if (event.phase === "move" && !moved && scroll === drag.scroll) return;
+        drag = { ...event, scroll };
+        if (moved || scroll) extendDrag();
+        if (scroll && !scrollTimer) scrollTimer = setInterval(() => extendDrag(true), 80);
+        if (!scroll) {
+          clearInterval(scrollTimer);
+          scrollTimer = undefined;
+        }
+        if (event.phase === "up") {
+          if (!selection.moved && selection.mode === "cell") selection.clear();
+          stopSelectionDrag();
+        }
+      }
+    }
+    force = true;
+    invalidate();
+  }
   let reportedGrid;
   let resizing = false;
   function reportGrid() {
@@ -164,7 +225,7 @@ export function openTerminal(watch, request, write) {
       const bg = rgb(frame.background);
       const patches = [];
       for (let y = 0; y < frame.rows; y++) {
-        if (force || frame.dirtyRows.has(y)) patches.push([y, runs(frame.rowData[y], bg)]);
+        if (force || frame.dirtyRows.has(y)) patches.push([y, runs(frame.rowData[y], bg, dark)]);
       }
       waiting = true;
       dirty = false;
@@ -210,6 +271,28 @@ export function openTerminal(watch, request, write) {
         }
       }
       if (!core) return;
+      if (event.action === "select") select(event);
+      if (event.action === "selectall") {
+        stopSelectionDrag();
+        selection.selectAll();
+        force = true;
+        invalidate();
+      }
+      if (event.action === "copy") {
+        const text = core.selectionText();
+        if (event.interruptIfEmpty) {
+          if (text) {
+            selection.clear();
+            force = true;
+            invalidate();
+          } else if (operable) {
+            core.scrollToBottom();
+            send("\x03");
+            invalidate();
+          }
+        }
+        reply({ type: "terminalcopy", request: event.request, text });
+      }
       if (event.action === "scroll") {
         core.scroll(event.lines);
         invalidate();
@@ -234,7 +317,14 @@ export function openTerminal(watch, request, write) {
     },
   };
   watch.terminal = panel;
-  signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  signal.addEventListener(
+    "abort",
+    () => {
+      clearTimeout(timer);
+      stopSelectionDrag();
+    },
+    { once: true },
+  );
   void run(
     Effect.gen(function* () {
       loading ??= loadRuntime().catch((e) => {
@@ -245,6 +335,7 @@ export function openTerminal(watch, request, write) {
       core = GhosttyTerminalCore.fromRuntime(runtime, cols, rows, 7.23, 16, theme(dark), (data) =>
         send(data, true),
       );
+      selection = new GhosttySelection(core);
       rpc = yield* openEnvironmentRpc(owner);
       const thread = state.projection.thread;
       const cwd = thread.worktreePath ?? state.projectRoot;

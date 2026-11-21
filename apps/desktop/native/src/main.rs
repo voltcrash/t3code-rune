@@ -74,6 +74,12 @@ enum Reply {
         #[serde(flatten)]
         recorded: workspace::file_diff::Recorded,
     },
+    TerminalCopy {
+        watch: u64,
+        operation: String,
+        request: u64,
+        text: String,
+    },
     Terminal {
         watch: u64,
         operation: String,
@@ -522,6 +528,7 @@ impl Desktop {
             }
             Reply::Live { .. }
             | Reply::StopResult { .. }
+            | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
             | Reply::Image { .. }
@@ -856,6 +863,16 @@ fn start() -> io::Result<()> {
                 continue;
             }
             handle.update(move |s, tx| {
+                if let Reply::TerminalCopy {
+                    watch,
+                    operation,
+                    request,
+                    text,
+                } = reply.reply
+                {
+                    s.receive_terminal_copy(watch, &operation, request, text, tx);
+                    return;
+                }
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
                     && s.pending
                     && reply.id == Some(s.request_id);
