@@ -357,6 +357,9 @@ Select `--arch x64` to package the emulated x64 runtime. Linux cross-builds also
 `--windows-node-dir <extracted-windows-node-directory>`. To include the WSL runtime,
 pass `--wsl-runtime <path-to-linux-cli.tar.gz>` or set `T3CODE_DESKTOP_WSL_RUNTIME` to that path.
 Use the Linux CLI release archive for the same version and architecture as the Windows package.
+For local Windows update testing, pass `--update-feed` with the NSIS target and a fresh output
+directory. Each architecture produces an installer, its block map, and a channel manifest for
+the release merge. These installers still use Rune’s separate installation directory.
 Pass `--signed` to use the release
 Azure Trusted Signing profile. Set `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`,
 `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`, and `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`.

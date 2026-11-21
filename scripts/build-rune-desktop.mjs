@@ -97,7 +97,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
   --build-version <version>     Version to embed in the app and artifact names
   --output-dir <dir>            Directory for completed artifacts (default: release)
   --signed                      Sign the macOS or Windows distribution
-  --update-feed                 Stage stable or nightly updates for macOS ZIPs or Linux AppImage,deb
+  --update-feed                 Stage update metadata for macOS ZIPs, Linux AppImage,deb, or Windows NSIS
   --skip-build                  Use the matching prebuilt server, client and desktop worker
   --prebuilt-mac-launcher       Also use the macOS preview launcher in the prebuilt bundle
   --keep-stage                  Keep staged packaging files
@@ -207,9 +207,12 @@ const linuxUpdate = updateFeed && platform === "linux";
 if (
   updateFeed &&
   !(mac && formats.includes("zip")) &&
+  !(win && target === "nsis") &&
   !(linuxUpdate && target === "AppImage,deb")
 ) {
-  throw new Error("--update-feed requires a macOS ZIP or the Linux AppImage,deb target.");
+  throw new Error(
+    "--update-feed requires a macOS ZIP, Linux AppImage,deb, or Windows nsis target.",
+  );
 }
 const buildDeb = formats.includes("deb");
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
@@ -455,8 +458,8 @@ async function buildRunePackage() {
       return `T3-Code${suffix}-${arch === "x64" ? "x86_64" : arch}.AppImage`;
     }
     const artifactArch = format === "deb" && arch === "x64" ? "amd64" : arch;
-    if (updateFeed) return `T3-Code-${version}-${artifactArch}.${format}`;
     const extension = format === "nsis" ? "exe" : format;
+    if (updateFeed) return `T3-Code-${version}-${artifactArch}.${extension}`;
     return `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
   };
   if (mac) {
@@ -617,6 +620,16 @@ async function buildRunePackage() {
         arch,
         image: artifactName("AppImage"),
         deb: artifactName("deb"),
+      })),
+    );
+  } else if (updateFeed && win) {
+    const { writeWindowsUpdateFiles } = await import("./lib/rune-update.mjs");
+    names.push(
+      ...(await writeWindowsUpdateFiles(published, {
+        version,
+        channel,
+        arch,
+        installer: artifactName("nsis"),
       })),
     );
   } else if (updateFeed) {

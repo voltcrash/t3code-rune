@@ -4,8 +4,37 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeZlib from "node:zlib";
 import { expect, it } from "vitest";
-import { writeLinuxUpdateFiles, writeMacUpdateFiles } from "./rune-update.mjs";
+import {
+  writeLinuxUpdateFiles,
+  writeMacUpdateFiles,
+  writeWindowsUpdateFiles,
+} from "./rune-update.mjs";
 import { parseUpdateManifest } from "./update-manifest.ts";
+
+it("stages both Windows installers and their external block maps for release merging", async () => {
+  await using dir = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "rune-win-update-"),
+  );
+  const version = "1.2.3-nightly.20261121.42";
+  for (const arch of ["x64", "arm64"]) {
+    const installer = `T3-Code-${version}-${arch}.exe`;
+    const bytes = Buffer.alloc(96_000, arch === "arm64" ? 1 : 2);
+    await NodeFSP.writeFile(NodePath.join(dir.path, installer), bytes);
+    const name = `nightly-win-${arch}.yml`;
+    expect(
+      await writeWindowsUpdateFiles(dir.path, { version, channel: "nightly", arch, installer }),
+    ).toEqual([installer + ".blockmap", name]);
+    const raw = await NodeFSP.readFile(NodePath.join(dir.path, name), "utf8");
+    expect(parseUpdateManifest(raw, name, "Windows").files).toEqual([
+      { url: installer, size: bytes.length, sha512: NodeCrypto.hash("sha512", bytes, "base64") },
+    ]);
+    const map = JSON.parse(
+      NodeZlib.gunzipSync(await NodeFSP.readFile(NodePath.join(dir.path, installer + ".blockmap"))),
+    );
+    expect(map.version).toBe("2");
+    expect(map.files[0].sizes.reduce((total, size) => total + size, 0)).toBe(bytes.length);
+  }
+});
 
 it("describes the final ZIP and disk image bytes in the macOS update feed", async () => {
   await using dir = await NodeFSP.mkdtempDisposable(
