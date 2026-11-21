@@ -1258,6 +1258,7 @@ try {
     if (
       request?.type === "checkupdates" ||
       request?.type === "downloadupdate" ||
+      request?.type === "installupdate" ||
       request?.type === "showupdate"
     ) {
       void releaseUpdate(request.type);

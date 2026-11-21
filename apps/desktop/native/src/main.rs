@@ -38,6 +38,9 @@ enum Reply {
     MenuAction {
         action: linux_menu::Action,
     },
+    RestartUpdated {
+        executable: std::path::PathBuf,
+    },
     ReleaseCheck {
         #[serde(flatten)]
         result: updates::Result,
@@ -292,6 +295,7 @@ struct ClientMessage<'a> {
 enum Request<'a> {
     CheckUpdates,
     DownloadUpdate,
+    InstallUpdate,
     ShowUpdate,
     #[cfg(target_os = "linux")]
     X11Menu {
@@ -1073,6 +1077,7 @@ impl Desktop {
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
             | Reply::Typography { .. }
+            | Reply::RestartUpdated { .. }
             | Reply::ReleaseCheck { .. }
             | Reply::WindowZoom { .. }
             | Reply::Appearance { .. }
@@ -1433,6 +1438,11 @@ fn start() -> io::Result<()> {
             }
         }
     }
+    #[cfg(target_os = "linux")]
+    if package.is_some() && std::env::var_os("APPIMAGE").is_some() {
+        // Keep the runtime's FUSE pipe and mount descriptor in the original process.
+        close_fds::set_fds_cloexec(3, &[]);
+    }
     let launch_check = launch_check::LaunchCheck::requested()?;
     let mut worker = worker_command(mode, package)?;
     #[cfg(target_os = "windows")]
@@ -1624,6 +1634,7 @@ fn start() -> io::Result<()> {
     let source_build = mode == Some("--source-build");
     let reader = std::thread::spawn(move || {
         let mut received_response = false;
+        let mut restart = None;
         for line in input.lines() {
             let Ok(line) = line else { break };
             let Ok(reply) = serde_json::from_str::<WorkerMessage>(&line) else {
@@ -1658,6 +1669,11 @@ fn start() -> io::Result<()> {
                 {
                     break;
                 }
+                continue;
+            }
+            if let Reply::RestartUpdated { executable } = reply.reply {
+                restart = Some(executable);
+                handle.close();
                 continue;
             }
             handle.update(move |s, tx| {
@@ -1744,7 +1760,7 @@ fn start() -> io::Result<()> {
         if source_build && !received_response && !status.success() {
             handle.close();
         }
-        Ok::<_, io::Error>(status)
+        Ok::<_, io::Error>((status, restart))
     });
     // Rune's fast exit would skip reaping the worker and its scoped backend.
     rune::orderly_exit();
@@ -1755,7 +1771,7 @@ fn start() -> io::Result<()> {
         (app, None)
     };
     let result = app.try_run();
-    let status = reader
+    let (status, restart) = reader
         .join()
         .map_err(|_| io::Error::other("The desktop worker reader stopped unexpectedly."))??;
     result.map_err(io::Error::other)?;
@@ -1763,6 +1779,14 @@ fn start() -> io::Result<()> {
         return Err(io::Error::other(format!(
             "The desktop worker exited with {status}."
         )));
+    }
+    if let Some(executable) = restart {
+        std::process::Command::new(executable)
+            .env_remove("APPIMAGE")
+            .env_remove("APPDIR")
+            .env_remove("ARGV0")
+            .env_remove("APPIMAGE_EXIT_AFTER_INSTALL")
+            .spawn()?;
     }
     if let Some(passed) = verified {
         if !passed.get() {

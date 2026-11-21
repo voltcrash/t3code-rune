@@ -1,15 +1,15 @@
 import * as NodeChildProcess from "node:child_process";
-import * as NodeCrypto from "node:crypto";
-import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
-import * as NodeStreamPromises from "node:stream/promises";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import * as DesktopManagedPolicy from "../src/app/DesktopManagedPolicy.ts";
 import * as DesktopUpdatePolicy from "../src/updates/DesktopUpdatePolicy.ts";
+import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
+import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
+import { configuredDisableAutoUpdate } from "../src/app/DesktopConfig.ts";
 import { checkRuneRelease, decodeReleaseSource } from "../src/native/releases.ts";
 
 async function readSource(directory) {
@@ -40,40 +40,6 @@ async function releaseText(url, signal) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export async function downloadRelease(release, cache, signal) {
-  await NodeFSP.mkdir(cache, { recursive: true, mode: 0o700 });
-  await using stage = await NodeFSP.mkdtempDisposable(NodePath.join(cache, ".download-"));
-  const file = NodePath.join(stage.path, release.filename);
-  const response = await fetch(release.url, { signal });
-  if (!response.ok || !response.body) {
-    await response.body?.cancel();
-    throw new Error("Could not download the update.");
-  }
-  const hash = NodeCrypto.createHash("sha512");
-  let size = 0;
-  await NodeStreamPromises.pipeline(
-    response.body,
-    async function* (bytes) {
-      for await (const chunk of bytes) {
-        size += chunk.length;
-        if (size > release.size) throw new Error("Invalid download size.");
-        hash.update(chunk);
-        yield chunk;
-      }
-    },
-    NodeFS.createWriteStream(file, { flags: "wx", mode: 0o700 }),
-    { signal },
-  );
-  if (size !== release.size || hash.digest("base64") !== release.sha512) {
-    throw new Error("The download did not match the release.");
-  }
-  // AppImages keep the same filename across releases.
-  const destination = NodePath.join(cache, release.version);
-  await NodeFSP.mkdir(destination, { recursive: true });
-  await NodeFSP.rename(file, NodePath.join(destination, release.filename));
-  return destination;
-}
-
 const readUpdatePolicy = (signal) =>
   Effect.runPromise(
     Effect.service(DesktopUpdatePolicy.DesktopUpdatePolicy).pipe(
@@ -93,6 +59,15 @@ export function runeUpdates({
   publish,
   readPolicy = readUpdatePolicy,
 }) {
+  const installed =
+    resources && Effect.runSync(HostProcess.Platform) === "linux"
+      ? installedLinuxPackage(
+          resources,
+          Effect.runSync(HostProcess.Environment),
+          Effect.runSync(HostProcess.UserId),
+        ).catch(() => undefined)
+      : Promise.resolve(undefined);
+  let downloaded;
   let release;
   let directory;
   let busy = false;
@@ -118,17 +93,25 @@ export function runeUpdates({
       return;
     }
     const download = request === "downloadupdate";
+    const install = request === "installupdate";
     if (busy) return;
     busy = true;
     try {
-      const previous = release;
+      if (await Effect.runPromise(configuredDisableAutoUpdate)) {
+        report(
+          "Updates unavailable",
+          "Automatic updates are disabled by the T3CODE_DISABLE_AUTO_UPDATE setting.",
+        );
+        return;
+      }
+      const previous = install ? downloaded : release;
       release = undefined;
       const source = await readSource(resources);
       const policy = await readPolicy(signal);
       const timeout = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
       release = await checkRuneRelease(current, source, policy, (url) => releaseText(url, timeout));
       if (
-        download &&
+        (download || install) &&
         previous?.status === "available" &&
         release.status === "available" &&
         previous.version === release.version &&
@@ -136,12 +119,30 @@ export function runeUpdates({
         previous.sha512 === release.sha512 &&
         previous.size === release.size
       ) {
+        const target = await installed;
+        if (install && directory && target?.format === source?.format) {
+          const executable = await installLinuxPackage(
+            target,
+            release,
+            NodePath.join(directory, release.filename),
+            signal,
+          );
+          publish({ type: "restartupdated", executable });
+          return;
+        }
         directory = await downloadRelease(
           release,
           cache,
           AbortSignal.any([signal, AbortSignal.timeout(20 * 60_000)]),
         );
-        report("Update downloaded", release.filename, { downloaded: true });
+        downloaded = release;
+        report(
+          "Update downloaded",
+          target?.format === source?.format
+            ? "T3 Code will restart to install it. Any running tasks will be interrupted."
+            : release.filename,
+          { downloaded: true, installable: target?.format === source?.format },
+        );
         return;
       }
       switch (release.status) {
@@ -161,8 +162,21 @@ export function runeUpdates({
         case "disabled":
           report("Updates unavailable", release.message);
       }
-    } catch {
-      if (download)
+    } catch (error) {
+      if (install && error instanceof InvalidReleaseFile) {
+        directory = undefined;
+        downloaded = undefined;
+        report(
+          "Download the update again",
+          "The cached file is missing or did not match the release.",
+          { available: true },
+        );
+      } else if (install)
+        report("Update could not be installed", error.message, {
+          downloaded: true,
+          installable: true,
+        });
+      else if (download)
         report("Download failed", "Could not download and verify the update.", {
           available: release?.status === "available",
         });

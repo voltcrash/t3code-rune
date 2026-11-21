@@ -3,7 +3,9 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it, vi } from "vitest";
-import { downloadRelease, runeUpdates } from "./rune-updates.mjs";
+import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
+import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
+import { runeUpdates } from "./rune-updates.mjs";
 
 it("publishes only complete downloads with the offered digest and preserves a previous installer on failure", async () => {
   await using cache = await NodeFSP.mkdtempDisposable(
@@ -28,6 +30,11 @@ it("publishes only complete downloads with the offered digest and preserves a pr
     );
     expect(await NodeFSP.readdir(cache.path)).toEqual(["1.3.0"]);
   }
+  const invalid = NodePath.join(destination, release.filename);
+  await NodeFSP.unlink(invalid);
+  await NodeFSP.mkdir(invalid);
+  const recovered = await downloadRelease(release, cache.path, signal);
+  expect(await NodeFSP.readFile(NodePath.join(recovered, release.filename), "utf8")).toBe(bytes);
 });
 
 it("rechecks the administrator's feed and update permission before downloading a displayed offer", async () => {
@@ -76,3 +83,55 @@ it("rechecks the administrator's feed and update permission before downloading a
   expect(serve).toHaveBeenCalledTimes(2);
   expect(publish.mock.lastCall[0].title).toBe("Updates unavailable");
 });
+
+it.runIf(NodePath.sep === "/")(
+  "updates the launched AppImage through a symlink and leaves externally replaced or corrupt images untouched",
+  async () => {
+    await using tmp = await NodeFSP.mkdtempDisposable(
+      NodePath.join(NodeOS.tmpdir(), "t3-installed-image-"),
+    );
+    const root = NodePath.join(tmp.path, "mount");
+    const resources = NodePath.join(root, "opt/T3 Code (Beta)/resources");
+    await NodeFSP.mkdir(resources, { recursive: true });
+    const target = NodePath.join(tmp.path, "T3.AppImage");
+    const link = NodePath.join(tmp.path, "linked.AppImage");
+    const cache = NodePath.join(tmp.path, "download");
+    await NodeFSP.writeFile(target, "old", { mode: 0o755 });
+    await NodeFSP.chmod(target, 0o755);
+    await NodeFSP.symlink(target, link);
+    const installed = await installedLinuxPackage(
+      resources,
+      { APPDIR: root, APPIMAGE: link },
+      1000,
+    );
+    const release = {
+      filename: "T3-Code-arm64.AppImage",
+      size: 3,
+      sha512: NodeCrypto.createHash("sha512").update("new").digest("base64"),
+    };
+    const signal = new AbortController().signal;
+    await expect(installLinuxPackage(installed, release, cache, signal)).rejects.toBeInstanceOf(
+      InvalidReleaseFile,
+    );
+    await NodeFSP.mkdir(cache);
+    await expect(installLinuxPackage(installed, release, cache, signal)).rejects.toBeInstanceOf(
+      InvalidReleaseFile,
+    );
+    await NodeFSP.rmdir(cache);
+    await NodeFSP.writeFile(cache, "bad");
+    await expect(installLinuxPackage(installed, release, cache, signal)).rejects.toBeInstanceOf(
+      InvalidReleaseFile,
+    );
+    expect(await NodeFSP.readFile(target, "utf8")).toBe("old");
+    await NodeFSP.writeFile(cache, "new");
+    await expect(installLinuxPackage(installed, release, cache, signal)).resolves.toBe(
+      await NodeFSP.realpath(target),
+    );
+    expect(await NodeFSP.readFile(link, "utf8")).toBe("new");
+    expect((await NodeFSP.stat(target)).mode & 0o777).toBe(0o755);
+    expect((await NodeFSP.lstat(link)).isSymbolicLink()).toBe(true);
+    await expect(installLinuxPackage(installed, release, cache, signal)).rejects.toThrow(
+      "has changed",
+    );
+  },
+);
