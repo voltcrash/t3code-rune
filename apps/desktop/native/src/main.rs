@@ -1178,12 +1178,22 @@ fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
     #[cfg(target_os = "linux")]
     let package = {
         let exe = std::env::current_exe()?;
-        let resources = exe
-            .parent()
-            .filter(|dir| dir.ends_with("usr/bin"))
-            .and_then(|dir| dir.parent())
-            .map(|dir| dir.join("lib/t3-code"));
-        rune::set_app_id(if resources.is_some() {
+        let installed = exe.file_name().is_some_and(|name| name == "t3code")
+            && exe
+                .parent()
+                .and_then(std::path::Path::parent)
+                .is_some_and(|parent| parent.ends_with("opt"));
+        let resources = if installed {
+            exe.parent().map(|dir| dir.join("resources"))
+        } else {
+            exe.parent()
+                .filter(|dir| dir.ends_with("usr/bin"))
+                .and_then(|dir| dir.parent())
+                .map(|dir| dir.join("lib/t3-code"))
+        };
+        rune::set_app_id(if installed {
+            "com.t3tools.T3Code"
+        } else if resources.is_some() {
             "com.t3tools.T3Code.Rune"
         } else {
             "com.t3tools.T3Code.Rune.Development"
@@ -1546,6 +1556,12 @@ fn start() -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some()
+        && std::env::var("APPIMAGE_EXIT_AFTER_INSTALL").as_deref() == Ok("true")
+    {
+        return Ok(());
+    }
     start()
 }
 

@@ -4,7 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeZlib from "node:zlib";
 import { expect, it } from "vitest";
-import { writeMacUpdateFiles } from "./rune-mac-update.mjs";
+import { writeLinuxUpdateFiles, writeMacUpdateFiles } from "./rune-update.mjs";
 import { parseUpdateManifest } from "./update-manifest.ts";
 
 it("describes the final ZIP and disk image bytes in the macOS update feed", async () => {
@@ -56,3 +56,52 @@ it("describes the final ZIP and disk image bytes in the macOS update feed", asyn
   ).toEqual([intel + ".blockmap", "latest-mac-x64.yml"]);
   expect(await NodeFSP.readFile(NodePath.join(dir.path, "latest-mac.yml"), "utf8")).toBe(raw);
 });
+
+it.each([
+  ["arm64", "nightly-linux-arm64.yml"],
+  ["x64", "nightly-linux.yml"],
+])(
+  "embeds a range-readable block map and hashes the complete Linux release for %s",
+  async (arch, name) => {
+    await using dir = await NodeFSP.mkdtempDisposable(
+      NodePath.join(NodeOS.tmpdir(), "rune-linux-update-"),
+    );
+    const image = "test.AppImage",
+      deb = "test.deb";
+    const payload = NodeCrypto.randomBytes(128_000);
+    const debBytes = Buffer.from("debian package");
+    await NodeFSP.writeFile(NodePath.join(dir.path, image), payload);
+    await NodeFSP.writeFile(NodePath.join(dir.path, deb), debBytes);
+    expect(
+      await writeLinuxUpdateFiles(dir.path, {
+        version: "1.2.3-nightly.20261121.1",
+        channel: "nightly",
+        arch,
+        image,
+        deb,
+      }),
+    ).toEqual([name]);
+    const bytes = await NodeFSP.readFile(NodePath.join(dir.path, image));
+    const blockMapSize = bytes.readUInt32BE(bytes.length - 4);
+    expect(bytes.subarray(0, payload.length)).toEqual(payload);
+    expect(payload.length + blockMapSize + 4).toBe(bytes.length);
+    const [map] = JSON.parse(NodeZlib.inflateRawSync(bytes.subarray(payload.length, -4))).files;
+    expect(map.sizes.reduce((total, size) => total + size, 0)).toBe(payload.length);
+    expect(map.checksums).toHaveLength(map.sizes.length);
+    expect(
+      parseUpdateManifest(
+        await NodeFSP.readFile(NodePath.join(dir.path, name), "utf8"),
+        name,
+        "Linux",
+      ).files,
+    ).toEqual([
+      {
+        url: image,
+        size: bytes.length,
+        sha512: NodeCrypto.hash("sha512", bytes, "base64"),
+        blockMapSize,
+      },
+      { url: deb, size: debBytes.length, sha512: NodeCrypto.hash("sha512", debBytes, "base64") },
+    ]);
+  },
+);
