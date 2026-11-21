@@ -40,3 +40,22 @@ export async function publishRuneArtifacts(staged, output, names, { requireFresh
     throw error;
   }
 }
+
+export async function publishUnpackedRuneApp(staged, output, name) {
+  const app = NodePath.join(staged, name);
+  const destination = NodePath.join(output, name);
+  const backup = NodePath.join(staged, ".previous");
+  let replaced = false;
+  try {
+    await NodeFSP.rename(destination, backup);
+    replaced = true;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  try {
+    await NodeFSP.rename(app, destination);
+  } catch (error) {
+    if (replaced) await NodeFSP.rename(backup, destination);
+    throw error;
+  }
+}

@@ -2,7 +2,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it } from "vitest";
-import { publishRuneArtifacts } from "./rune-artifacts.mjs";
+import { publishRuneArtifacts, publishUnpackedRuneApp } from "./rune-artifacts.mjs";
 
 it.each([true, false])(
   "restores the release when the second publication fails (existing AppImage: %s)",
@@ -45,4 +45,24 @@ it("refuses to replace any part of an update feed", async () => {
   await expect(NodeFSP.access(NodePath.join(output.path, "build.zip"))).rejects.toMatchObject({
     code: "ENOENT",
   });
+});
+
+it("replaces an unpacked application and restores it if staging is incomplete", async () => {
+  await using output = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "rune-unpacked-"),
+  );
+  const staged = NodePath.join(output.path, "stage");
+  const name = "mac-arm64";
+  const next = NodePath.join(staged, name);
+  const destination = NodePath.join(output.path, name);
+  await NodeFSP.mkdir(next, { recursive: true });
+  await NodeFSP.mkdir(destination);
+  await NodeFSP.writeFile(NodePath.join(destination, "stale"), "old");
+  await NodeFSP.writeFile(NodePath.join(next, "launcher"), "new");
+  await publishUnpackedRuneApp(staged, output.path, name);
+  expect(await NodeFSP.readdir(destination)).toEqual(["launcher"]);
+  const incomplete = NodePath.join(output.path, "incomplete");
+  await NodeFSP.mkdir(incomplete);
+  await expect(publishUnpackedRuneApp(incomplete, output.path, name)).rejects.toThrow();
+  expect(await NodeFSP.readFile(NodePath.join(destination, "launcher"), "utf8")).toBe("new");
 });

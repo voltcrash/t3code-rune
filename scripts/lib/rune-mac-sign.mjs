@@ -108,7 +108,7 @@ export async function signRuneMacApp({ app, resources, node, repoRoot, signing }
   }
 }
 
-export async function buildRuneMacZip({ app, artifact, tmp, signing, submittedInDmg }) {
+export async function stapleRuneMacApp({ app, tmp, signing, submittedInDmg }) {
   if (signing?.notary) {
     // An accepted DMG submission includes a ticket for its signed app.
     if (!submittedInDmg) {
@@ -118,7 +118,6 @@ export async function buildRuneMacZip({ app, artifact, tmp, signing, submittedIn
     }
     staple(app);
   }
-  run("ditto", ["-c", "-k", "--keepParent", app, artifact]);
 }
 
 export async function signRuneDmg(artifact, signing) {

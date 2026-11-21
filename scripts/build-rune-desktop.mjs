@@ -35,10 +35,10 @@ import {
 } from "./desktop-packaging.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode, stagePrebuiltMacLauncher } from "./lib/rune-mac.mjs";
-import { publishRuneArtifacts } from "./lib/rune-artifacts.mjs";
+import { publishRuneArtifacts, publishUnpackedRuneApp } from "./lib/rune-artifacts.mjs";
 import { buildRuneDeb } from "./lib/rune-deb.mjs";
 import {
-  buildRuneMacZip,
+  stapleRuneMacApp,
   readMacSigning,
   signRuneMacApp,
   signRuneDmg,
@@ -83,9 +83,9 @@ Usage: node scripts/build-rune-desktop.mjs [options]
 
   --platform mac|linux|win      Target platform (defaults to the host)
   --arch x64|arm64|universal    Architecture (universal is macOS only)
-  --target <format>             macOS: dmg, zip, dmg,zip
-                                Linux: AppImage, deb, AppImage,deb
-                                Windows: nsis, zip, nsis,zip
+  --target <format>             macOS: dmg, zip, dmg,zip, dir
+                                Linux: AppImage, deb, AppImage,deb, dir
+                                Windows: nsis, zip, nsis,zip, dir
   --windows-node-dir <dir>      Extracted Windows Node distribution for Linux cross-builds
   --wsl-runtime <archive>       Bundle the matching Linux CLI release archive for WSL on Windows
   --build-version <version>     Version to embed in the app and artifact names
@@ -131,9 +131,9 @@ const target =
   values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
 if (
   !{
-    mac: ["dmg", "zip", "dmg,zip"],
-    linux: ["AppImage", "deb", "AppImage,deb"],
-    win: ["zip", "nsis", "nsis,zip"],
+    mac: ["dmg", "zip", "dmg,zip", "dir"],
+    linux: ["AppImage", "deb", "AppImage,deb", "dir"],
+    win: ["zip", "nsis", "nsis,zip", "dir"],
   }[platform]?.includes(target)
 ) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
@@ -289,7 +289,11 @@ async function buildRunePackage() {
     },
     win: { root: product, bin: ".", resources: "resources", helpers: "resources" },
   }[platform];
-  const app = NodePath.join(tmp, layout.root);
+  const unpacked = target === "dir";
+  const unpackedName = platform + (arch === "x64" ? "" : `-${arch}`) + (mac ? "" : "-unpacked");
+  const unpackedDir = NodePath.join(published, unpackedName);
+  const unpackedApp = mac ? NodePath.join(unpackedDir, layout.root) : unpackedDir;
+  const app = unpacked && !keepStage ? unpackedApp : NodePath.join(tmp, layout.root);
   const resources = NodePath.join(app, layout.resources);
   const bin = NodePath.join(app, layout.bin);
   const helpers = NodePath.join(app, layout.helpers);
@@ -417,7 +421,6 @@ async function buildRunePackage() {
     const extension = format === "nsis" ? "exe" : format;
     return `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
   };
-  const file = artifactName(formats[0]);
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
@@ -442,14 +445,17 @@ async function buildRunePackage() {
       await buildRuneDmg({ app, artifact, desktop, tmp, version });
       if (signing) await signRuneDmg(artifact, signing);
     }
-    if (formats.includes("zip")) {
-      await buildRuneMacZip({
-        app,
-        artifact: NodePath.join(published, artifactName("zip")),
-        tmp,
-        signing,
-        submittedInDmg: buildDmg,
-      });
+    if (unpacked || formats.includes("zip")) {
+      await stapleRuneMacApp({ app, tmp, signing, submittedInDmg: buildDmg });
+      if (!unpacked) {
+        run("ditto", [
+          "-c",
+          "-k",
+          "--keepParent",
+          app,
+          NodePath.join(published, artifactName("zip")),
+        ]);
+      }
     }
   } else if (win) {
     await stampWindowsExecutable(
@@ -517,7 +523,7 @@ async function buildRunePackage() {
         license: NodePath.join(repoRoot, "LICENSE"),
       });
     }
-    if (formats.includes("AppImage")) {
+    if (unpacked || formats.includes("AppImage")) {
       if (buildDeb) await NodeFSP.rm(NodePath.join(app, "DEBIAN"), { recursive: true });
       await Effect.runPromise(
         bundleLinuxLibatomic({ repoRoot, contentDir: resources, executablePath: bundledNode }).pipe(
@@ -535,22 +541,35 @@ async function buildRunePackage() {
       ]) {
         await NodeFSP.symlink(target, NodePath.join(app, name));
       }
-      run(
-        "appimagetool",
-        [
-          "--no-appstream",
-          "--runtime-file",
-          await writeAppImageRuntime(tmp),
-          app,
-          NodePath.join(published, file),
-        ],
-        {
-          env: { ...process.env, ARCH: cpu },
-        },
-      );
+      if (!unpacked)
+        run(
+          "appimagetool",
+          [
+            "--no-appstream",
+            "--runtime-file",
+            await writeAppImageRuntime(tmp),
+            app,
+            NodePath.join(published, artifactName("AppImage")),
+          ],
+          {
+            env: { ...process.env, ARCH: cpu },
+          },
+        );
     }
   }
-  const names = formats.map(artifactName);
+  if (unpacked && keepStage) {
+    if (mac) {
+      await NodeFSP.mkdir(unpackedDir);
+      run("ditto", [app, unpackedApp]);
+    } else {
+      await NodeFSP.cp(app, unpackedApp, {
+        recursive: true,
+        verbatimSymlinks: true,
+        mode: NodeFSP.constants.COPYFILE_FICLONE,
+      });
+    }
+  }
+  const names = unpacked ? [unpackedName] : formats.map(artifactName);
   if (linuxUpdate) {
     const { writeLinuxUpdateFiles } = await import("./lib/rune-update.mjs");
     names.push(
@@ -575,7 +594,9 @@ async function buildRunePackage() {
     );
   }
   const publish = Effect.promise(() =>
-    publishRuneArtifacts(published, output, names, { requireFresh: updateFeed }),
+    unpacked
+      ? publishUnpackedRuneApp(published, output, unpackedName)
+      : publishRuneArtifacts(published, output, names, { requireFresh: updateFeed }),
   );
   // Separate checkouts can publish to the same output directory.
   const [checkoutDir, outputDir] = await Promise.all(

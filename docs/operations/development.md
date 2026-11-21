@@ -61,6 +61,8 @@ given by `--output-dir`. Use `--build-version` to package a specific release, in
 icons and installer artwork. By default the builder resolves the version from the Git tag or manifest.
 To reuse the same JavaScript across platform builds, run `vp run build:desktop:bundle` once, then
 pass `--skip-build` to the Rune packager. Set `APP_VERSION` for the bundle if using `--build-version`.
+Use `--target dir` to launch or inspect an unpacked distribution. The output directory contains
+the macOS app bundle, Linux `AppRun`, or Windows executable inside a platform-specific folder.
 
 - On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
   the app, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
