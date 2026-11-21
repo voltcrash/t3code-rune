@@ -250,7 +250,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-concurrent-build-" });
       yield* fs.writeFileString(
         path.join(root, "package.json"),
-        '{ "scripts": { "build:desktop": "node build.cjs" } }',
+        '{ "scripts": { "build:desktop:bundle": "node build.cjs" } }',
       );
       const original = '{ "version": "0.0.42", "private": true }\n';
       for (const relativePath of releasePackageFiles) {
@@ -393,7 +393,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         const packageJson = `{
           "name": "desktop-version-fixture",
           "version": "0.0.42",
-          "scripts": { "build:desktop": "node build.cjs" }
+          "scripts": { "build:desktop:bundle": "node build.cjs" }
         }`;
         yield* fs.writeFileString(path.join(root, "package.json"), packageJson);
         const version = "0.0.43-nightly.20260920.2018";
@@ -470,7 +470,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       yield* fs.writeFileString(
         path.join(root, "package.json"),
         `{
-          "name": "restore-fixture", "scripts": { "build:desktop": "node build.cjs" }
+          "name": "restore-fixture", "scripts": { "build:desktop:bundle": "node build.cjs" }
         }`,
       );
       yield* fs.writeFileString(path.join(root, "build.cjs"), "process.exit(0);");

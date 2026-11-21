@@ -609,7 +609,7 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     col().w_full().h_full().center().fill(theme.bg).child(panel)
 }
 
-fn worker_command(integrated_dev: bool) -> io::Result<std::process::Command> {
+fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
     use std::process::Command;
 
     #[cfg(target_os = "macos")]
@@ -659,17 +659,19 @@ fn worker_command(integrated_dev: bool) -> io::Result<std::process::Command> {
         .ok_or_else(|| io::Error::other("Missing desktop worker path."))?;
     let mut command = Command::new(node);
     command.arg(worker);
-    if integrated_dev {
-        command.arg("--integrated-dev");
-    }
+    command.args(mode);
     Ok(command)
 }
 
 fn start() -> io::Result<()> {
     use std::process::Stdio;
 
-    let integrated_dev = std::env::args_os().any(|arg| arg == "--integrated-dev");
-    let mut worker = worker_command(integrated_dev)?;
+    let mode = std::env::args_os().nth(1);
+    let mode = mode
+        .as_deref()
+        .and_then(|arg| arg.to_str())
+        .filter(|arg| matches!(*arg, "--integrated-dev" | "--source-build"));
+    let mut worker = worker_command(mode)?;
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -762,7 +764,7 @@ fn start() -> io::Result<()> {
             desktop
         });
     let handle = app.handle();
-    if integrated_dev {
+    if mode.is_some() {
         let owner = handle.clone();
         std::thread::spawn(move || {
             let _ = io::copy(&mut io::stdin().lock(), &mut io::sink());
@@ -770,12 +772,15 @@ fn start() -> io::Result<()> {
         });
     }
     let images = image_decode::start(handle.clone());
-    std::thread::spawn(move || {
+    let source_build = mode == Some("--source-build");
+    let reader = std::thread::spawn(move || {
+        let mut received = false;
         for line in input.lines() {
             let Ok(line) = line else { break };
             let Ok(reply) = serde_json::from_str::<WorkerMessage>(&line) else {
                 break;
             };
+            received = true;
             if let Reply::Image {
                 watch,
                 key,
@@ -819,12 +824,26 @@ fn start() -> io::Result<()> {
             });
         }
         handle.update(|s, _| *s = Desktop::new());
+        let status = child.wait()?;
+        if source_build && !received && !status.success() {
+            handle.close();
+        }
+        Ok::<_, io::Error>(status)
     });
     // Rune's fast exit would skip reaping the worker and its scoped backend.
     rune::orderly_exit();
     let result = app.try_run();
-    child.wait()?;
-    result.map_err(io::Error::other)
+    let status = reader
+        .join()
+        .map_err(|_| io::Error::other("The desktop worker reader stopped unexpectedly."))??;
+    result.map_err(io::Error::other)?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "The desktop worker exited with {status}."
+        )))
+    }
 }
 
 fn main() -> io::Result<()> {

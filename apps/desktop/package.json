@@ -6,7 +6,7 @@
   "main": "dist-electron/boot.cjs",
   "scripts": {
     "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
-    "start": "node scripts/start-electron.mjs",
+    "start": "node scripts/launch-rune.mjs --built",
     "test": "vp test run --passWithNoTests",
     "i18n:generate": "node scripts/i18n-generate.mjs"
   },
