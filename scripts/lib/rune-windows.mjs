@@ -1,3 +1,5 @@
+import * as NodeChildProcess from "node:child_process";
+import * as NodePath from "node:path";
 import * as NodeFSP from "node:fs/promises";
 import { Data, NtExecutable, NtExecutableResource, Resource } from "resedit";
 
@@ -45,4 +47,54 @@ export async function stampWindowsExecutable(path, iconPath, version, product) {
   info.outputToResourceEntries(resources.entries);
   resources.outputResource(exe);
   await NodeFSP.writeFile(path, Buffer.from(exe.generate()));
+}
+
+export async function buildRuneInstaller({ app, artifact, icon, version, product, arch, tmp }) {
+  const files = [];
+  const directories = [];
+  const entries = await NodeFSP.readdir(app, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    const relative = NodePath.relative(app, NodePath.join(entry.parentPath, entry.name));
+    const path = relative.split(NodePath.sep).join("\\").replaceAll("$", "$$$$");
+    if (entry.isDirectory()) directories.push(path);
+    else files.push(path);
+  }
+  directories.sort((a, b) => b.length - a.length);
+  const manifest = NodePath.join(tmp, "remove-payload.nsh");
+  await NodeFSP.writeFile(
+    manifest,
+    [
+      ...files.flatMap((path) => [
+        `IfFileExists "$INSTDIR\\${path}" 0 +2`,
+        `Delete "$INSTDIR\\${path}"`,
+      ]),
+      "IfErrors busy",
+      ...directories.flatMap((path) => [
+        `Push "$INSTDIR\\${path}"`,
+        "Call un.RemovePayloadDirectory",
+      ]),
+    ].join("\n"),
+  );
+  const defines = {
+    PRODUCT: product,
+    VERSION: version,
+    NUMERIC_VERSION: version.split(/[-+]/, 1)[0],
+    INSTALL_NAME: product + " Rune",
+    PAYLOAD: app,
+    REMOVALS: manifest,
+    ICON: icon,
+    ARTIFACT: artifact,
+    NATIVE_ARCH: arch === "arm64" ? "${IsNativeARM64}" : "${IsNativeAMD64}",
+  };
+  const script = NodePath.resolve(import.meta.dirname, "../../apps/desktop/native/installer.nsi");
+  NodeChildProcess.execFileSync(
+    "makensis",
+    [
+      "-INPUTCHARSET",
+      "UTF8",
+      ...Object.entries(defines).map(([key, value]) => `-D${key}=${value}`),
+      script,
+    ],
+    { stdio: "inherit" },
+  );
 }

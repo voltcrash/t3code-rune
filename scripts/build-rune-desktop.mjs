@@ -27,7 +27,11 @@ import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
 import { buildRuneDeb } from "./lib/rune-deb.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
-import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
+import {
+  buildRuneInstaller,
+  windowsNodeArchitecture,
+  stampWindowsExecutable,
+} from "./lib/rune-windows.mjs";
 import { windowsSystemTar } from "./lib/windows-tar.ts";
 
 const repoRoot = NodePath.resolve(import.meta.dirname, "..");
@@ -51,7 +55,9 @@ if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")
 const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
 const target = values.target ?? (platform === "linux" ? "AppImage" : "zip");
 if (
-  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb"], win: ["zip"] }[platform]?.includes(target)
+  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb"], win: ["zip", "nsis"] }[platform]?.includes(
+    target,
+  )
 ) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
 }
@@ -273,7 +279,8 @@ async function buildRunePackage() {
   );
 
   const artifactArch = target === "deb" && arch === "x64" ? "amd64" : arch;
-  const file = `T3-Code-Rune-${version}-${platform}-${artifactArch}.${target}`;
+  const extension = target === "nsis" ? "exe" : target;
+  const file = `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
@@ -306,7 +313,17 @@ async function buildRunePackage() {
       product,
     );
     const archive = NodePath.join(published, file);
-    if (host === "win32") {
+    if (target === "nsis") {
+      await buildRuneInstaller({
+        app,
+        artifact: archive,
+        icon: NodePath.join(repoRoot, icons.windowsIconIco),
+        version,
+        product,
+        arch,
+        tmp,
+      });
+    } else if (host === "win32") {
       run(windowsSystemTar(), ["-a", "-cf", archive, "-C", tmp, layout.root]);
     } else {
       run("zip", ["-q", "-r", "-X", archive, layout.root], { cwd: tmp });
