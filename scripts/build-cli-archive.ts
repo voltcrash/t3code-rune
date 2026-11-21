@@ -184,8 +184,8 @@ export const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function
         arch: input.arch,
         allowBuilds: {
           ...workspace.allowBuilds,
-          // A host node-gyp rebuild removes the other Darwin architecture's PTY.
-          ...(input.platform === "mac" ? { "node-pty": false } : {}),
+          // A host node-gyp rebuild discards the shipped target prebuilds.
+          ...(input.platform === "mac" || input.platform === "win" ? { "node-pty": false } : {}),
         },
         patchedDependencies,
         overrides: resolveCatalogDependencies(workspace.overrides ?? {}, catalog, "apps/server"),
@@ -213,12 +213,21 @@ export const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function
       ? ["darwin-arm64", "darwin-x64"]
       : [cliArchivePlatformKey(input.platform, input.arch)];
   const prebuildsDir = path.join(input.stageDir, "node_modules/node-pty/prebuilds");
-  if (input.platform === "mac") {
+  if (input.platform === "mac" || input.platform === "win") {
+    const binaries =
+      input.platform === "mac"
+        ? ["pty.node", "spawn-helper"]
+        : [
+            "conpty.node",
+            "conpty_console_list.node",
+            "conpty/OpenConsole.exe",
+            "conpty/conpty.dll",
+          ];
     for (const key of platformKeys) {
-      for (const binary of ["pty.node", "spawn-helper"]) {
+      for (const binary of binaries) {
         yield* requireInput(
           path.join(prebuildsDir, key, binary),
-          "macOS terminals need the shipped node-pty prebuilds.",
+          "Terminals need the shipped node-pty prebuilds for the target architecture.",
         );
       }
     }
@@ -594,28 +603,45 @@ const signWindowsExecutable = Effect.fn("signWindowsExecutable")(function* (
     return;
   }
   yield* stripStaleAuthenticodeEntry(executablePath);
+  yield* signTrustedWindowsFile(executablePath, {
+    endpoint,
+    codeSigningAccountName: accountName,
+    certificateProfileName: profile,
+  });
+  yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing).");
+});
+
+export const signTrustedWindowsFile = Effect.fn("signTrustedWindowsFile")(function* (
+  executablePath: string,
+  signing: {
+    readonly endpoint: string;
+    readonly codeSigningAccountName: string;
+    readonly certificateProfileName: string;
+    readonly fileDigest?: string;
+    readonly timestampDigest?: string;
+    readonly timestampRfc3161?: string;
+  },
+) {
   if ((yield* HostProcess.Platform) !== "win32") {
-    yield* signWithJsign(executablePath);
-    yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing via jsign).");
+    yield* signWithJsign(executablePath, signing);
     return;
   }
   const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
   const script = [
     "$ErrorActionPreference = 'Stop';",
     "Invoke-TrustedSigning",
-    `-Endpoint ${quote(endpoint)}`,
-    `-CodeSigningAccountName ${quote(accountName)}`,
-    `-CertificateProfileName ${quote(profile)}`,
-    "-FileDigest 'SHA256'",
-    "-TimestampRfc3161 'http://timestamp.acs.microsoft.com'",
-    "-TimestampDigest 'SHA256'",
+    `-Endpoint ${quote(signing.endpoint)}`,
+    `-CodeSigningAccountName ${quote(signing.codeSigningAccountName)}`,
+    `-CertificateProfileName ${quote(signing.certificateProfileName)}`,
+    `-FileDigest ${quote(signing.fileDigest ?? "SHA256")}`,
+    `-TimestampRfc3161 ${quote(signing.timestampRfc3161 ?? "http://timestamp.acs.microsoft.com")}`,
+    `-TimestampDigest ${quote(signing.timestampDigest ?? "SHA256")}`,
     `-Files ${quote(executablePath)}`,
   ].join(" ");
   yield* runCommand(
     ChildProcess.make("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script]),
-    "Invoke-TrustedSigning t3.exe",
+    `Invoke-TrustedSigning ${executablePath}`,
   );
-  yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing).");
 });
 
 const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {

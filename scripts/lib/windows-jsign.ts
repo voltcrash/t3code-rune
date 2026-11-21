@@ -53,7 +53,25 @@ const runJsign = Effect.fn("runJsign")(function* (jsign: string, args: ReadonlyA
   return { exitCode, stderr };
 });
 
-export const signWithJsign = Effect.fn("signWithJsign")(function* (file: string) {
+class JsignDigestError extends Schema.TaggedError<JsignDigestError>()("JsignDigestError", {
+  message: Schema.String,
+}) {}
+
+export const signWithJsign = Effect.fn("signWithJsign")(function* (
+  file: string,
+  options: {
+    readonly fileDigest?: string;
+    readonly timestampDigest?: string;
+    readonly timestampRfc3161?: string;
+  } = {},
+) {
+  const normalize = (name: string) => /^SHA-?(1|256|384|512)$/i.exec(name)?.[1];
+  const digest = normalize(options.fileDigest ?? "SHA256");
+  if (!digest || digest !== normalize(options.timestampDigest ?? "SHA256")) {
+    return yield* new JsignDigestError({
+      message: "jsign requires the same SHA digest for the file and the RFC 3161 timestamp.",
+    });
+  }
   const { jsign, endpoint, account, profile } = yield* Config.all({
     jsign: Config.String("T3CODE_JSIGN").pipe(Config.withDefault("jsign")),
     endpoint: Config.String("AZURE_TRUSTED_SIGNING_ENDPOINT"),
@@ -70,9 +88,9 @@ export const signWithJsign = Effect.fn("signWithJsign")(function* (file: string)
     "--alias",
     `${account}/${profile}`,
     "--alg",
-    "SHA-256",
+    `SHA-${digest}`,
     "--tsaurl",
-    "http://timestamp.acs.microsoft.com",
+    options.timestampRfc3161 ?? "http://timestamp.acs.microsoft.com",
     "--tsmode",
     "RFC3161",
     // jsign appends a nested signature by default; signtool replaces.

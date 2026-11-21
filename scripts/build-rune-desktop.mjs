@@ -40,6 +40,9 @@ import {
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import {
   buildRuneInstaller,
+  readWindowsSigning,
+  signRuneWindowsFile,
+  signRuneWindowsPayload,
   windowsNodeArchitecture,
   stampWindowsExecutable,
 } from "./lib/rune-windows.mjs";
@@ -51,6 +54,7 @@ const host = Effect.runSync(HostProcess.Platform);
 const { values } = NodeUtil.parseArgs({
   allowNegative: true,
   options: {
+    help: { type: "boolean", short: "h" },
     arch: { type: "string" },
     "build-version": { type: "string" },
     "keep-stage": { type: "boolean" },
@@ -63,6 +67,26 @@ const { values } = NodeUtil.parseArgs({
     "windows-node-dir": { type: "string" },
   },
 });
+if (values.help) {
+  console.log(`Build the native T3 Code desktop distribution.
+
+Usage: node scripts/build-rune-desktop.mjs [options]
+
+  --platform mac|linux|win      Target platform (defaults to the host)
+  --arch x64|arm64|universal    Architecture (universal is macOS only)
+  --target <format>             macOS: dmg, zip, dmg,zip
+                                Linux: AppImage, deb, AppImage,deb
+                                Windows: nsis, zip
+  --windows-node-dir <dir>      Extracted Windows Node distribution for Linux cross-builds
+  --build-version <version>     Version to embed in the app and artifact names
+  --output-dir <dir>            Directory for completed artifacts (default: release)
+  --signed                      Sign the macOS or Windows distribution
+  --skip-build                  Use the matching prebuilt server, client and desktop worker
+  --keep-stage                  Keep staged packaging files
+  --verbose                     Show detailed build output
+  -h, --help                    Show this help`);
+  process.exit(0);
+}
 function booleanOption(name, env) {
   return values[name] ?? Effect.runSync(Config.Boolean(env).pipe(Config.withDefault(false)));
 }
@@ -191,8 +215,9 @@ async function buildRunePackage() {
   ) {
     throw new Error("Specify a release version such as 1.2.3 or 1.2.3-nightly.20261121.42.");
   }
-  if (signed && !mac) throw new Error("Rune Developer ID signing requires a macOS build.");
-  const signing = signed ? readMacSigning() : undefined;
+  if (signed && !mac && !win) throw new Error("Rune signing supports macOS and Windows builds.");
+  const signing = signed && mac ? readMacSigning() : undefined;
+  const windowsSigning = signed && win ? readWindowsSigning() : undefined;
   const product = resolveDesktopProductName(version);
   const icons = resolveDesktopBuildIconAssets(version);
   const brand = resolveDesktopWebAssetBrand(version);
@@ -363,6 +388,7 @@ async function buildRunePackage() {
       version,
       product,
     );
+    if (windowsSigning) await signRuneWindowsPayload(app, windowsSigning);
     const archive = NodePath.join(published, file);
     if (target === "nsis") {
       await buildRuneInstaller({
@@ -373,7 +399,9 @@ async function buildRunePackage() {
         product,
         arch,
         tmp,
+        signed,
       });
+      if (windowsSigning) await signRuneWindowsFile(archive, windowsSigning);
     } else if (host === "win32") {
       run(windowsSystemTar(), ["-a", "-cf", archive, "-C", tmp, layout.root]);
     } else {

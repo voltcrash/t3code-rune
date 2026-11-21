@@ -28,13 +28,17 @@ type Reply = { readonly exitCode: number; readonly stderr?: string; readonly wri
 
 /** Stands in for jsign. Records the bytes it received and applies each reply in turn. */
 function stubJsign(replies: ReadonlyArray<Reply>) {
-  const inputs: Array<{ readonly path: string; readonly content: string }> = [];
+  const inputs: Array<{
+    readonly path: string;
+    readonly content: string;
+    readonly args: string[];
+  }> = [];
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const args = ChildProcess.isStandardCommand(command) ? command.args.map(String) : [];
       const target = args.at(-1)!;
-      inputs.push({ path: target, content: yield* fs.readFileString(target) });
+      inputs.push({ path: target, content: yield* fs.readFileString(target), args });
       const reply = replies[inputs.length - 1] ?? replies.at(-1)!;
       if (reply.write !== undefined) yield* fs.writeFileString(target, reply.write);
       return ChildProcessSpawner.makeHandle({
@@ -57,7 +61,10 @@ function stubJsign(replies: ReadonlyArray<Reply>) {
 
 const signed = (content: string): Reply => ({ exitCode: 0, write: `${content}+signature` });
 
-const runSign = Effect.fn("test.runSign")(function* (replies: ReadonlyArray<Reply>) {
+const runSign = Effect.fn("test.runSign")(function* (
+  replies: ReadonlyArray<Reply>,
+  signing?: { fileDigest: string; timestampDigest: string; timestampRfc3161: string },
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-jsign-" });
@@ -66,7 +73,7 @@ const runSign = Effect.fn("test.runSign")(function* (replies: ReadonlyArray<Repl
   const stub = stubJsign(replies);
   const sleeps: Array<number> = [];
   const clock = yield* Clock.Clock;
-  const exit = yield* signWithJsign(file).pipe(
+  const exit = yield* signWithJsign(file, signing).pipe(
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, stub.spawner),
     // Records the backoff instead of waiting it out.
     Effect.provideService(Clock.Clock, {
@@ -104,12 +111,24 @@ const runSign = Effect.fn("test.runSign")(function* (replies: ReadonlyArray<Repl
 it.layer(NodeServices.layer)("signWithJsign", (it) => {
   it.effect("retries transient Azure errors on a fresh copy and keeps only the signed file", () =>
     Effect.gen(function* () {
-      const result = yield* runSign([
-        { exitCode: 1, stderr: TRANSIENT_CHAIN },
-        // A partial write must not reach the next attempt or the original.
-        { exitCode: 1, stderr: TRANSIENT_SIGN, write: "MZ half-written" },
-        signed(UNSIGNED),
-      ]);
+      const signing = {
+        fileDigest: "SHA384",
+        timestampDigest: "SHA-384",
+        timestampRfc3161: "https://time.example.test",
+      };
+      const result = yield* runSign(
+        [
+          { exitCode: 1, stderr: TRANSIENT_CHAIN },
+          // A partial write must not reach the next attempt or the original.
+          { exitCode: 1, stderr: TRANSIENT_SIGN, write: "MZ half-written" },
+          signed(UNSIGNED),
+        ],
+        signing,
+      );
+      for (const { args } of result.inputs) {
+        assert.strictEqual(args[args.indexOf("--alg") + 1], "SHA-384");
+        assert.strictEqual(args[args.indexOf("--tsaurl") + 1], signing.timestampRfc3161);
+      }
       assert.isTrue(result.ok);
       assert.strictEqual(result.content, `${UNSIGNED}+signature`);
       assert.deepStrictEqual(
@@ -124,6 +143,13 @@ it.layer(NodeServices.layer)("signWithJsign", (it) => {
 
   it.effect("fails once without retrying on errors that are not transient", () =>
     Effect.gen(function* () {
+      const incompatible = yield* runSign([signed(UNSIGNED)], {
+        fileDigest: "SHA384",
+        timestampDigest: "SHA256",
+        timestampRfc3161: "https://time.example.test",
+      });
+      assert.isFalse(incompatible.ok);
+      assert.deepStrictEqual(incompatible.inputs, []);
       for (const reply of [
         { exitCode: 1, stderr: BAD_SECRET },
         { exitCode: 1, stderr: "jsign: Unsupported file: t3.exe\n", write: "MZ half-written" },
