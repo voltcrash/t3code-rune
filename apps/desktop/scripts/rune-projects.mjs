@@ -1,6 +1,7 @@
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
+import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
@@ -395,24 +396,29 @@ async function openThread(owner, request, reply) {
   }
 }
 
-async function loadPermissions(request, reply) {
+async function loadComposerOptions(request, reply) {
   const record = watching;
-  const target = { type: "threadpermissions", watch: request.watch, operation: request.operation };
+  const target = { type: request.type, watch: request.watch, operation: request.operation };
   if (!record || record.id !== request.watch || !record.owner.canOperate)
-    return reply({ ...target, instance: "", error: "Reopen this thread to load its permissions." });
-  record.permissionRead?.abort();
+    return reply({ ...target, instance: "", error: "Reopen this thread to load the picker." });
+  record.composerRead?.abort();
   const controller = new AbortController();
-  record.permissionRead = controller;
+  record.composerRead = controller;
   const signal = AbortSignal.any([
     record.controller.signal,
     record.owner.signal,
     controller.signal,
   ]);
-  const instance = record.state.projection.thread.modelSelection.instanceId;
+  const thread = record.state.projection.thread;
+  const instance = thread.modelSelection.instanceId;
   try {
     const options = await Effect.runPromise(
       openEnvironmentRpc(record.owner).pipe(
-        Effect.flatMap((rpc) => readThreadPermissions(rpc, instance)),
+        Effect.flatMap((rpc) =>
+          request.type === "threadmodels"
+            ? readThreadModels(record.owner, rpc, thread)
+            : readThreadPermissions(rpc, instance),
+        ),
         Effect.scoped,
         Effect.timeout("12 seconds"),
         Effect.provide(record.owner.http),
@@ -426,12 +432,12 @@ async function loadPermissions(request, reply) {
         ...target,
         instance,
         error:
-          error instanceof PermissionUnavailable
+          error instanceof ModelUnavailable || error instanceof PermissionUnavailable
             ? error.message
-            : "Couldn’t load permissions. Reopen the picker to retry.",
+            : "Couldn’t load these options. Reopen the picker to retry.",
       });
   } finally {
-    if (record.permissionRead === controller) record.permissionRead = undefined;
+    if (record.composerRead === controller) record.composerRead = undefined;
   }
 }
 
@@ -516,6 +522,7 @@ function localServer() {
 
 function requestError(error, type, editing) {
   if (
+    error instanceof ModelUnavailable ||
     error instanceof AttachmentUnavailable ||
     error instanceof NewThreadUnavailable ||
     error instanceof PermissionUnavailable
@@ -531,6 +538,8 @@ function requestError(error, type, editing) {
   if (error instanceof HomePathNeedsBrowseAccess) {
     return "Enter the full folder path. This connection cannot look up the environment’s home folder.";
   }
+  if (type === "setthreadmodel")
+    return "Couldn’t confirm the model change. Reopen the picker to check the thread.";
   if (type === "sendmessage") {
     if (error?._tag === "EnvironmentAuthorizationError")
       return "This connection does not have permission to send messages.";
@@ -698,6 +707,28 @@ async function handleWorkspaceRequest(request, reply) {
           });
       }
       return;
+    } else if (request.type === "setthreadmodel" && session) {
+      reading = session;
+      const record = watching;
+      if (
+        !reading.canOperate ||
+        !record ||
+        record.owner !== reading ||
+        record.id !== request.watch ||
+        request.thread !== record.thread
+      )
+        throw new ModelUnavailable({ message: "Reopen this thread to choose its model." });
+      await Effect.runPromise(
+        setThreadModel(reading, request, record.state.projection.thread).pipe(
+          Effect.scoped,
+          Effect.timeout("20 seconds"),
+          Effect.provide(reading.http),
+        ),
+        { signal: reading.signal },
+      );
+      if (session === reading)
+        reply({ type: "modelsaved", watch: record.id, operation: request.operation });
+      return;
     } else if (request.type === "sendmessage" && session) {
       reading = session;
       if (!reading.canOperate) throw new Error("Read-only session");
@@ -781,8 +812,8 @@ try {
           } else record.terminal.input(request);
         }
       }
-    } else if (request?.type === "threadpermissions") {
-      void loadPermissions(request, reply);
+    } else if (request?.type === "threadpermissions" || request?.type === "threadmodels") {
+      void loadComposerOptions(request, reply);
     } else if (request?.type === "inspectcommand") {
       void inspectCommand(request);
     } else if (request?.type === "imagehandled") {

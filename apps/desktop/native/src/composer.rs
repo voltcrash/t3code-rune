@@ -172,9 +172,10 @@ pub(super) fn view(
     s: &Desktop,
     thread: &crate::Thread,
     theme: &tok::Theme,
-    dark: bool,
+    cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
 ) -> El {
+    let dark = cx.system_dark();
     let id = thread.id.as_str();
     let draft = &s.workspace.drafts[id];
     let input_id = id.to_owned();
@@ -233,12 +234,10 @@ pub(super) fn view(
             true,
         ));
     }
-    controls = controls.child(spacer()).child(
-        text(&thread.model)
-            .font(TextStyle::new(13.0, 500.0))
-            .color(theme.text_secondary)
-            .truncate(),
-    );
+    controls = controls.child(spacer());
+    if !asking {
+        controls = controls.child(crate::models::control(s, thread, theme, cx, overlays));
+    }
     let show_stop = s.can_operate
         && pane.active_run.is_some()
         && (asking || empty || pane.stop_feedback.is_some());

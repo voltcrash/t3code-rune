@@ -1520,13 +1520,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         if s.workspace.questions.contains_key(&thread.id) {
             main = main.child(questions::banner(s, &thread.id, theme, cx.system_dark()));
         }
-        main = main.child(composer::view(
-            s,
-            thread,
-            theme,
-            cx.system_dark(),
-            &mut overlays,
-        ));
+        main = main.child(composer::view(s, thread, theme, cx, &mut overlays));
     }
     if let Some(drawer) = crate::terminal::view(
         s,

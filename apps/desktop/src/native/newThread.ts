@@ -30,6 +30,7 @@ import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 import { prepareAttachments, retryAttachments } from "./attachments.ts";
 import { permissionLabel, permissionOptions } from "./permissions.ts";
+import { availableModels } from "./models.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, projectSummary, type Session } from "./projects.ts";
 
@@ -99,31 +100,21 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
     const runtime = mode && clampManagedRuntimeMode(config.managedPolicy, mode, modes);
     if (!runtime) return [];
     permissions[entry.instanceId] = permissionOptions(modes, config.managedPolicy);
-    const unavailable = new Set(
-      entry.snapshot.subProviders?.filter((s) => s.unavailableReason).map((s) => s.name),
-    );
-    const hidden = new Set(settings.providerModelPreferences?.[entry.instanceId]?.hiddenModels);
-    const catalog =
-      entry.snapshot.workspaceSnapshots?.find((s) => s.cwd === record.workspaceRoot)?.models ??
-      entry.models;
-    return catalog
-      .filter((model) => model.isCustom || !hidden.has(model.slug))
-      .filter((m) => !m.subProvider || !unavailable.has(m.subProvider))
-      .map((model) => {
-        const isPreferred =
-          preferred?.instanceId === entry.instanceId && preferred.model === model.slug;
-        const selection: ModelSelection = isPreferred
-          ? preferred
-          : { instanceId: entry.instanceId, model: model.slug };
-        return {
-          id: JSON.stringify([entry.instanceId, model.slug]),
-          name: model.name,
-          provider: entry.displayName,
-          runtime,
-          selection,
-          preferred: isPreferred,
-        };
-      });
+    return availableModels(entry, settings, record.workspaceRoot).map((model) => {
+      const isPreferred =
+        preferred?.instanceId === entry.instanceId && preferred.model === model.slug;
+      const selection: ModelSelection = isPreferred
+        ? preferred
+        : { instanceId: entry.instanceId, model: model.slug };
+      return {
+        id: JSON.stringify([entry.instanceId, model.slug]),
+        name: model.name,
+        provider: entry.displayName,
+        runtime,
+        selection,
+        preferred: isPreferred,
+      };
+    });
   });
   return {
     record: projectSummary(record, config.scratchWorkspaceRoot),
