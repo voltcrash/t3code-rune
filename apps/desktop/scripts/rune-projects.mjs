@@ -66,6 +66,7 @@ let session;
 let localSession;
 let server;
 let watching;
+let menuWindow;
 const pendingLaunches = new Map();
 const directoryReads = Semaphore.makeUnsafe(4);
 const imageReads = Semaphore.makeUnsafe(3);
@@ -1225,6 +1226,26 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "x11menu") {
+      if (
+        menuWindow?.id !== request.window &&
+        Number.isInteger(request.window) &&
+        request.window > 0
+      ) {
+        menuWindow?.controller.abort();
+        const controller = new AbortController();
+        menuWindow = { id: request.window, controller };
+        const signal = AbortSignal.any([controller.signal, lifetime.signal]);
+        void Promise.all([import("./rune-linux-menu.mjs"), typographyWrites])
+          .then(([menu]) =>
+            menu.registerWindow(request.window, typographySettings.language, signal, (action) =>
+              write({ type: "menuaction", action }),
+            ),
+          )
+          .catch(() => {});
+      }
+      continue;
+    }
     if (request?.type === "setwindowzoom") {
       const factor = request.factor;
       if (Number.isFinite(factor) && factor >= 0.25 && factor <= 5) {
