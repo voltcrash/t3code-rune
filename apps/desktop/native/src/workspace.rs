@@ -19,6 +19,8 @@ mod plan;
 mod sidebar_header;
 #[path = "thread_actions.rs"]
 mod thread_actions;
+#[path = "workspace_files.rs"]
+pub(crate) mod workspace_files;
 
 #[path = "sidebar_status.rs"]
 pub(super) mod sidebar_status;
@@ -265,6 +267,7 @@ pub(super) struct Workspace {
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
+    pub(crate) file_preview: Option<workspace_files::Preview>,
     pub questions: Forms,
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
@@ -305,6 +308,7 @@ impl Workspace {
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
+            file_preview: None,
             scratch_available: false,
             projects: Vec::new(),
             by_project: HashMap::new(),
@@ -608,6 +612,7 @@ impl Desktop {
             .retain(|id| self.workspace.project(id).is_some_and(|p| !p.archived));
         self.history.retain(&self.workspace, &self.new_threads);
         self.close_stale_terminal();
+        self.reconcile_file_location();
         if self.palette.is_some() {
             self.filter_palette(true);
         }
@@ -1715,12 +1720,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(drawer);
     }
     let diff_open = s.workspace.diff.visible(s);
-    let split_panel = diff_open
+    let panel_open = diff_open || s.workspace.file_preview.is_some();
+    let split_panel = panel_open
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    let show_sidebar = s.sidebar_layout.open && (!diff_open || split_panel);
+    let show_sidebar = s.sidebar_layout.open && (!panel_open || split_panel);
     let bounds = crate::sidebar_layout::Bounds::new(viewport[0], inset.leading);
     let width = if narrow {
         176.
@@ -1746,9 +1752,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     thread_actions::sidebar_menu(s, &Kit::neutral(s.dark(cx)), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
-    let workspace = if diff_open {
+    let workspace = if panel_open {
         let leading = if split_panel { 0. } else { inset.leading };
-        let panel = file_diff::view(s, theme, &Kit::neutral(s.dark(cx)), leading, inset.trailing);
+        let kit = Kit::neutral(s.dark(cx));
+        let panel = if diff_open {
+            file_diff::view(s, theme, &kit, leading, inset.trailing)
+        } else {
+            workspace_files::view(s, theme, &kit, leading, inset.trailing)
+        };
         if split_panel {
             root.child(main)
                 .child(el().w(1.).h_full().fill(theme.separator))

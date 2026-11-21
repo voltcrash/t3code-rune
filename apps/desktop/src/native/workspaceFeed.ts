@@ -166,6 +166,7 @@ export function watchWorkspace(
   let sampleOnConnect = initial.clockOffset === undefined;
   let failures = 0;
   let needSnapshot = false;
+  let activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined;
   const subscribe = Effect.fn("nativeDesktop.followWorkspace")(function* () {
     if (needSnapshot) {
       const fresh = yield* loadWorkspace(session).pipe(Effect.timeout("20 seconds"));
@@ -173,6 +174,11 @@ export function watchWorkspace(
       needSnapshot = false;
     }
     const rpc = yield* openEnvironmentRpc(session);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        activeRpc = undefined;
+      }),
+    );
     if (sampleOnConnect) {
       yield* sampleDesktopConfig(rpc, session).pipe(
         Effect.timeout("3 seconds"),
@@ -201,6 +207,7 @@ export function watchWorkspace(
             return yield* Effect.fail("Shell snapshot required");
           }
           if (item.kind === "synchronized") {
+            activeRpc = rpc;
             currentVisit()?.reconnect();
             failures = 0;
             return;
@@ -263,6 +270,7 @@ export function watchWorkspace(
   });
   return {
     initialLanding,
+    activeRpc: () => activeRpc,
     publishThrough(committed: number) {
       requestedSequence = committed;
       flush();
@@ -274,6 +282,10 @@ export function watchWorkspace(
     },
     pinCommitted(key: string, committed: number) {
       lastPin = { key, sequence: committed };
+    },
+    fileRoot(id: string) {
+      const thread = threads.get(id);
+      return thread && (thread.worktree ?? projects.get(thread.project)?.path);
     },
     hasThread(id: string) {
       return threads.has(id);

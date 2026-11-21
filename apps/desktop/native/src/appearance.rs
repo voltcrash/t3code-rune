@@ -35,7 +35,7 @@ impl Desktop {
         if self.output.is_none() || self.settings_open {
             return;
         }
-        self.palette = None;
+        self.dismiss_palette();
         self.models.close();
         self.permission_menu = None;
         self.close_sidebar_menus();

@@ -1,3 +1,4 @@
+use super::workspace_files::{Input as FileInput, Location};
 use super::{Desktop, NEW_THREAD_ICON, SCRATCH_ICON, Workspace, add_project, label};
 use rune::{
     Cx, El, GrowthSpec, Icon, Key, KeyEvent, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon,
@@ -18,6 +19,8 @@ enum Action {
     Forward,
     ToggleSidebar,
     ToggleTerminal,
+    GoToFile,
+    OpenFile,
     Settings,
     Refresh,
     Project(usize),
@@ -42,6 +45,8 @@ impl Action {
             Self::ToggleSidebar => "toggle-sidebar".into(),
             Self::Refresh => "refresh".into(),
             Self::ToggleTerminal => "toggle-terminal".into(),
+            Self::GoToFile => "go-to-file".into(),
+            Self::OpenFile => unreachable!(),
         }
     }
 
@@ -53,6 +58,8 @@ impl Action {
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
             Self::Settings => "Settings",
+            Self::GoToFile => "Go to file",
+            Self::OpenFile => unreachable!(),
             Self::Back => "Go back",
             Self::Forward => "Go forward",
             Self::ToggleSidebar => "Toggle sidebar",
@@ -77,6 +84,8 @@ impl Action {
             Self::ToggleSidebar => "Ctrl+B",
             Self::ToggleTerminal if cfg!(target_os = "macos") => "⌘J",
             Self::ToggleTerminal => "Ctrl+J",
+            Self::GoToFile if cfg!(target_os = "macos") => "⌘P",
+            Self::GoToFile => "Ctrl+P",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
             _ => "",
         }
@@ -87,6 +96,7 @@ impl Action {
             Self::NewThread(_) | Self::StartInProject(_) | Self::PickProject => &NEW_THREAD_ICON,
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
+            Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
             Self::Settings => &crate::appearance::GEAR,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
@@ -107,6 +117,16 @@ enum Page {
     Root,
     PickProject,
     Project(String),
+    Files {
+        location: Location,
+        operation: u64,
+        status: Option<String>,
+    },
+}
+
+struct Available {
+    terminal: bool,
+    files: bool,
 }
 
 struct Item {
@@ -156,10 +176,13 @@ impl Palette {
         ws: &Workspace,
         active: Option<&str>,
         write: bool,
-        terminal_available: bool,
+        available: Available,
         history: &crate::navigation::History,
         keep_selection: bool,
     ) {
+        if matches!(self.page, Page::Files { .. }) {
+            return;
+        }
         let query = self.query.text.trim().to_lowercase();
         let mut items = Vec::new();
         let mut command = |action: Action| {
@@ -200,7 +223,10 @@ impl Palette {
                 command(Action::Projects);
                 command(Action::Settings);
                 command(Action::ToggleSidebar);
-                if terminal_available {
+                if available.files {
+                    command(Action::GoToFile);
+                }
+                if available.terminal {
                     command(Action::ToggleTerminal);
                 }
                 command(Action::Refresh);
@@ -283,12 +309,131 @@ impl Palette {
 }
 
 impl Desktop {
-    pub(crate) fn toggle_palette(&mut self, tx: &mut Tx) {
-        if self.settings_open
-            || self.palette.take().is_some()
-            || self.environment.is_none()
-            || self.pending
+    pub(crate) fn file_search_location(&self) -> Option<&Location> {
+        match &self.palette.as_ref()?.page {
+            Page::Files { location, .. } => Some(location),
+            _ => None,
+        }
+    }
+
+    fn cancel_file_search(&mut self) {
+        if let Some(Page::Files {
+            location,
+            operation,
+            ..
+        }) = self.palette.as_ref().map(|p| &p.page)
         {
+            self.file_request(
+                location.clone(),
+                *operation,
+                FileInput::Search {
+                    query: String::new(),
+                    cancel: true,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn dismiss_palette(&mut self) {
+        self.cancel_file_search();
+        self.palette = None;
+    }
+
+    pub(crate) fn toggle_file_picker(&mut self, tx: &mut Tx) {
+        if self.file_search_location().is_some() {
+            self.dismiss_palette();
+            return;
+        }
+        let Some(location) = self.file_location() else {
+            return;
+        };
+        if self.palette.is_none() {
+            self.toggle_palette(tx);
+        }
+        self.palette_page(
+            Page::Files {
+                location,
+                operation: 0,
+                status: None,
+            },
+            tx,
+        );
+    }
+
+    fn search_files(&mut self) {
+        let next = self.next_request_id();
+        let Some(p) = self.palette.as_mut() else {
+            return;
+        };
+        let Page::Files {
+            location,
+            operation,
+            status,
+        } = &mut p.page
+        else {
+            return;
+        };
+        *operation = next;
+        p.items.clear();
+        p.selected = None;
+        p.revision += 1;
+        *status = Some("Searching files…".into());
+        let loc = location.clone();
+        let query = p.query.text.trim().to_owned();
+        if query.encode_utf16().count() > 256 {
+            *status = Some("Search is limited to 256 characters.".into());
+            self.cancel_file_search();
+            return;
+        }
+        self.file_request(
+            loc,
+            next,
+            FileInput::Search {
+                query,
+                cancel: false,
+            },
+        );
+    }
+
+    pub(crate) fn receive_file_matches(
+        &mut self,
+        operation: u64,
+        paths: Vec<String>,
+        error: Option<String>,
+    ) {
+        let Some(p) = self.palette.as_mut() else {
+            return;
+        };
+        let Page::Files {
+            operation: current,
+            status,
+            ..
+        } = &mut p.page
+        else {
+            return;
+        };
+        if *current != operation {
+            return;
+        }
+        p.items = paths
+            .into_iter()
+            .map(|path| Item {
+                key: path,
+                group: "Files",
+                action: Action::OpenFile,
+            })
+            .collect();
+        *status = error.or_else(|| p.items.is_empty().then(|| "No matching files.".into()));
+        p.selected = (!p.items.is_empty()).then_some(0);
+        p.revision += 1;
+    }
+
+    pub(crate) fn toggle_palette(&mut self, tx: &mut Tx) {
+        if self.palette.is_some() {
+            self.dismiss_palette();
+            return;
+        }
+        if self.settings_open || self.environment.is_none() || self.pending {
             return;
         }
         self.workspace.project_scope.close();
@@ -307,13 +452,16 @@ impl Desktop {
                 .get(&pane.id)
                 .map(|&i| self.workspace.threads[i].project.as_str())
         });
-        let terminal_available = self.terminal_available();
+        let available = Available {
+            terminal: self.terminal_available(),
+            files: self.file_location().is_some(),
+        };
         if let Some(palette) = self.palette.as_mut() {
             palette.filter(
                 &self.workspace,
                 active,
                 self.can_operate,
-                terminal_available,
+                available,
                 &self.history,
                 keep_selection,
             );
@@ -321,6 +469,7 @@ impl Desktop {
     }
 
     fn palette_page(&mut self, page: Page, tx: &mut Tx) {
+        self.cancel_file_search();
         let Some(p) = self.palette.as_mut() else {
             return;
         };
@@ -331,13 +480,25 @@ impl Desktop {
             p.query = TextEdit::new("");
         }
         p.page = page;
-        self.filter_palette(false);
+        if matches!(p.page, Page::Files { .. }) {
+            self.search_files();
+        } else {
+            self.filter_palette(false);
+        }
         tx.focus("palette-query", true);
         tx.scroll_to("palette-scroll", 0.0, 0.0);
     }
 
-    fn choose_palette(&mut self, action: Action, tx: &mut Tx) {
+    fn choose_palette(&mut self, action: Action, key: &str, tx: &mut Tx) {
         match action {
+            Action::GoToFile => return self.toggle_file_picker(tx),
+            Action::OpenFile => {
+                if let Some(location) = self.file_search_location().cloned() {
+                    self.dismiss_palette();
+                    self.open_workspace_file(location, key.to_owned());
+                }
+                return;
+            }
             Action::PickProject => return self.palette_page(Page::PickProject, tx),
             Action::Project(i) => {
                 return self.palette_page(Page::Project(self.workspace.projects[i].id.clone()), tx);
@@ -362,7 +523,9 @@ impl Desktop {
             }
             Action::Projects => self.show_projects(),
             Action::Settings => self.open_settings(tx),
-            Action::PickProject | Action::Project(_) => unreachable!(),
+            Action::PickProject | Action::Project(_) | Action::GoToFile | Action::OpenFile => {
+                unreachable!()
+            }
         }
     }
 }
@@ -388,13 +551,14 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 && let Some(i) = p.selected
             {
                 let action = p.items[i].action;
-                s.choose_palette(action, tx);
+                let path = p.items[i].key.clone();
+                s.choose_palette(action, &path, tx);
             }
         }
         Key::Backspace if p.query.text.is_empty() && !matches!(p.page, Page::Root) => {
             s.palette_page(Page::Root, tx)
         }
-        Key::Escape => s.palette = None,
+        Key::Escape => s.dismiss_palette(),
         _ => return false,
     }
     true
@@ -417,7 +581,9 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let height = (89.0 + content_height.max(52.0))
         .min(420.0)
         .min(bounds[1] - top - 16.0);
-    let placeholder = if matches!(p.page, Page::Root) {
+    let placeholder = if matches!(p.page, Page::Files { .. }) {
+        "Search files"
+    } else if matches!(p.page, Page::Root) {
         "Search commands, projects, and threads..."
     } else {
         "Search..."
@@ -433,7 +599,11 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .color(theme.text)
         .on_edit(|s: &mut Desktop| &mut s.palette.as_mut().unwrap().query)
         .on_input_change(|s: &mut Desktop, tx| {
-            s.filter_palette(false);
+            if s.file_search_location().is_some() {
+                s.search_files();
+            } else {
+                s.filter_palette(false);
+            }
             tx.scroll_to("palette-scroll", 0.0, 0.0);
         })
         .on_input_key(key);
@@ -458,13 +628,24 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             move |s: &Desktop, i| {
                 let p = s.palette.as_ref().unwrap();
                 let item = &p.items[i];
-                let title = item.action.title(&s.workspace);
-                let hint = item.action.hint(&s.workspace);
+                let (title, hint) = if matches!(item.action, Action::OpenFile) {
+                    let (parent, name) = item.key.rsplit_once('/').unwrap_or(("", &item.key));
+                    (Cow::Borrowed(name), parent)
+                } else {
+                    (
+                        item.action.title(&s.workspace),
+                        item.action.hint(&s.workspace),
+                    )
+                };
                 let target = item.key.clone();
                 let mut option = row()
                     .key("option")
                     .role("option")
-                    .label(title.as_ref())
+                    .label(if matches!(item.action, Action::OpenFile) {
+                        item.key.as_str()
+                    } else {
+                        title.as_ref()
+                    })
                     .no_window_drag()
                     .w_full()
                     .h(32.0)
@@ -472,7 +653,17 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                     .gap(8.0)
                     .center_y()
                     .radius(5.0)
-                    .child(icon(item.action.icon(), 16.0).color(colors.text_secondary))
+                    .child(
+                        icon(
+                            if matches!(item.action, Action::OpenFile) {
+                                rune_kit::file_icon(&item.key)
+                            } else {
+                                item.action.icon()
+                            },
+                            16.0,
+                        )
+                        .color(colors.text_secondary),
+                    )
                     .child(label(&title, 14.0, 400.0, colors.text).truncate().shrink())
                     .child(spacer());
                 if !hint.is_empty() {
@@ -499,7 +690,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                     .on_press_tx(move |s: &mut Desktop, tx| {
                         if let Some(action) = s.palette.as_ref().and_then(|p| p.action_for(&target))
                         {
-                            s.choose_palette(action, tx);
+                            s.choose_palette(action, &target, tx);
                         }
                     });
                 let mut block = col().w_full();
@@ -516,7 +707,16 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         )
         .virtual_rows_version((p.revision, s.dark(cx)));
     let result = if p.items.is_empty() {
-        label("No results found.", 14.0, 400.0, theme.text_secondary).padding(16.0)
+        label(
+            match &p.page {
+                Page::Files { status, .. } => status.as_deref().unwrap_or("No matching files."),
+                _ => "No results found.",
+            },
+            14.0,
+            400.0,
+            theme.text_secondary,
+        )
+        .padding(16.0)
     } else {
         list
     };
@@ -569,7 +769,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         )
         .child(el().h(1.0).w_full().fill(theme.separator))
         .child(footer)
-        .modal(true, |s: &mut Desktop| s.palette = None)
+        .modal(true, Desktop::dismiss_palette)
         .modal_click_outside(true);
     overlays.push(
         el().absolute(0.0, 0.0)

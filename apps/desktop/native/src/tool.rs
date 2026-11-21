@@ -46,6 +46,10 @@ impl Desktop {
         self.permission_menu = None;
         self.models.close();
         self.close_terminal();
+        self.close_file_preview();
+        if self.file_search_location().is_some() {
+            self.dismiss_palette();
+        }
         self.close_image();
         self.close_command();
         self.close_diff();

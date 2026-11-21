@@ -41,6 +41,7 @@ import {
   pairWithEnvironment,
   readWorkspace,
   writePlanToWorkspace,
+  readWorkspaceFiles,
 } from "../src/native/projects.ts";
 
 const packaged = process.argv[2] === "--packaged";
@@ -401,6 +402,63 @@ async function openThread(owner, request, reply) {
     if (same && session === owner && !lifetime.signal.aborted)
       watch(owner, same.thread, same.id, same.state);
     throw error;
+  }
+}
+
+async function workspaceFiles(request, reply) {
+  const record = watching;
+  const search = request.action === "search";
+  const channel = search ? "fileSearch" : "fileRead";
+  const target = { type: search ? "filematches" : "filesource", operation: request.operation };
+  if (!record || record.id !== request.watch || record.owner !== session || !session.canBrowse) {
+    return reply({ ...target, error: "Reopen this thread with file read access." });
+  }
+  record[channel]?.abort();
+  if (request.cancel) return;
+  const controller = new AbortController();
+  record[channel] = controller;
+  const signal = AbortSignal.any([
+    record.controller.signal,
+    record.owner.signal,
+    controller.signal,
+  ]);
+  try {
+    if (search && request.query) await NodeTimersPromises.setTimeout(120, undefined, { signal });
+    const feed = workspaceFeed;
+    const rpc = feed?.activeRpc();
+    const rootChanged = () =>
+      feed !== workspaceFeed ||
+      (rpc && feed.activeRpc() !== rpc) ||
+      (feed?.activeRpc() && feed.fileRoot(record.thread) !== request.root);
+    const changed = {
+      ...target,
+      error: "The workspace changed. Refresh the thread and try again.",
+    };
+    if (rootChanged()) return reply(changed);
+    const result = await Effect.runPromise(
+      readWorkspaceFiles(record.owner, record.thread, request.root, request, rpc).pipe(
+        Effect.scoped,
+        Effect.timeout("12 seconds"),
+        Effect.provide(record.owner.http),
+      ),
+      { signal },
+    );
+    if (!signal.aborted) reply(rootChanged() ? changed : { ...target, ...result });
+  } catch (error) {
+    if (!signal.aborted)
+      reply({
+        ...target,
+        error:
+          error?._tag === "ThreadWorkspaceChanged"
+            ? "The workspace changed. Refresh the thread and try again."
+            : error?.failure === "binary_file"
+              ? "This file contains binary data."
+              : search
+                ? "Couldn’t search workspace files."
+                : "Couldn’t read this workspace file.",
+      });
+  } finally {
+    if (record[channel] === controller) record[channel] = undefined;
   }
 }
 
@@ -784,6 +842,7 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         local: localSession?.sameFilesystem ?? false,
         can_operate: session.canOperate,
+        can_read_files: session.canBrowse,
         can_write_files: session.canWriteFiles,
         can_pin: session.canPin,
         terminal_read: session.canReadTerminal || session.canOperateTerminal,
@@ -1105,6 +1164,8 @@ try {
       void inspectImage(request);
     } else if (request?.type === "inspectfile" || request?.type === "inspecttool") {
       inspectDetail(request);
+    } else if (request?.type === "workspacefiles") {
+      void workspaceFiles(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
     } else if (request?.type === "downloadplan") {
