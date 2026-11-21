@@ -27,6 +27,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
+import { prepareAttachments, retryAttachments } from "./attachments.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, projectSummary, type Session } from "./projects.ts";
 
@@ -173,6 +174,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     project: string;
     model: string;
     text: string;
+    files: readonly string[];
     operation: string;
     runtime: string;
     base: string | null;
@@ -191,11 +193,18 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
       message:
         "The project’s permission settings changed. Refresh and review the permission level before starting.",
     });
+  const attachments = yield* prepareAttachments(
+    session,
+    rpc,
+    request.files,
+    request.operation,
+    request.operation,
+  );
   return {
     threadId: ThreadId.make(request.operation),
     commandId: CommandId.make(request.operation),
     projectId: ProjectId.make(request.project),
-    title: deriveThreadTitleSeed({ text: request.text, attachments: [] }),
+    title: deriveThreadTitleSeed({ text: request.text, attachments }),
     creationSource: "web",
     modelSelection: choice.selection,
     runtimeMode: choice.runtime,
@@ -207,7 +216,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     initialMessage: {
       messageId: MessageId.make(request.operation),
       text: request.text,
-      attachments: [],
+      attachments,
     },
   } satisfies OrchestrationV2ThreadLaunchInput;
 });
@@ -219,7 +228,23 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
 ) {
   const original = pending.get(request.operation);
   const rpc = yield* openEnvironmentRpc(session);
-  const command = original ?? (yield* prepareLaunch(session, request, rpc));
+  const command = original?.initialMessage
+    ? {
+        ...original,
+        initialMessage: {
+          ...original.initialMessage,
+          attachments: yield* retryAttachments(
+            session,
+            rpc,
+            original.initialMessage.attachments,
+            request.files,
+            request.operation,
+            request.operation,
+            () => pending.delete(request.operation),
+          ),
+        },
+      }
+    : (original ?? (yield* prepareLaunch(session, request, rpc)));
   pending.set(request.operation, command);
   const result = yield* rpc[ORCHESTRATION_V2_WS_METHODS.launchThread](command).pipe(
     Effect.tapError((error) =>

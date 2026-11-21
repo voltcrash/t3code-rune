@@ -1,3 +1,4 @@
+import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
 import * as NodeTimersPromises from "node:timers/promises";
@@ -399,7 +400,8 @@ function localServer() {
 }
 
 function requestError(error, type, editing) {
-  if (error instanceof NewThreadUnavailable) return error.message;
+  if (error instanceof AttachmentUnavailable || error instanceof NewThreadUnavailable)
+    return error.message;
   if (type === "preparescratch")
     return "Couldn’t open the scratch workspace on this environment. Try again.";
   if (type === "preparethread") return "Couldn’t load models for this project. Try again.";
@@ -481,7 +483,7 @@ async function handleWorkspaceRequest(request, reply) {
       } else {
         const thread = await Effect.runPromise(
           launchThread(reading, request, pendingLaunches).pipe(
-            Effect.timeout("60 seconds"),
+            Effect.timeout(request.files?.length ? "5 minutes" : "60 seconds"),
             Effect.scoped,
             Effect.provide(reading.http),
           ),
@@ -560,7 +562,7 @@ async function handleWorkspaceRequest(request, reply) {
       await Effect.runPromise(
         sendThreadMessage(reading, request).pipe(
           Effect.scoped,
-          Effect.timeout("60 seconds"),
+          Effect.timeout(request.files?.length ? "5 minutes" : "60 seconds"),
           Effect.provide(reading.http),
         ),
         { signal: reading.signal },

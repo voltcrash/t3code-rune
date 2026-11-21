@@ -58,6 +58,8 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
     streamsCommandOutput: descriptor.capabilities.commandOutputStreaming === true,
+    attachmentUploads: descriptor.capabilities.attachmentUploads === true,
+    maxFileBytes: descriptor.capabilities.fileAttachments?.maxUploadBytes ?? 0,
     platform: descriptor.platform.os,
     httpBaseUrl: target.httpBaseUrl,
     token: session.access_token,

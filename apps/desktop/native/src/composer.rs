@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 pub(super) struct Draft {
     editor: TextEdit,
+    files: Vec<String>,
     operation: Option<String>,
 }
 
@@ -14,6 +15,7 @@ impl Default for Draft {
         Self {
             editor: TextEdit::new(""),
             operation: None,
+            files: vec![],
         }
     }
 }
@@ -28,8 +30,15 @@ impl Draft {
         self.editor = TextEdit::new(&combined);
         self.operation = None;
     }
+    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<String>)) {
+        let before = self.files.len();
+        change(&mut self.files);
+        if self.files.len() != before {
+            self.operation = None;
+        }
+    }
     fn submission(&mut self, thread: &str) -> Option<Request<'static>> {
-        if self.editor.text.trim().is_empty() {
+        if self.editor.text.trim().is_empty() && self.files.is_empty() {
             return None;
         }
         let operation = self
@@ -39,6 +48,7 @@ impl Draft {
         Some(Request::SendMessage {
             thread: thread.into(),
             text: self.editor.text.clone(),
+            files: self.files.clone(),
             operation,
         })
     }
@@ -183,13 +193,18 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
         .as_ref()
         .expect("composer has a conversation");
     let guarded = matches!(pane.stop_feedback, Some(StopFeedback::Landed(_)));
-    let empty = draft.editor.text.trim().is_empty();
+    let empty = draft.editor.text.trim().is_empty() && draft.files.is_empty();
     let send = send_button(
         "Send message",
         !s.pending && !empty && !guarded,
         Desktop::send_message,
     );
-    let mut controls = row().w_full().center_y().gap(9.0).child(spacer()).child(
+    let target = super::attachments::Target::Thread(id.to_owned());
+    let mut controls = row().w_full().center_y().gap(9.0);
+    if !asking {
+        controls = controls.child(target.button(theme, s.pending));
+    }
+    controls = controls.child(spacer()).child(
         text(model)
             .font(TextStyle::new(13.0, 500.0))
             .color(theme.text_secondary)
@@ -234,7 +249,15 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
         }
         controls = controls.child(stop);
     }
-    surface(id, field, controls, theme)
+    let list = if asking {
+        None
+    } else {
+        target.list(&draft.files, theme, s.pending)
+    };
+    target.drop_area(
+        surface(id, field, controls, theme, list),
+        asking || s.pending,
+    )
 }
 
 pub(super) fn send_button(caption: &str, enabled: bool, run: fn(&mut Desktop)) -> El {
@@ -259,7 +282,13 @@ pub(super) fn send_button(caption: &str, enabled: bool, run: fn(&mut Desktop)) -
     }
 }
 
-pub(super) fn surface(id: &str, field: El, controls: El, theme: &tok::Theme) -> El {
+pub(super) fn surface(
+    id: &str,
+    field: El,
+    controls: El,
+    theme: &tok::Theme,
+    list: Option<El>,
+) -> El {
     let surface = col()
         .key(format!("composer-{id}"))
         .w_full()
@@ -272,6 +301,7 @@ pub(super) fn surface(id: &str, field: El, controls: El, theme: &tok::Theme) -> 
         .pt(14.0)
         .pb(8.0)
         .gap(7.0)
+        .children(list)
         .child(auto_grow(field, 2, 7).w_full().min_h(46.0).max_h(144.0))
         .child(controls);
     col().w_full().px(24.0).pt(8.0).pb(20.0).child(surface)
@@ -322,7 +352,7 @@ mod tests {
     fn a_retry_reuses_the_operation_until_the_matching_send_is_confirmed() {
         let mut ws = Workspace::new();
         let draft = ws.drafts.entry("thread".into()).or_default();
-        draft.editor = TextEdit::new("send once");
+        draft.edit_files(|files| files.push("document.pdf".into()));
         let Request::SendMessage { operation, .. } = draft.submission("thread").unwrap() else {
             unreachable!()
         };
@@ -331,13 +361,15 @@ mod tests {
         let Request::SendMessage {
             operation: retry,
             text,
+            files,
             ..
         } = draft.submission("thread").unwrap()
         else {
             unreachable!()
         };
         assert_eq!(retry, operation);
-        assert_eq!(text, "send once");
+        assert!(text.is_empty());
+        assert_eq!(files, ["document.pdf"]);
         ws.finish_message("thread", &operation);
         assert!(
             ws.drafts
