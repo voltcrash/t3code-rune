@@ -53,10 +53,14 @@ on the printed web port. Disconnect in the desktop window to pair with another e
 For a standalone native window with separate state, `vp run dev:desktop:rune` starts a local
 server in the checkout’s `.t3/rune`.
 
-On macOS, `vp run dist:desktop:rune` builds an app for the build machine's architecture with
-the pinned Node runtime, Rust, and the Xcode Command Line Tools. Extract the zip from `release/`
-and open **T3 Code.app**. This local build keeps its data in `~/.t3/rune`. Set `T3CODE_HOME`
-to use a different directory.
+`vp run dist:desktop:rune` builds the native desktop app for the host architecture using Rust
+and the repository’s pinned standalone Node distribution. Both builds write to `release/`.
+
+- On macOS, install the Xcode Command Line Tools, extract the zip, and open **T3 Code.app**.
+- On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
+  and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
+
+These local builds keep their data in `~/.t3/rune`. Set `T3CODE_HOME` to select another directory.
 
 See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
 

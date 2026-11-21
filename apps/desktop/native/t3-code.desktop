@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=T3 Code
+Exec=t3-code
+Icon=com.t3tools.T3Code.Rune
+StartupWMClass=com.t3tools.T3Code.Rune
+Categories=Development;
+Terminal=false

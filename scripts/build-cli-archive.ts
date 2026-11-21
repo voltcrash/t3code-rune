@@ -262,7 +262,7 @@ const stageWebClient = Effect.fn("stageWebClient")(function* (source: string, ta
 });
 
 /** Node links libatomic.so.1, which Ubuntu server and container images lack, so t3 carries its own. */
-const bundleLinuxLibatomic = Effect.fn("bundleLinuxLibatomic")(function* (input: {
+export const bundleLinuxLibatomic = Effect.fn("bundleLinuxLibatomic")(function* (input: {
   readonly repoRoot: string;
   readonly contentDir: string;
   readonly executablePath: string;
@@ -300,12 +300,19 @@ const bundleLinuxLibatomic = Effect.fn("bundleLinuxLibatomic")(function* (input:
   if (!pkg || !version || !sourcePackage || !sourceVersion) {
     return yield* new CliArchiveInputMissingError({
       inputPath: `dpkg package for ${source}`,
-      hint: "The archive copies libatomic's license and source reference from its Ubuntu package.",
+      hint: "The archive copies libatomic's license and source reference from its distribution package.",
     });
   }
+  const vendor = (yield* spawner.string(
+    ChildProcess.make("dpkg-vendor", ["--query", "Vendor"]),
+  )).trim();
+  const sourceReference =
+    vendor === "Ubuntu"
+      ? `https://launchpad.net/ubuntu/+source/${sourcePackage}/${sourceVersion}`
+      : `apt-get source ${sourcePackage}=${sourceVersion}`;
   const header = [
-    `libatomic.so.1 is copied from the Ubuntu package ${pkg} ${version}.`,
-    `Source: https://launchpad.net/ubuntu/+source/${sourcePackage}/${sourceVersion}`,
+    `libatomic.so.1 is copied from the ${vendor} package ${pkg} ${version}.`,
+    `Source: ${sourceReference}`,
   ].join("\n");
   // Vendored because CI runner images strip /usr/share/doc.
   const license = yield* fs.readFileString(
