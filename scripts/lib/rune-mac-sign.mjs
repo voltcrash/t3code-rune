@@ -72,12 +72,15 @@ function sign(file, identity, extra = []) {
   run("codesign", ["--force", "--sign", identity, "--timestamp", ...extra, file]);
 }
 
-async function notarize(file, staple, credentials) {
+async function notarize(file, credentials) {
   await Effect.runPromise(
     notarizeMacArtifact(file, credentials).pipe(Effect.provide(NodeServices.layer)),
   );
-  run("xcrun", ["stapler", "staple", staple]);
-  run("xcrun", ["stapler", "validate", staple]);
+}
+
+function staple(file) {
+  run("xcrun", ["stapler", "staple", file]);
+  run("xcrun", ["stapler", "validate", file]);
 }
 
 export async function signRuneMacApp({ app, resources, node, repoRoot, signing }) {
@@ -105,11 +108,15 @@ export async function signRuneMacApp({ app, resources, node, repoRoot, signing }
   }
 }
 
-export async function buildRuneMacZip({ app, artifact, tmp, signing }) {
+export async function buildRuneMacZip({ app, artifact, tmp, signing, submittedInDmg }) {
   if (signing?.notary) {
-    const zip = NodePath.join(tmp, "notarize-app.zip");
-    run("ditto", ["-c", "-k", "--keepParent", app, zip]);
-    await notarize(zip, app, signing.notary);
+    // An accepted DMG submission includes a ticket for its signed app.
+    if (!submittedInDmg) {
+      const zip = NodePath.join(tmp, "notarize-app.zip");
+      run("ditto", ["-c", "-k", "--keepParent", app, zip]);
+      await notarize(zip, signing.notary);
+    }
+    staple(app);
   }
   run("ditto", ["-c", "-k", "--keepParent", app, artifact]);
 }
@@ -117,5 +124,8 @@ export async function buildRuneMacZip({ app, artifact, tmp, signing }) {
 export async function signRuneDmg(artifact, signing) {
   sign(artifact, signing.identity);
   run("codesign", ["--verify", "--strict", artifact]);
-  if (signing.notary) await notarize(artifact, artifact, signing.notary);
+  if (signing.notary) {
+    await notarize(artifact, signing.notary);
+    staple(artifact);
+  }
 }

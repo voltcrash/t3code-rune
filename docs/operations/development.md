@@ -321,9 +321,9 @@ On an ARM64 Linux host, run:
 vp run dist:desktop:linux --arch arm64
 ```
 
-DMGs default to the host architecture. Use `--arch` to choose another target and `--keep-stage`
-to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
-options.
+`dist:desktop:dmg` builds a native disk image and a ZIP of the same app. It defaults to the host
+architecture. Use `--arch x64`, `--arch arm64`, or `--arch universal` to select the target and
+`--keep-stage` to retain packaging files for inspection.
 
 ### Prepared server bytecode
 
