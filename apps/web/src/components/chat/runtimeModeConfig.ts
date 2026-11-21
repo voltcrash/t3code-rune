@@ -1,4 +1,7 @@
-import { managedRuntimeModeDenial } from "@t3tools/client-runtime/contract-labels";
+import {
+  managedRuntimeModeDenial,
+  runtimeModeMessages,
+} from "@t3tools/client-runtime/contract-labels";
 import type { ManagedPolicySummary, RuntimeMode } from "@t3tools/contracts";
 import { msg } from "gt-react";
 import { m, type MessageResolver } from "~/i18n/messages";
@@ -14,27 +17,10 @@ export const runtimeModeConfig: Record<
   RuntimeMode,
   { label: string; description: string; icon: LucideIcon }
 > = {
-  "approval-required": {
-    label: msg("Supervised", { $context: "permission mode, agent asks before acting" }),
-    description: msg("Ask before commands and file changes."),
-    icon: LockIcon,
-  },
-  "auto-accept-edits": {
-    label: msg("Auto-accept edits"),
-    description: msg("Auto-approve edits, ask before other actions."),
-    icon: PenLineIcon,
-  },
-  auto: {
-    label: msg("Auto", { $context: "permission mode, provider approves routine actions" }),
-    description: msg("Supported providers approve routine actions; others still ask."),
-    icon: ShieldCheckIcon,
-  },
-  "full-access": {
-    label: msg("Full access"),
-    description: msg("Allow commands and edits without prompts."),
-    // An open lock reads like a closed one at small sizes; a crossed shield does not.
-    icon: ShieldOffIcon,
-  },
+  "approval-required": { ...runtimeModeMessages["approval-required"], icon: LockIcon },
+  "auto-accept-edits": { ...runtimeModeMessages["auto-accept-edits"], icon: PenLineIcon },
+  auto: { ...runtimeModeMessages.auto, icon: ShieldCheckIcon },
+  "full-access": { ...runtimeModeMessages["full-access"], icon: ShieldOffIcon },
 };
 
 export const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];

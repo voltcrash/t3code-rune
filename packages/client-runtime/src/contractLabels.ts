@@ -95,6 +95,25 @@ export function managedUpdatesDenial(
     : undefined;
 }
 
+export const runtimeModeMessages: Record<RuntimeMode, { label: string; description: string }> = {
+  "approval-required": {
+    label: msg("Supervised", { $context: "permission mode, agent asks before acting" }),
+    description: msg("Ask before commands and file changes."),
+  },
+  "auto-accept-edits": {
+    label: msg("Auto-accept edits"),
+    description: msg("Auto-approve edits, ask before other actions."),
+  },
+  auto: {
+    label: msg("Auto", { $context: "permission mode, provider approves routine actions" }),
+    description: msg("Supported providers approve routine actions; others still ask."),
+  },
+  "full-access": {
+    label: msg("Full access"),
+    description: msg("Allow commands and edits without prompts."),
+  },
+};
+
 /** @public */
 export function managedRuntimeModeCeilingMessage(
   organization: string,

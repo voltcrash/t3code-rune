@@ -664,7 +664,7 @@ impl Desktop {
     }
 }
 
-fn label(value: &str, size: f32, weight: f32, color: rune::Color) -> El {
+pub(super) fn label(value: &str, size: f32, weight: f32, color: rune::Color) -> El {
     text(value).font(TextStyle::new(size, weight)).color(color)
 }
 
@@ -1492,7 +1492,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 &project.title,
                 project.scratch,
                 theme,
-                &Kit::neutral(cx.system_dark()),
+                cx,
                 &mut overlays,
             )
         } else if !s.workspace.show_projects

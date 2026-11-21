@@ -124,6 +124,7 @@ enum Reply {
         record: Project,
         project: String,
         choices: Vec<new_thread::Choice>,
+        permissions: new_thread::ProviderPermissions,
         base: String,
         worktree: bool,
     },
@@ -185,6 +186,7 @@ enum Request<'a> {
     LaunchThread {
         project: String,
         runtime: String,
+        runtime_override: Option<String>,
         model: String,
         text: String,
         files: Vec<String>,
@@ -530,6 +532,7 @@ impl Desktop {
                 record,
                 project,
                 choices,
+                permissions,
                 base,
                 worktree,
             } => {
@@ -539,7 +542,7 @@ impl Desktop {
                     .visit(navigation::Page::NewThread(project.clone()));
                 self.workspace.upsert_project(record);
                 self.new_threads
-                    .configure(project, choices, worktree, &base);
+                    .configure(project, choices, permissions, worktree, &base);
                 self.workspace.show_projects = false;
             }
             Reply::ThreadLaunched {
@@ -833,6 +836,9 @@ fn start() -> io::Result<()> {
                 if !tx.key_repeat() {
                     s.go(ev.is_command(']'));
                 }
+                return true;
+            }
+            if s.launch_permission_key(ev, tx) {
                 return true;
             }
             if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {

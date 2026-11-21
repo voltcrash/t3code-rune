@@ -255,7 +255,7 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
         target.list(&draft.files, theme, s.pending)
     };
     target.drop_area(
-        surface(id, field, controls, theme, list),
+        surface(id, field, controls, theme, list, None),
         asking || s.pending,
     )
 }
@@ -288,6 +288,7 @@ pub(super) fn surface(
     controls: El,
     theme: &tok::Theme,
     list: Option<El>,
+    footer: Option<El>,
 ) -> El {
     let surface = col()
         .key(format!("composer-{id}"))
@@ -304,7 +305,14 @@ pub(super) fn surface(
         .children(list)
         .child(auto_grow(field, 2, 7).w_full().min_h(46.0).max_h(144.0))
         .child(controls);
-    col().w_full().px(24.0).pt(8.0).pb(20.0).child(surface)
+    col()
+        .w_full()
+        .px(24.0)
+        .pt(8.0)
+        .pb(20.0)
+        .gap(4.)
+        .child(surface)
+        .children(footer)
 }
 
 #[cfg(test)]
