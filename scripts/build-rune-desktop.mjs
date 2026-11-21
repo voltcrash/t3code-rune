@@ -81,7 +81,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
   --arch x64|arm64|universal    Architecture (universal is macOS only)
   --target <format>             macOS: dmg, zip, dmg,zip
                                 Linux: AppImage, deb, AppImage,deb
-                                Windows: nsis, zip
+                                Windows: nsis, zip, nsis,zip
   --windows-node-dir <dir>      Extracted Windows Node distribution for Linux cross-builds
   --wsl-runtime <archive>       Bundle the matching Linux CLI release archive for WSL on Windows
   --build-version <version>     Version to embed in the app and artifact names
@@ -123,7 +123,7 @@ if (
   !{
     mac: ["dmg", "zip", "dmg,zip"],
     linux: ["AppImage", "deb", "AppImage,deb"],
-    win: ["zip", "nsis"],
+    win: ["zip", "nsis", "nsis,zip"],
   }[platform]?.includes(target)
 ) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
@@ -417,8 +417,8 @@ async function buildRunePackage() {
       product,
     );
     if (windowsSigning) await signRuneWindowsPayload(app, windowsSigning);
-    const archive = NodePath.join(published, file);
-    if (target === "nsis") {
+    if (formats.includes("nsis")) {
+      const archive = NodePath.join(published, artifactName("nsis"));
       await buildRuneInstaller({
         app,
         artifact: archive,
@@ -430,10 +430,14 @@ async function buildRunePackage() {
         signed,
       });
       if (windowsSigning) await signRuneWindowsFile(archive, windowsSigning);
-    } else if (host === "win32") {
-      run(windowsSystemTar(), ["-a", "-cf", archive, "-C", tmp, layout.root]);
-    } else {
-      run("zip", ["-q", "-r", "-X", archive, layout.root], { cwd: tmp });
+    }
+    if (formats.includes("zip")) {
+      const archive = NodePath.join(published, artifactName("zip"));
+      if (host === "win32") {
+        run(windowsSystemTar(), ["-a", "-cf", archive, "-C", tmp, layout.root]);
+      } else {
+        run("zip", ["-q", "-r", "-X", archive, layout.root], { cwd: tmp });
+      }
     }
   } else {
     const desktopId = "com.t3tools.T3Code.Rune";

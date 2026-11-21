@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 
+PACKAGED_FRAME_CHECK = sys.platform in ("darwin", "win32")
+
 if sys.platform == "linux":
     import gi
 
@@ -80,9 +82,9 @@ def launch(tmp, executable):
         command, overrides = source_command(tmp)
     else:
         command, overrides = [executable.absolute()], {"T3CODE_HOME": str(home)}
-    if sys.platform == "darwin":
+    if PACKAGED_FRAME_CHECK:
         if executable is None:
-            raise ValueError("Pass --executable for the macOS package check")
+            raise ValueError("Pass --executable for the packaged window check")
         command.extend(["--verify-launch", THREAD_ID, TITLE, MESSAGE])
     env = {**os.environ, **overrides, "T3CODE_TELEMETRY_ENABLED": "false"}
     env.pop("T3CODE_PORT", None)
@@ -92,8 +94,8 @@ def launch(tmp, executable):
     shutil.copyfile(fixture, userdata / fixture.name)
     with (tmp / "launch.stdout").open("wb") as output:
         return subprocess.Popen(
-            command, env=env, stdin=subprocess.PIPE, start_new_session=True,
-            stdout=output if sys.platform == "darwin" else None,
+            command, env=env, stdin=subprocess.PIPE, start_new_session=sys.platform != "win32",
+            stdout=output if PACKAGED_FRAME_CHECK else None,
         )
 
 
@@ -153,8 +155,8 @@ def main():
                 if args.executable is not None:
                     close_packaged_window(app)
             app.stdin.close()
-            app.wait(timeout=90 if sys.platform == "darwin" else 10)
-            if sys.platform == "darwin" and app.returncode == 0:
+            app.wait(timeout=90 if PACKAGED_FRAME_CHECK else 10)
+            if PACKAGED_FRAME_CHECK and app.returncode == 0:
                 with (Path(tmp) / "launch.stdout").open("rb") as output:
                     if not any(line.rstrip() == b"T3 Code Rune launch check passed" for line in output):
                         raise RuntimeError("The executable exited without confirming the rendered message")
@@ -171,8 +173,13 @@ def main():
             raise
         finally:
             if not passed:
-                with suppress(ProcessLookupError):
-                    os.killpg(app.pid, signal.SIGKILL)
+                if sys.platform == "win32":
+                    if app.poll() is None:
+                        subprocess.run(["taskkill", "/T", "/F", "/PID", str(app.pid)], check=False)
+                        app.kill()
+                else:
+                    with suppress(ProcessLookupError):
+                        os.killpg(app.pid, signal.SIGKILL)
             app.stdin.close()
             app.wait()
 

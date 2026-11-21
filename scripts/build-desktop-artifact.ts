@@ -492,14 +492,17 @@ const BUNDLE_SELF_CHECK_TIMEOUT = Duration.seconds(120);
 const WINDOWS_PRIMARY_NATIVE_PROBE_TIMEOUT = Duration.seconds(30);
 
 const WINDOWS_PRIMARY_FFF_PROBE_SOURCE = `
+if (process.arch !== process.argv[3]) throw new Error("Wrong packaged runtime architecture: " + process.arch);
 const { join } = await import("node:path");
 const { pathToFileURL } = await import("node:url");
 const { FileFinder } = await import(pathToFileURL(process.argv[1]).href);
 const probeRoot = process.argv[2];
 const result = FileFinder.create({
   basePath: probeRoot,
-  frecencyDbPath: join(probeRoot, "frecency.mdb"),
-  historyDbPath: join(probeRoot, "history.mdb"),
+  ...(process.argv[4] === "history" ? {
+    frecencyDbPath: join(probeRoot, "frecency.mdb"),
+    historyDbPath: join(probeRoot, "history.mdb"),
+  } : {}),
   disableWatch: true,
   disableMmapCache: true,
   disableContentIndexing: true,
@@ -625,7 +628,7 @@ export class WindowsPrimaryNativeProbeError extends Schema.TaggedError<WindowsPr
   },
 ) {
   override get message(): string {
-    return `The packaged Windows primary could not load fff from server.asar (exit ${this.exitCode}). Output:\n${this.output}`;
+    return `The packaged Windows primary could not initialize the packaged file finder (exit ${this.exitCode}). Output:\n${this.output}`;
   }
 }
 
@@ -2585,7 +2588,8 @@ export const verifyWindowsPrimaryFffNativeLoad = Effect.fn(
   "desktopArtifact.verifyWindowsPrimaryFffNativeLoad",
 )(function* (input: {
   readonly packagedAppDir: string;
-  readonly asarPath: string;
+  readonly moduleRoot: string;
+  readonly bundledNode?: boolean;
   readonly appExecutableName: string;
   readonly targetArch: typeof BuildArch.Type;
   readonly verbose: boolean;
@@ -2603,12 +2607,13 @@ export const verifyWindowsPrimaryFffNativeLoad = Effect.fn(
       output: "The unpacked application does not contain its expected primary executable.",
     });
   }
-  if (hostPlatform !== "win32" || hostArchitecture !== input.targetArch) return;
+  if (hostPlatform !== "win32" || (!input.bundledNode && hostArchitecture !== input.targetArch))
+    return;
 
   const probeRoot = yield* fs.makeTempDirectoryScoped({
     prefix: "t3code-windows-primary-native-probe-",
   });
-  const fffEntryPath = path.join(input.asarPath, "node_modules/@ff-labs/fff-node/dist/index.js");
+  const fffEntryPath = path.join(input.moduleRoot, "node_modules/@ff-labs/fff-node/dist/index.js");
   const probeEnv = { ...process.env };
   delete probeEnv.ELECTRON_NO_ASAR;
   delete probeEnv.NODE_OPTIONS;
@@ -2623,6 +2628,8 @@ export const verifyWindowsPrimaryFffNativeLoad = Effect.fn(
         WINDOWS_PRIMARY_FFF_PROBE_SOURCE,
         fffEntryPath,
         probeRoot,
+        input.targetArch,
+        ...(input.bundledNode ? [] : ["history"]),
       ],
       {
         cwd: input.packagedAppDir,
@@ -2630,7 +2637,7 @@ export const verifyWindowsPrimaryFffNativeLoad = Effect.fn(
         stderr: "pipe",
         env: {
           ...probeEnv,
-          ELECTRON_RUN_AS_NODE: "1",
+          ...(input.bundledNode ? {} : { ELECTRON_RUN_AS_NODE: "1" }),
           NODE_PATH: "",
         },
       },
@@ -2677,7 +2684,7 @@ export const verifyWindowsPackagedRuntime = Effect.fn(
 }) {
   const path = yield* Path.Path;
   const asarPath = path.join(input.packagedAppDir, "resources", WINDOWS_SERVER_ASAR_RESOURCE);
-  yield* verifyWindowsPrimaryFffNativeLoad({ ...input, asarPath });
+  yield* verifyWindowsPrimaryFffNativeLoad({ ...input, moduleRoot: asarPath });
   const hostPlatform = yield* HostProcess.Platform;
   if (hostPlatform !== "win32") {
     yield* Effect.log(

@@ -6,32 +6,46 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import { Command, Flag } from "effect/cli";
 
-import { verifyWindowsPackagedRuntime } from "./build-desktop-artifact.ts";
+import {
+  verifyWindowsPackagedRuntime,
+  verifyWindowsPrimaryFffNativeLoad,
+} from "./build-desktop-artifact.ts";
 import { resolveDesktopProductName } from "./desktop-packaging.ts";
 
 const verifyWindowsDesktopArtifactCli = Command.make("verify-windows-desktop-artifact", {
-  appDir: Flag.String("app-dir").pipe(
-    Flag.withDescription("The electron-builder `win-<arch>-unpacked` directory."),
-  ),
+  appDir: Flag.String("app-dir").pipe(Flag.withDescription("The extracted application directory.")),
   arch: Flag.Literals("arch", ["arm64", "x64"] as const),
   buildVersion: Flag.String("build-version").pipe(
     Flag.withDescription("The artifact's build version."),
   ),
+  rune: Flag.Boolean("rune").pipe(Flag.withDefault(false)),
   verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
 }).pipe(
   Command.withDescription("Verify a Windows desktop artifact's packaged natives load."),
-  Command.withHandler(({ appDir, arch, buildVersion, verbose }) =>
+  Command.withHandler(({ appDir, arch, buildVersion, rune, verbose }) =>
     Effect.gen(function* () {
-      yield* verifyWindowsPackagedRuntime({
-        packagedAppDir: appDir,
-        appExecutableName: `${resolveDesktopProductName(buildVersion)}.exe`,
-        targetArch: arch,
-        verbose,
-      });
+      if (rune) {
+        const path = yield* Path.Path;
+        yield* verifyWindowsPrimaryFffNativeLoad({
+          packagedAppDir: appDir,
+          appExecutableName: path.join("resources", "node.exe"),
+          moduleRoot: path.join(appDir, "resources"),
+          targetArch: arch,
+          bundledNode: true,
+          verbose,
+        });
+      } else
+        yield* verifyWindowsPackagedRuntime({
+          packagedAppDir: appDir,
+          appExecutableName: `${resolveDesktopProductName(buildVersion)}.exe`,
+          targetArch: arch,
+          verbose,
+        });
       yield* Effect.log(`[verify-windows-desktop-artifact] ${appDir} passed.`);
     }),
   ),
