@@ -3060,6 +3060,93 @@ export const parseWslRuntimeArchiveMembers = (listing: string): ReadonlyArray<st
     .map((member) => member.replace(/^\.\//, "").replace(/\/$/, ""))
     .filter((member) => member.length > 0);
 
+export const validatePackagedWslRuntime = Effect.fn("desktopArtifact.validatePackagedWslRuntime")(
+  function* (input: {
+    readonly packagedAppDir: string;
+    readonly appVersion: string;
+    readonly targetArch: typeof BuildArch.Type;
+  }) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const { packagedAppDir } = input;
+    const resourcesDir = path.join(packagedAppDir, "resources");
+    const wslArchivePath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_NAME);
+    const wslArchiveHashPath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_HASH_NAME);
+    const invalidWslRuntime = (cause: unknown) =>
+      new WindowsPackagedPayloadValidationError({
+        reason: "wsl-runtime-invalid",
+        packagedAppDir,
+        cause,
+      });
+    const recordedHash = yield* fs
+      .readFileString(wslArchiveHashPath)
+      .pipe(Effect.mapError(invalidWslRuntime));
+    const expectedHash = recordedHash.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
+      return yield* invalidWslRuntime(new Error("invalid WSL runtime SHA-256 sidecar"));
+    }
+    const archiveHash = NodeCrypto.createHash("sha256");
+    yield* fs.stream(wslArchivePath).pipe(
+      Stream.runForEach((chunk) => Effect.sync(() => archiveHash.update(chunk))),
+      Effect.mapError(invalidWslRuntime),
+    );
+    const actualHash = archiveHash.digest("hex");
+    if (actualHash !== expectedHash) {
+      return yield* invalidWslRuntime(
+        new Error(`WSL runtime SHA-256 mismatch: expected ${expectedHash}, got ${actualHash}`),
+      );
+    }
+
+    const listing = yield* spawnAndCollectOutput(
+      ChildProcess.make("tar", ["-tzf", WSL_RUNTIME_ARCHIVE_NAME], {
+        cwd: resourcesDir,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      }),
+    ).pipe(Effect.mapError(invalidWslRuntime));
+    if (listing.exitCode !== 0) {
+      return yield* invalidWslRuntime(
+        new Error(`tar could not list WSL runtime archive: ${listing.stderr.trim()}`),
+      );
+    }
+    const members = parseWslRuntimeArchiveMembers(listing.stdout);
+    // The WSL installer finds t3 under the archive's single stem-named directory.
+    const stem = wslRuntimeArchiveStem(input.appVersion, input.targetArch);
+    const topLevel = new Set(members.map((member) => member.split("/")[0]));
+    if (topLevel.size !== 1 || !topLevel.has(stem)) {
+      return yield* invalidWslRuntime(
+        new Error(
+          `WSL runtime archive must contain a single top-level directory ${stem}, found ${[...topLevel].join(", ") || "nothing"}`,
+        ),
+      );
+    }
+    const requiredMembers = [`${stem}/t3`, `${stem}/client`, `${stem}/node_modules`];
+    const missingMembers = requiredMembers.filter((member) => !members.includes(member));
+    const ptyCandidates = [
+      `${stem}/node_modules/node-pty/build/Release/pty.node`,
+      `${stem}/node_modules/node-pty/prebuilds/linux-${input.targetArch}/pty.node`,
+    ];
+    if (!ptyCandidates.some((member) => members.includes(member))) {
+      missingMembers.push(...ptyCandidates);
+    }
+    if (missingMembers.length > 0) {
+      return yield* new WindowsPackagedPayloadValidationError({
+        reason: "wsl-runtime-invalid",
+        packagedAppDir,
+        missingFiles: missingMembers,
+        cause: new Error("WSL runtime archive is not a Linux CLI release archive"),
+      });
+    }
+    const bundleEntry = members.find((member) => member.endsWith("/bin.mjs"));
+    if (bundleEntry !== undefined) {
+      return yield* invalidWslRuntime(
+        new Error(`WSL runtime archive contains a server bundle entry ${bundleEntry}`),
+      );
+    }
+  },
+);
+
 export const packWindowsServerAsar = Effect.fn("packWindowsServerAsar")(function* (input: {
   readonly sourceDir: string;
   readonly asarPath: string;
@@ -3464,78 +3551,11 @@ export const validateWindowsPackagedPayload = Effect.fn(
     });
   }
   if (hasWslArchive && hasWslArchiveHash) {
-    const invalidWslRuntime = (cause: unknown) =>
-      new WindowsPackagedPayloadValidationError({
-        reason: "wsl-runtime-invalid",
-        packagedAppDir,
-        cause,
-      });
-    const recordedHash = yield* fs
-      .readFileString(wslArchiveHashPath)
-      .pipe(Effect.mapError(invalidWslRuntime));
-    const expectedHash = recordedHash.trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
-      return yield* invalidWslRuntime(new Error("invalid WSL runtime SHA-256 sidecar"));
-    }
-    const archiveHash = NodeCrypto.createHash("sha256");
-    yield* fs.stream(wslArchivePath).pipe(
-      Stream.runForEach((chunk) => Effect.sync(() => archiveHash.update(chunk))),
-      Effect.mapError(invalidWslRuntime),
-    );
-    const actualHash = archiveHash.digest("hex");
-    if (actualHash !== expectedHash) {
-      return yield* invalidWslRuntime(
-        new Error(`WSL runtime SHA-256 mismatch: expected ${expectedHash}, got ${actualHash}`),
-      );
-    }
-
-    const listing = yield* spawnAndCollectOutput(
-      ChildProcess.make("tar", ["-tzf", WSL_RUNTIME_ARCHIVE_NAME], {
-        cwd: resourcesDir,
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-      }),
-    ).pipe(Effect.mapError(invalidWslRuntime));
-    if (listing.exitCode !== 0) {
-      return yield* invalidWslRuntime(
-        new Error(`tar could not list WSL runtime archive: ${listing.stderr.trim()}`),
-      );
-    }
-    const members = parseWslRuntimeArchiveMembers(listing.stdout);
-    // The WSL installer finds t3 under the archive's single stem-named directory.
-    const stem = wslRuntimeArchiveStem(input.appVersion, input.targetArch);
-    const topLevel = new Set(members.map((member) => member.split("/")[0]));
-    if (topLevel.size !== 1 || !topLevel.has(stem)) {
-      return yield* invalidWslRuntime(
-        new Error(
-          `WSL runtime archive must contain a single top-level directory ${stem}, found ${[...topLevel].join(", ") || "nothing"}`,
-        ),
-      );
-    }
-    const requiredMembers = [`${stem}/t3`, `${stem}/client`, `${stem}/node_modules`];
-    const missingMembers = requiredMembers.filter((member) => !members.includes(member));
-    const ptyCandidates = [
-      `${stem}/node_modules/node-pty/build/Release/pty.node`,
-      `${stem}/node_modules/node-pty/prebuilds/linux-${input.targetArch}/pty.node`,
-    ];
-    if (!ptyCandidates.some((member) => members.includes(member))) {
-      missingMembers.push(...ptyCandidates);
-    }
-    if (missingMembers.length > 0) {
-      return yield* new WindowsPackagedPayloadValidationError({
-        reason: "wsl-runtime-invalid",
-        packagedAppDir,
-        missingFiles: missingMembers,
-        cause: new Error("WSL runtime archive is not a Linux CLI release archive"),
-      });
-    }
-    const bundleEntry = members.find((member) => member.endsWith("/bin.mjs"));
-    if (bundleEntry !== undefined) {
-      return yield* invalidWslRuntime(
-        new Error(`WSL runtime archive contains a server bundle entry ${bundleEntry}`),
-      );
-    }
+    yield* validatePackagedWslRuntime({
+      packagedAppDir,
+      appVersion: input.appVersion,
+      targetArch: input.targetArch,
+    });
   }
 
   const fileCount = yield* countPayloadFiles(packagedAppDir);

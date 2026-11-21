@@ -26,6 +26,10 @@ import {
   withDesktopBuildLock,
   stageMacIcons,
   stageResourceMonitor,
+  stageWslRuntimeArchive,
+  validatePackagedWslRuntime,
+  WSL_RUNTIME_ARCHIVE_NAME,
+  WSL_RUNTIME_ARCHIVE_HASH_NAME,
 } from "./build-desktop-artifact.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
@@ -65,6 +69,7 @@ const { values } = NodeUtil.parseArgs({
     signed: { type: "boolean" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
+    "wsl-runtime": { type: "string" },
   },
 });
 if (values.help) {
@@ -78,6 +83,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
                                 Linux: AppImage, deb, AppImage,deb
                                 Windows: nsis, zip
   --windows-node-dir <dir>      Extracted Windows Node distribution for Linux cross-builds
+  --wsl-runtime <archive>       Bundle the matching Linux CLI release archive for WSL on Windows
   --build-version <version>     Version to embed in the app and artifact names
   --output-dir <dir>            Directory for completed artifacts (default: release)
   --signed                      Sign the macOS or Windows distribution
@@ -104,6 +110,12 @@ const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32
 const requestedPlatform = values.platform ?? process.env.T3CODE_DESKTOP_PLATFORM;
 if (requestedPlatform !== undefined && requestedPlatform !== platform) {
   throw new Error(`Build the ${requestedPlatform} Rune package on a matching host.`);
+}
+const wslRuntime =
+  values["wsl-runtime"] ??
+  (platform === "win" ? process.env.T3CODE_DESKTOP_WSL_RUNTIME : undefined);
+if (wslRuntime !== undefined && (platform !== "win" || !wslRuntime.trim())) {
+  throw new Error("--wsl-runtime requires a Linux CLI archive path and a Windows target.");
 }
 const target =
   values.target ?? process.env.T3CODE_DESKTOP_TARGET ?? (platform === "linux" ? "AppImage" : "zip");
@@ -262,6 +274,22 @@ async function buildRunePackage() {
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
   await NodeFSP.mkdir(server, { recursive: true });
+  if (wslRuntime !== undefined) {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* stageWslRuntimeArchive({
+          sourceArchivePath: NodePath.resolve(wslRuntime),
+          archivePath: NodePath.join(resources, WSL_RUNTIME_ARCHIVE_NAME),
+          hashPath: NodePath.join(resources, WSL_RUNTIME_ARCHIVE_HASH_NAME),
+        });
+        yield* validatePackagedWslRuntime({
+          packagedAppDir: app,
+          appVersion: version,
+          targetArch: arch,
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    );
+  }
   await NodeFSP.cp(serverDist, server, {
     recursive: true,
     filter: (file) => !file.endsWith(".map"),
