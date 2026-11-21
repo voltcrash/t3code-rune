@@ -1,6 +1,7 @@
 use crate::{Desktop, Request};
-use rune::{Color, El, Icon, Key, KeyEvent, TextStyle, Tx, col, el, icon, text, tok};
+use rune::{Color, El, Family, Icon, Key, KeyEvent, TextStyle, Tx, col, el, icon, text, tok};
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use uuid::Uuid;
 
 pub(crate) const ICON: Icon = Icon {
@@ -8,7 +9,6 @@ pub(crate) const ICON: Icon = Icon {
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m6 9 3 3-3 3m6 0h4"/></g>"#,
 };
-const CW: f32 = 7.23;
 const CH: f32 = 16.;
 
 #[derive(Serialize)]
@@ -84,12 +84,51 @@ pub(crate) struct Panel {
     requested_copy: u64,
     applied_copy: u64,
     grid: Option<(u16, u16, bool)>,
+    font: Cell<Option<(u64, GridFont)>>,
     background: Option<u32>,
     cursor: Option<[u32; 4]>,
     lines: Vec<Vec<Run>>,
     status: String,
     error: Option<String>,
 }
+#[derive(Clone, Copy)]
+struct GridFont {
+    family: Family,
+    cell_width: f32,
+}
+
+impl Panel {
+    fn grid_font(&self) -> GridFont {
+        let epoch = rune::text::font_epoch();
+        if let Some((cached_epoch, font)) = self.font.get()
+            && cached_epoch == epoch
+        {
+            return font;
+        }
+        let mono = TextStyle::new(12., 400.).mono();
+        let width = rune::text::advance("0", mono);
+        let bold = TextStyle::new(12., 700.).mono();
+        let fits_grid = [mono, mono.italic(), bold, bold.italic()]
+            .into_iter()
+            .all(|style| {
+                ["i", "M", "W", "0", "@", "#", ".", " "]
+                    .into_iter()
+                    .all(|glyph| (rune::text::advance(glyph, style) - width).abs() < 0.01)
+            });
+        let family = if fits_grid {
+            Family::Mono
+        } else {
+            Family::SystemMono
+        };
+        let font = GridFont {
+            family,
+            cell_width: rune::text::advance("0", mono.family(family)).max(1.),
+        };
+        self.font.set(Some((epoch, font)));
+        font
+    }
+}
+
 fn color(value: u32) -> Color {
     let channel = |bits: u32| rune::color::srgb_decode(((value >> bits) & 255) as f32 / 255.);
     Color {
@@ -123,6 +162,7 @@ impl Desktop {
             watch,
             operation: Uuid::new_v4().to_string(),
             grid: None,
+            font: Cell::new(None),
             requested_copy: 0,
             applied_copy: 0,
             background: None,
@@ -197,8 +237,8 @@ impl Desktop {
             }
         }
     }
-    fn terminal_layout(&mut self, w: f32, h: f32, dark: bool) {
-        let cols = (((w - 8.) / CW).floor() as u16).clamp(1, 1000);
+    fn terminal_layout(&mut self, w: f32, h: f32, cell_width: f32, dark: bool) {
+        let cols = (((w - 8.) / cell_width).floor() as u16).clamp(1, 1000);
         let rows = (((h - 8.) / CH).floor() as u16).clamp(1, 500);
         let Some(panel) = &mut self.terminal else {
             return;
@@ -325,6 +365,7 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
     if !s.terminal_available() {
         return None;
     }
+    let GridFont { family, cell_width } = panel.grid_font();
     let mut grid = el()
         .key("thread-terminal-grid")
         .label("Terminal")
@@ -336,19 +377,17 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
         .focusable(true)
         .fill(panel.background.map(color).unwrap_or(theme.bg))
         .child(
-            el().key(if dark {
-                "terminal-dark-layout"
-            } else {
-                "terminal-light-layout"
-            })
-            .absolute(0., 0.)
-            .w_full()
-            .h_full()
-            .a11y_hidden()
-            .on_layout(move |s: &mut Desktop, rect| s.terminal_layout(rect[2], rect[3], dark)),
+            el().key(format!("terminal-layout-{dark}-{}", cell_width.to_bits()))
+                .absolute(0., 0.)
+                .w_full()
+                .h_full()
+                .a11y_hidden()
+                .on_layout(move |s: &mut Desktop, rect| {
+                    s.terminal_layout(rect[2], rect[3], cell_width, dark)
+                }),
         )
         .cursor(rune::Cursor::Text)
-        .on_drag(|s: &mut Desktop, d, tx| {
+        .on_drag(move |s: &mut Desktop, d, tx| {
             let phase = match d.phase {
                 rune::Phase::Down => {
                     tx.focus("thread-terminal-grid", true);
@@ -369,7 +408,7 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
             };
             s.terminal_input(Input::Select {
                 phase,
-                x: ((d.x - 4.) / CW).floor() as i32,
+                x: ((d.x - 4.) / cell_width).floor() as i32,
                 y: ((d.y - 4.) / CH).floor() as i32,
                 scroll,
                 clicks: d.clicks,
@@ -388,14 +427,14 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
     for (y, line) in panel.lines.iter().enumerate() {
         for run in line {
             let mut font = TextStyle::new(12., if run.style & 1 != 0 { 700. } else { 400. })
-                .mono()
+                .family(family)
                 .lh(CH);
             if run.style & 2 != 0 {
                 font = font.italic();
             }
-            let width = run.width as f32 * CW;
+            let width = run.width as f32 * cell_width;
             let mut piece = el()
-                .absolute(4. + run.x as f32 * CW, 4. + y as f32 * CH)
+                .absolute(4. + run.x as f32 * cell_width, 4. + y as f32 * CH)
                 .size(width, CH)
                 .fill(color(run.bg))
                 .child(text(&run.text).font(font).color(color(run.fg)));
@@ -414,11 +453,11 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
     if let Some([x, y, c, style]) = panel.cursor {
         let (w, h, dy) = match style {
             0 => (2., CH, 0.),
-            2 => (CW, 2., CH - 2.),
-            _ => (CW, CH, 0.),
+            2 => (cell_width, 2., CH - 2.),
+            _ => (cell_width, CH, 0.),
         };
         grid = grid.child(
-            el().absolute(4. + x as f32 * CW, 4. + y as f32 * CH + dy)
+            el().absolute(4. + x as f32 * cell_width, 4. + y as f32 * CH + dy)
                 .size(w, h)
                 .fill(color(c).alpha(0.65)),
         );

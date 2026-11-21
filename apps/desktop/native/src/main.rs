@@ -33,6 +33,11 @@ enum Reply {
         open: Option<bool>,
         error: Option<String>,
     },
+    Typography {
+        sans: String,
+        code: String,
+        smoothing: bool,
+    },
     Appearance {
         mode: appearance::Mode,
         error: Option<String>,
@@ -983,6 +988,7 @@ impl Desktop {
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
+            | Reply::Typography { .. }
             | Reply::Appearance { .. }
             | Reply::RefreshFavicons { .. }
             | Reply::WorkspacePaused { .. }
@@ -1339,13 +1345,13 @@ fn start() -> io::Result<()> {
             }
             false
         }),
-        families: (
-            "system-ui, Segoe UI, sans-serif",
-            "ui-monospace, Menlo, Consolas, monospace",
-        ),
+        families: (appearance::SANS, appearance::MONO),
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
-    let app = App::new(spec)
+    let app = App::new(spec);
+    #[cfg(target_os = "macos")]
+    let app = app.font_smoothing(rune::FontSmoothing::Off);
+    let app = app
         .tab_visits_controls(true)
         .menu_item(
             rune::MenuItem::new("Settings…", Desktop::open_settings)
@@ -1380,13 +1386,13 @@ fn start() -> io::Result<()> {
     let images = image_decode::start(handle.clone());
     let source_build = mode == Some("--source-build");
     let reader = std::thread::spawn(move || {
-        let mut received = false;
+        let mut received_response = false;
         for line in input.lines() {
             let Ok(line) = line else { break };
             let Ok(reply) = serde_json::from_str::<WorkerMessage>(&line) else {
                 break;
             };
-            received = true;
+            received_response |= reply.id.is_some();
             if let Reply::Image {
                 favicon,
                 retryable,
@@ -1418,6 +1424,15 @@ fn start() -> io::Result<()> {
                 continue;
             }
             handle.update(move |s, tx| {
+                if let Reply::Typography {
+                    sans,
+                    code,
+                    smoothing,
+                } = reply.reply
+                {
+                    appearance::apply_fonts(tx, sans, code, smoothing);
+                    return;
+                }
                 if let Reply::ThreadModels {
                     watch,
                     operation,
@@ -1478,7 +1493,7 @@ fn start() -> io::Result<()> {
         }
         handle.update(|s, _| *s = Desktop::new());
         let status = child.wait()?;
-        if source_build && !received && !status.success() {
+        if source_build && !received_response && !status.success() {
             handle.close();
         }
         Ok::<_, io::Error>(status)

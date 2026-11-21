@@ -72,7 +72,7 @@ export class DesktopClientSettings extends Context.Service<
   }
 >()("@t3tools/desktop/settings/DesktopClientSettings") {}
 
-const readClientSettings = (
+export const readClientSettings = (
   fileSystem: FileSystem.FileSystem,
   settingsPath: string,
 ): Effect.Effect<Option.Option<ClientSettings>, DesktopClientSettingsReadError> =>
