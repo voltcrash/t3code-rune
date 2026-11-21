@@ -4,7 +4,7 @@ use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, tok};
 use rune_kit::{Kit, Placement, popover};
 use uuid::Uuid;
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, PartialEq, serde::Deserialize)]
 pub(crate) struct OptionRow {
     pub(super) mode: String,
     pub(super) label: String,
@@ -84,8 +84,8 @@ impl Desktop {
             };
             Menu {
                 target: Target::Launch(project),
-                options,
-                focused,
+                options: options.to_vec(),
+                focused: focused.to_owned(),
                 hovered: None,
                 status: None,
             }
@@ -142,12 +142,26 @@ impl Desktop {
         self.permission_menu = Some(menu);
     }
 
-    pub(super) fn close_stale_permissions(&mut self) {
-        let Some(menu) = &self.permission_menu else {
+    pub(super) fn sync_permission_menu(&mut self, tx: &mut Tx) {
+        let Some(menu) = &mut self.permission_menu else {
             return;
         };
         let visible = match &menu.target {
-            Target::Launch(project) => self.new_threads.active.as_ref() == Some(project),
+            Target::Launch(project) => {
+                if self.new_threads.active.as_ref() != Some(project) {
+                    false
+                } else if let Some((options, _)) = self.new_threads.picker_options() {
+                    if menu.options != options {
+                        menu.options = options.to_vec();
+                        menu.hovered = None;
+                        menu.focus_option(tx);
+                    }
+                    true
+                } else {
+                    tx.focus("new-thread-prompt", true);
+                    false
+                }
+            }
             Target::Thread {
                 watch, instance, ..
             } => {

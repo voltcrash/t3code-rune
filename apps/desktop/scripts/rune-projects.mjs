@@ -820,11 +820,11 @@ function requestError(error, type, editing) {
 
 async function prepareDraft(owner, project, signal, reply) {
   const options = await Effect.runPromise(
-    readLaunchOptions(owner, project).pipe(
-      Effect.timeout("20 seconds"),
-      Effect.scoped,
-      Effect.provide(owner.http),
-    ),
+    readLaunchOptions(
+      owner,
+      project,
+      owner === session ? workspaceFeed?.draftConfig() : undefined,
+    ).pipe(Effect.timeout("20 seconds"), Effect.scoped, Effect.provide(owner.http)),
     { signal },
   );
   if (owner === session && !signal.aborted) reply({ type: "launchoptions", ...options });
@@ -1269,6 +1269,16 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "watchdraftmodels") {
+      if (session?.canOperate && workspaceFeed?.watch === request.watch)
+        workspaceFeed.selectDraftModels(request.project ?? null, (catalog) =>
+          reply({
+            type: "draftmodels",
+            watch: request.watch,
+            project: request.project,
+            ...catalog,
+          }),
+        );
     } else if (request?.type === "workspacehandled") {
       if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
     } else if (request?.type === "terminal") {
