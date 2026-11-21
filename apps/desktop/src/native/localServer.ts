@@ -27,7 +27,15 @@ import {
   runBackendProcess,
   type DesktopBackendStartConfig,
 } from "../backend/DesktopBackendProcess.ts";
-import { readDesktopSettingsProfile } from "../settings/DesktopAppSettings.ts";
+import { configuredBackendPort } from "../app/DesktopConfig.ts";
+import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
+import { resolveDesktopBackendPort } from "../backend/DesktopBackendPort.ts";
+import * as DesktopNetworkInterfaces from "../backend/DesktopNetworkInterfaces.ts";
+import { readDesktopBackendExposure } from "../backend/DesktopServerExposure.ts";
+import {
+  readDesktopSettingsProfile,
+  type DesktopSettings,
+} from "../settings/DesktopAppSettings.ts";
 import { pairWithTarget } from "./projects.ts";
 
 class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError>()(
@@ -37,7 +45,7 @@ class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError
 
 export const isLocalServerStartupError = Schema.is(LocalServerStartupError);
 
-export function startLocalServer(paths: {
+interface LocalServerPaths {
   readonly packaged: boolean;
   readonly version: string;
   readonly entryPath: string;
@@ -45,8 +53,62 @@ export function startLocalServer(paths: {
   readonly t3Home: string;
   readonly previousSettingsHome?: string;
   readonly dev?: { readonly port: number; readonly webUrl?: string | undefined };
-}) {
+}
+
+export const makeNativeServerConfig = Effect.fn("nativeDesktop.makeServerConfig")(function* (
+  paths: LocalServerPaths,
+  settings: DesktopSettings,
+  desktopBootstrapToken: string,
+  secret: string,
+) {
   const { entryPath, cwd, t3Home } = paths;
+  const net = yield* Net.NetService;
+  const port = paths.packaged
+    ? (yield* resolveDesktopBackendPort(yield* configuredBackendPort)).port
+    : (paths.dev?.port ?? (yield* net.reserveLoopbackPort()));
+  const exposure = paths.packaged
+    ? yield* readDesktopBackendExposure(settings, port)
+    : {
+        httpBaseUrl: new URL(`http://127.0.0.1:${port}`),
+        bindHost: "127.0.0.1",
+        tailscaleServeEnabled: false,
+        tailscaleServePort: 443,
+      };
+
+  return {
+    executablePath: process.execPath,
+    entryPath,
+    cwd,
+    args: [entryPath, "--bootstrap-fd", "3", "--base-dir", t3Home],
+    env: {
+      ...backendChildEnvPatch(),
+      T3CODE_RUNE_DEV_HOME: undefined,
+      T3CODE_HOME: t3Home,
+      VITE_DEV_SERVER_URL: paths.dev?.webUrl,
+    },
+    extendEnv: true,
+    captureOutput: true,
+    preflightFailure: Option.none(),
+    bootstrapDelivery: "fd3",
+    httpBaseUrl: exposure.httpBaseUrl,
+    bootstrap: {
+      mode: "desktop",
+      noBrowser: true,
+      port,
+      host: exposure.bindHost,
+      t3Home,
+      desktopBootstrapToken,
+      desktopBootstrapSecret: secret,
+      desktopTelemetryControlFd: 4,
+      desktopAppUpdate: false,
+      tailscaleServeEnabled: exposure.tailscaleServeEnabled,
+      tailscaleServePort: exposure.tailscaleServePort,
+    },
+  } satisfies DesktopBackendStartConfig;
+});
+
+export function startLocalServer(paths: LocalServerPaths) {
+  const { t3Home } = paths;
   const lifetime = new AbortController();
   const access = new AbortController();
   const ready = Promise.withResolvers<{ url: string; sameFilesystem: boolean }>();
@@ -79,39 +141,7 @@ export function startLocalServer(paths: {
       return yield* new LocalServerStartupError({
         message: "The local environment is disabled. Paste a pairing link to connect to a server.",
       });
-    const port = paths.dev?.port ?? (yield* Net.make().reserveLoopbackPort());
-    const httpBaseUrl = new URL(`http://127.0.0.1:${port}`);
-    const desktopBootstrapToken = yield* currentToken();
-    const local = {
-      executablePath: process.execPath,
-      entryPath,
-      cwd,
-      args: [entryPath, "--bootstrap-fd", "3", "--base-dir", t3Home],
-      env: {
-        ...backendChildEnvPatch(),
-        T3CODE_RUNE_DEV_HOME: undefined,
-        T3CODE_HOME: t3Home,
-        VITE_DEV_SERVER_URL: paths.dev?.webUrl,
-      },
-      extendEnv: true,
-      captureOutput: true,
-      preflightFailure: Option.none(),
-      bootstrapDelivery: "fd3",
-      httpBaseUrl,
-      bootstrap: {
-        mode: "desktop",
-        noBrowser: true,
-        port,
-        host: "127.0.0.1",
-        t3Home,
-        desktopBootstrapToken,
-        desktopBootstrapSecret: secret,
-        desktopTelemetryControlFd: 4,
-        desktopAppUpdate: false,
-        tailscaleServeEnabled: false,
-        tailscaleServePort: 443,
-      },
-    } satisfies DesktopBackendStartConfig;
+    const local = yield* makeNativeServerConfig(paths, settings, yield* currentToken(), secret);
     const { config, afterReady } =
       (yield* HostProcess.Platform) === "win32"
         ? yield* Effect.promise(() => import("./windowsHost.ts")).pipe(
@@ -150,6 +180,7 @@ export function startLocalServer(paths: {
   const stopped = Effect.runPromiseExit(
     run.pipe(
       Effect.scoped,
+      Effect.provide([Net.layer, DesktopManagedPolicy.layer, DesktopNetworkInterfaces.layer]),
       Effect.provide([
         NodeServices.layer,
         PlatformNodeCrypto.layerSecureRandom,

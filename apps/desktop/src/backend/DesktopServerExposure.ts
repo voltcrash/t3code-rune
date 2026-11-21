@@ -458,6 +458,44 @@ const requiresBackendRelaunch = (previous: RuntimeState, next: RuntimeState): bo
   previous.bindHost !== next.bindHost ||
   previous.localHttpUrl !== next.localHttpUrl;
 
+const makeSettingsResolver = Effect.gen(function* () {
+  const interfaces = yield* DesktopNetworkInterfaces.DesktopNetworkInterfaces;
+  const advertisedHostOverride = yield* DesktopConfig.desktopLanHostOverride;
+  // The server refuses to bind wider than the policy's clients allow, so network access or Serve
+  // saved before the policy would keep the backend from starting. The backend runs without them;
+  // the saved choice stays for when the policy allows it.
+  const remoteAllowed = yield* (yield* DesktopManagedPolicy.DesktopManagedPolicy).read.pipe(
+    Effect.map((found) => found?.document.limits?.clients?.includes("remote") ?? true),
+    Effect.orElseSucceed(() => false),
+  );
+  const withinPolicy = (settings: DesktopAppSettings.DesktopSettings) =>
+    remoteAllowed
+      ? settings
+      : { ...settings, serverExposureMode: "local-only" as const, tailscaleServeEnabled: false };
+
+  const resolve = (settings: DesktopAppSettings.DesktopSettings, port: number) =>
+    interfaces.read.pipe(
+      Effect.map((networkInterfaces) => {
+        const allowed = withinPolicy(settings);
+        return resolveRuntimeState({
+          requestedMode: allowed.serverExposureMode,
+          settings: allowed,
+          port,
+          networkInterfaces,
+          advertisedHostOverride,
+        });
+      }),
+    );
+  return { remoteAllowed, resolve };
+});
+
+export const readDesktopBackendExposure = Effect.fn("desktop.serverExposure.readBackendConfig")(
+  function* (settings: DesktopAppSettings.DesktopSettings, port: number) {
+    const { resolve } = yield* makeSettingsResolver;
+    return toBackendConfig((yield* resolve(settings, port)).state);
+  },
+);
+
 /** @public */
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
@@ -483,17 +521,7 @@ export const make = Effect.gen(function* () {
 
   const readNetworkInterfaces = networkInterfaces.read;
 
-  // The server refuses to bind wider than the policy's clients allow, so network access or Serve
-  // saved before the policy would keep the backend from starting. The backend runs without them;
-  // the saved choice stays for when the policy allows it.
-  const remoteAllowed = yield* (yield* DesktopManagedPolicy.DesktopManagedPolicy).read.pipe(
-    Effect.map((found) => found?.document.limits?.clients?.includes("remote") ?? true),
-    Effect.orElseSucceed(() => false),
-  );
-  const withinPolicy = (settings: DesktopAppSettings.DesktopSettings) =>
-    remoteAllowed
-      ? settings
-      : { ...settings, serverExposureMode: "local-only" as const, tailscaleServeEnabled: false };
+  const { remoteAllowed, resolve } = yield* makeSettingsResolver;
 
   const readCurrentState = (currentNetworkInterfaces: DesktopNetworkInterfaces.NetworkInterfaces) =>
     Ref.get(stateRef).pipe(
@@ -512,14 +540,7 @@ export const make = Effect.gen(function* () {
     function* ({ port }: { readonly port: number }) {
       yield* Effect.annotateCurrentSpan({ port });
       const settings = yield* desktopSettings.get;
-      const currentNetworkInterfaces = yield* readNetworkInterfaces;
-      const resolved = resolveRuntimeState({
-        requestedMode: withinPolicy(settings).serverExposureMode,
-        settings: withinPolicy(settings),
-        port,
-        networkInterfaces: currentNetworkInterfaces,
-        advertisedHostOverride: config.desktopLanHostOverride,
-      });
+      const resolved = yield* resolve(settings, port);
       yield* Ref.set(stateRef, resolved.state);
       return toContractState(resolved.state);
     },
@@ -535,14 +556,7 @@ export const make = Effect.gen(function* () {
       ...currentSettings,
       serverExposureMode: mode,
     };
-    const currentNetworkInterfaces = yield* readNetworkInterfaces;
-    const resolved = resolveRuntimeState({
-      requestedMode: withinPolicy(nextSettings).serverExposureMode,
-      settings: withinPolicy(nextSettings),
-      port: previous.port,
-      networkInterfaces: currentNetworkInterfaces,
-      advertisedHostOverride: config.desktopLanHostOverride,
-    });
+    const resolved = yield* resolve(nextSettings, previous.port);
 
     if (resolved.unavailable) {
       return yield* new DesktopServerExposureNoNetworkAddressError({ port: previous.port });
@@ -589,7 +603,7 @@ export const make = Effect.gen(function* () {
 
       const nextState = yield* Ref.updateAndGet(stateRef, (current) => ({
         ...current,
-        tailscaleServeEnabled: withinPolicy(result.settings).tailscaleServeEnabled,
+        tailscaleServeEnabled: remoteAllowed && result.settings.tailscaleServeEnabled,
         tailscaleServePort: result.settings.tailscaleServePort,
       }));
 
