@@ -27,7 +27,7 @@ import {
   runBackendProcess,
   type DesktopBackendStartConfig,
 } from "../backend/DesktopBackendProcess.ts";
-import { readDesktopSettings } from "../settings/DesktopAppSettings.ts";
+import { readDesktopSettingsProfile } from "../settings/DesktopAppSettings.ts";
 import { pairWithTarget } from "./projects.ts";
 
 class LocalServerStartupError extends Schema.TaggedError<LocalServerStartupError>()(
@@ -43,6 +43,7 @@ export function startLocalServer(paths: {
   readonly entryPath: string;
   readonly cwd: string;
   readonly t3Home: string;
+  readonly previousSettingsHome?: string;
   readonly dev?: { readonly port: number; readonly webUrl?: string | undefined };
 }) {
   const { entryPath, cwd, t3Home } = paths;
@@ -67,10 +68,12 @@ export function startLocalServer(paths: {
       Effect.forkScoped,
     );
     const path = yield* Path.Path;
-    const settings = yield* readDesktopSettings(
+    const { settings, path: settingsPath } = yield* readDesktopSettingsProfile(
       yield* FileSystem.FileSystem,
       path.join(t3Home, "userdata", "desktop-settings.json"),
       paths.version,
+      paths.previousSettingsHome &&
+        path.join(paths.previousSettingsHome, "userdata", "desktop-settings.json"),
     );
     if (!settings.localEnvironmentEnabled)
       return yield* new LocalServerStartupError({
@@ -112,7 +115,9 @@ export function startLocalServer(paths: {
     const { config, afterReady } =
       (yield* HostProcess.Platform) === "win32"
         ? yield* Effect.promise(() => import("./windowsHost.ts")).pipe(
-            Effect.flatMap(({ prepareWindowsHost }) => prepareWindowsHost(local, paths, settings)),
+            Effect.flatMap(({ prepareWindowsHost }) =>
+              prepareWindowsHost(local, paths, settings, path.dirname(settingsPath)),
+            ),
           )
         : { config: local, afterReady: Effect.void };
     return yield* runBackendProcess({

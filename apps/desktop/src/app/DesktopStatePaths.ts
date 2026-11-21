@@ -30,3 +30,17 @@ export function resolveDesktopStateDir(input: {
     input.isDevelopment && Option.isNone(normalizeConfiguredBaseDir(input.t3Home));
   return input.joinPath(input.baseDir, useDevSubdir ? "dev" : "userdata");
 }
+
+export function resolvePackagedRuneHomes(
+  input: Parameters<typeof resolveDesktopBaseDir>[0] & {
+    readonly hasUserdata: (baseDir: string) => boolean;
+  },
+) {
+  const base = resolveDesktopBaseDir(input);
+  if (Option.isSome(normalizeConfiguredBaseDir(input.t3Home))) {
+    return { server: base, preferences: base };
+  }
+  const preferences = input.joinPath(base, "rune");
+  const server = !input.hasUserdata(base) && input.hasUserdata(preferences) ? preferences : base;
+  return { server, preferences };
+}
