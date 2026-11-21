@@ -410,13 +410,16 @@ async function loadComposerOptions(request, reply) {
     controller.signal,
   ]);
   const thread = record.state.projection.thread;
-  const instance = thread.modelSelection.instanceId;
+  const instance =
+    request.type === "threadpermissions" && request.instance
+      ? request.instance
+      : thread.modelSelection.instanceId;
   try {
     const options = await Effect.runPromise(
       openEnvironmentRpc(record.owner).pipe(
         Effect.flatMap((rpc) =>
           request.type === "threadmodels"
-            ? readThreadModels(record.owner, rpc, thread)
+            ? readThreadModels(record.owner, rpc, record.state.projection)
             : readThreadPermissions(rpc, instance),
         ),
         Effect.scoped,
@@ -727,7 +730,12 @@ async function handleWorkspaceRequest(request, reply) {
         { signal: reading.signal },
       );
       if (session === reading)
-        reply({ type: "modelsaved", watch: record.id, operation: request.operation });
+        reply({
+          type: "modelsaved",
+          thread: request.thread,
+          instance: request.instance,
+          model: request.model,
+        });
       return;
     } else if (request.type === "sendmessage" && session) {
       reading = session;

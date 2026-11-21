@@ -4,11 +4,18 @@ use rune::{El, TextEdit, TextStyle, auto_grow, col, el, row, spacer, text, text_
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+struct SendAttempt {
+    id: String,
+    instance: String,
+    model: String,
+}
+
 pub(super) struct Draft {
     editor: TextEdit,
     files: Vec<String>,
+    pub(super) model: Option<crate::models::Handoff>,
     pub(super) permission: Option<crate::permissions::Selection>,
-    operation: Option<String>,
+    operation: Option<SendAttempt>,
 }
 
 impl Default for Draft {
@@ -18,11 +25,36 @@ impl Default for Draft {
             operation: None,
             files: vec![],
             permission: None,
+            model: None,
         }
     }
 }
 
 impl Draft {
+    pub(super) fn set_model(
+        &mut self,
+        pick: Option<crate::models::Handoff>,
+        instance: &str,
+        model: &str,
+    ) {
+        if self
+            .operation
+            .as_ref()
+            .is_some_and(|sent| sent.instance != instance || sent.model != model)
+        {
+            self.operation = None;
+        }
+        self.model = pick;
+        if let Some(permission) = &mut self.permission {
+            permission.instance = instance.into();
+        }
+    }
+    pub(super) fn target_instance<'a>(&'a self, current: &'a str) -> &'a str {
+        self.model
+            .as_ref()
+            .filter(|m| m.source == current)
+            .map_or(current, |m| m.instance.as_str())
+    }
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
     }
@@ -42,17 +74,33 @@ impl Draft {
             self.operation = None;
         }
     }
-    fn submission(&mut self, thread: &str) -> Option<Request<'static>> {
+    fn submission(
+        &mut self,
+        thread: &str,
+        instance: &str,
+        model: &str,
+    ) -> Option<Request<'static>> {
         if self.editor.text.trim().is_empty() && self.files.is_empty() {
             return None;
         }
         let operation = self
             .operation
-            .get_or_insert_with(|| Uuid::new_v4().to_string())
+            .get_or_insert_with(|| {
+                let (instance, model) = self.model.as_ref().map_or((instance, model), |m| {
+                    (m.instance.as_str(), m.model.as_str())
+                });
+                SendAttempt {
+                    id: Uuid::new_v4().to_string(),
+                    instance: instance.into(),
+                    model: model.into(),
+                }
+            })
+            .id
             .clone();
         Some(Request::SendMessage {
             thread: thread.into(),
             permission: self.permission.clone(),
+            model: self.model.clone(),
             text: self.editor.text.clone(),
             files: self.files.clone(),
             operation,
@@ -63,7 +111,10 @@ impl Draft {
 impl Workspace {
     pub fn finish_message(&mut self, thread: &str, operation: &str) -> bool {
         if let Some(draft) = self.drafts.get_mut(thread)
-            && draft.operation.as_deref() == Some(operation)
+            && draft
+                .operation
+                .as_ref()
+                .is_some_and(|sent| sent.id == operation)
         {
             *draft = Draft::default();
         }
@@ -159,10 +210,19 @@ impl Desktop {
         if self.workspace.questions.contains_key(&pane.id) {
             return;
         }
+        let Some(thread) = self.workspace.visible_thread() else {
+            return;
+        };
+        let instance = thread
+            .permission
+            .as_ref()
+            .map(|p| p.instance.clone())
+            .unwrap_or_default();
+        let model = thread.model.clone();
         let Some(draft) = self.workspace.drafts.get_mut(&pane.id) else {
             return;
         };
-        if let Some(request) = draft.submission(&pane.id) {
+        if let Some(request) = draft.submission(&pane.id, &instance, &model) {
             self.send(request);
         }
     }
@@ -222,8 +282,8 @@ pub(super) fn view(
         let selected = draft
             .permission
             .as_ref()
-            .or(Some(permission))
-            .filter(|p| p.instance == permission.instance);
+            .filter(|p| p.instance == draft.target_instance(&permission.instance))
+            .or(Some(permission));
         controls = controls.child(crate::permissions::control(
             s,
             selected.map(|p| (p.mode.as_str(), p.label.as_str())),
@@ -389,7 +449,9 @@ mod tests {
         let mut ws = Workspace::new();
         let draft = ws.drafts.entry("thread".into()).or_default();
         draft.edit_files(|files| files.push("document.pdf".into()));
-        let Request::SendMessage { operation, .. } = draft.submission("thread").unwrap() else {
+        let Request::SendMessage { operation, .. } =
+            draft.submission("thread", "codex", "original").unwrap()
+        else {
             unreachable!()
         };
         ws.finish_message("thread", "unrelated");
@@ -404,19 +466,43 @@ mod tests {
             text,
             files,
             ..
-        } = draft.submission("thread").unwrap()
+        } = draft.submission("thread", "codex", "original").unwrap()
         else {
             unreachable!()
         };
         assert_eq!(retry, operation);
         assert!(text.is_empty());
         assert_eq!(files, ["document.pdf"]);
-        ws.finish_message("thread", &operation);
+        let replay = || crate::models::Handoff {
+            project: "project".into(),
+            source: "codex".into(),
+            instance: "devReplay".into(),
+            model: "showcase".into(),
+            name: "Showcase".into(),
+        };
+        draft.set_model(Some(replay()), "devReplay", "showcase");
+        let Request::SendMessage {
+            operation: changed, ..
+        } = draft.submission("thread", "codex", "original").unwrap()
+        else {
+            unreachable!()
+        };
+        assert_ne!(changed, operation);
+        draft.set_model(Some(replay()), "devReplay", "showcase");
+        let Request::SendMessage {
+            operation: repeated,
+            ..
+        } = draft.submission("thread", "codex", "original").unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(changed, repeated);
+        ws.finish_message("thread", &changed);
         assert!(
             ws.drafts
                 .get_mut("thread")
                 .unwrap()
-                .submission("thread")
+                .submission("thread", "codex", "original")
                 .is_none()
         );
     }

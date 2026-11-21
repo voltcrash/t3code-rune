@@ -1,6 +1,5 @@
 import {
   type ChatAttachment,
-  type ModelSelection,
   CommandId,
   MessageId,
   RunId,
@@ -10,8 +9,8 @@ import {
 import * as Effect from "effect/Effect";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { committedAttachments, prepareAttachments, retryAttachments } from "./attachments.ts";
-import { PermissionUnavailable, readThreadPermissions } from "./permissions.ts";
-import { readThreadSettingsSnapshot, type Session } from "./projects.ts";
+import { selectionForSend, type Handoff } from "./models.ts";
+import type { Session } from "./projects.ts";
 
 type PreparedMessage = {
   operation: string;
@@ -27,6 +26,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
     text: string;
     operation: string;
     files: readonly string[];
+    model?: Handoff | null;
     permission?: { instance: string; mode: string } | null;
   },
 ) {
@@ -35,7 +35,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
   const prior = pending.get(input.thread);
   if (prior?.operation !== input.operation) pending.delete(input.thread);
   if (
-    input.permission &&
+    (input.permission || input.model) &&
     prior?.operation === input.operation &&
     prior.attempted &&
     (yield* committedAttachments(session, input.thread, input.operation))
@@ -61,47 +61,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
   };
   pending.set(input.thread, prepared);
   pendingMessages.set(session, pending);
-  let modelSelection: ModelSelection | undefined;
-  if (input.permission) {
-    const { instance, mode } = input.permission;
-    const options = yield* readThreadPermissions(rpc, instance);
-    const snapshot = yield* readThreadSettingsSnapshot(session, input.thread);
-    const thread = snapshot.projection.thread;
-    const option = options.find((o) => o.mode === mode);
-    if (
-      thread.modelSelection.instanceId !== instance ||
-      thread.archivedAt ||
-      thread.deletedAt ||
-      !option ||
-      option.denied
-    )
-      return yield* new PermissionUnavailable({
-        message: option?.denied ?? "Review permissions for the current provider before sending.",
-      });
-    modelSelection = thread.modelSelection;
-    if (thread.runtimeMode !== option.mode) {
-      yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
-        type: "thread.runtime-mode.set",
-        commandId: CommandId.make(input.operation + ":permissions:" + snapshot.snapshotSequence),
-        threadId: thread.id,
-        runtimeMode: option.mode,
-      });
-      // Existing servers persist the shared thread mode separately from dispatch, as in the web composer.
-      const current = (yield* readThreadSettingsSnapshot(session, input.thread)).projection.thread;
-      if (
-        current.runtimeMode !== mode ||
-        current.modelSelection.instanceId !== instance ||
-        current.archivedAt ||
-        current.deletedAt
-      ) {
-        return yield* new PermissionUnavailable({
-          message:
-            "This thread changed while saving permissions. Review the current selection before sending.",
-        });
-      }
-      modelSelection = current.modelSelection;
-    }
-  }
+  const modelSelection = yield* selectionForSend(session, rpc, input);
   prepared.attempted = true;
   const result = yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
     type: "message.dispatch",
