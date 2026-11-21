@@ -2360,13 +2360,16 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   readonly stageResourcesDir: string;
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
+  readonly rustTarget?: string;
   readonly verbose: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const manifestPath = path.join(input.repoRoot, "native/resource-monitor/Cargo.toml");
   const executableName = resourceMonitorExecutableName(input.platform);
-  const rustTargets = resolveResourceMonitorRustTargets(input.platform, input.arch);
+  const rustTargets = input.rustTarget
+    ? [input.rustTarget]
+    : resolveResourceMonitorRustTargets(input.platform, input.arch);
   const reuseResourceMonitor = yield* Config.Boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
     Config.withDefault(false),
   );

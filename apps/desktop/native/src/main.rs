@@ -635,7 +635,15 @@ fn worker_command(integrated_dev: bool) -> io::Result<std::process::Command> {
         });
         resources.map(|dir| (dir.join("node"), dir))
     };
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let package = {
+        let exe = std::env::current_exe()?;
+        exe.parent()
+            .map(|dir| dir.join("resources"))
+            .filter(|dir| dir.is_dir() || exe.ends_with("T3 Code.exe"))
+            .map(|dir| (dir.join("node.exe"), dir))
+    };
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     if let Some((node, resources)) = package {
         let mut command = Command::new(node);
         command
@@ -661,7 +669,14 @@ fn start() -> io::Result<()> {
     use std::process::Stdio;
 
     let integrated_dev = std::env::args_os().any(|arg| arg == "--integrated-dev");
-    let mut child = worker_command(integrated_dev)?
+    let mut worker = worker_command(integrated_dev)?;
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        worker.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = worker
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;

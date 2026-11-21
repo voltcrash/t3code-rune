@@ -54,11 +54,18 @@ For a standalone native window with separate state, `vp run dev:desktop:rune` st
 server in the checkout’s `.t3/rune`.
 
 `vp run dist:desktop:rune` builds the native desktop app for the host architecture using Rust
-and the repository’s pinned standalone Node distribution. Both builds write to `release/`.
+and the repository’s pinned standalone Node distribution. Artifacts go to `release/`.
 
 - On macOS, install the Xcode Command Line Tools, extract the zip, and open **T3 Code.app**.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
+- On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
+  launch **T3 Code.exe** beside its `resources` folder.
+
+To cross-build on Linux, pass `--windows-node-dir <directory>` with the extracted Windows Node
+distribution for the repository’s version. Install `zip` and the matching toolchain. Windows x64
+uses MinGW-w64 and the `x86_64-pc-windows-gnu` rustup target. Windows ARM64 uses LLVM-MinGW
+and `aarch64-pc-windows-gnullvm`.
 
 These local builds keep their data in `~/.t3/rune`. Set `T3CODE_HOME` to select another directory.
 
