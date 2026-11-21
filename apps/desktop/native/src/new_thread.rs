@@ -22,6 +22,7 @@ pub(super) struct NewThreads {
 
 struct LaunchDraft {
     prompt: TextEdit,
+    files: Vec<String>,
     base: TextEdit,
     worktree: bool,
     model: Option<String>,
@@ -46,6 +47,7 @@ impl NewThreads {
             .entry(project.clone())
             .or_insert_with(|| LaunchDraft {
                 prompt: TextEdit::new(""),
+                files: vec![],
                 base: TextEdit::new(base),
                 worktree,
                 model: None,
@@ -90,6 +92,10 @@ impl NewThreads {
             self.active = None;
         }
     }
+    pub(super) fn editable_files(&mut self) -> Option<&mut Vec<String>> {
+        let draft = self.current();
+        (!draft.uncertain).then_some(&mut draft.files)
+    }
     fn current(&mut self) -> &mut LaunchDraft {
         self.drafts
             .get_mut(self.active.as_deref().expect("open thread draft"))
@@ -100,7 +106,7 @@ impl NewThreads {
 impl LaunchDraft {
     fn ready(&self) -> bool {
         self.model.is_some()
-            && !self.prompt.text.trim().is_empty()
+            && (!self.prompt.text.trim().is_empty() || !self.files.is_empty())
             && (!self.worktree || !self.base.text.trim().is_empty())
     }
 }
@@ -136,6 +142,7 @@ impl Desktop {
             project,
             model: draft.model.clone().unwrap(),
             text: draft.prompt.text.clone(),
+            files: draft.files.clone(),
             operation: draft.operation.clone(),
             base: draft.worktree.then(|| draft.base.text.trim().to_owned()),
         };
@@ -190,7 +197,12 @@ pub(super) fn view(
         }
     })
     .build(kit, overlays);
-    let mut controls = row().w_full().gap(8.0).center_y();
+    let target = super::attachments::Target::Project(project.to_owned());
+    let mut controls = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(target.button(theme, locked));
     if !scratch {
         controls = controls.child(super::workspace::action(
             if draft.worktree {
@@ -317,13 +329,15 @@ pub(super) fn view(
         }
         heading
     };
+    let list = target.list(&draft.files, theme, locked);
+    let surface = composer::surface("new-thread", field, controls, theme, list);
     let mut content = col()
         .w_full()
         .grow(1.0)
         .center()
         .gap(12.0)
         .child(heading)
-        .child(composer::surface("new-thread", field, controls, theme));
+        .child(target.drop_area(surface, locked));
     if draft.uncertain {
         content = content.child(
             text("Delivery is unconfirmed. Retry to recover this thread.")
@@ -352,14 +366,16 @@ mod tests {
         };
         let mut drafts = NewThreads::default();
         drafts.configure("a".into(), vec![choice("one")], false, "main");
-        drafts.current().prompt = TextEdit::new("first message");
+        drafts.editable_files().unwrap().push("photo.png".into());
+        assert!(drafts.current().ready());
         let original = drafts.current().operation.clone();
         drafts.mark_unconfirmed("a", true);
         drafts.configure("b".into(), vec![choice("two")], true, "main");
         assert!(drafts.current().prompt.text.is_empty());
         drafts.configure("a".into(), vec![choice("one")], false, "main");
         assert_eq!(drafts.current().operation, original);
-        assert_eq!(drafts.current().prompt.text, "first message");
+        assert_eq!(drafts.current().files, ["photo.png"]);
+        assert!(drafts.editable_files().is_none());
         drafts.configure("a".into(), vec![choice("replacement")], false, "main");
         assert_eq!(drafts.current().operation, original);
         assert_eq!(drafts.current().model.as_deref(), Some("one"));

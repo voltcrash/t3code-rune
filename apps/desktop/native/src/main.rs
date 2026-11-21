@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
 mod approval;
+mod attachments;
 mod composer;
 mod image_decode;
 mod navigation;
@@ -140,6 +141,7 @@ enum Request<'a> {
         runtime: String,
         model: String,
         text: String,
+        files: Vec<String>,
         operation: String,
         base: Option<String>,
     },
@@ -192,6 +194,7 @@ enum Request<'a> {
     SendMessage {
         thread: String,
         text: String,
+        files: Vec<String>,
         operation: String,
     },
     AddProject {
