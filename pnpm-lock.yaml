@@ -2639,6 +2639,9 @@ importers:
       postject:
         specifier: 1.0.0-alpha.6
         version: 1.0.0-alpha.6
+      resedit:
+        specifier: 1.7.2
+        version: 1.7.2
       typescript-legacy:
         specifier: npm:typescript@~6.0.3
         version: typescript@6.0.3

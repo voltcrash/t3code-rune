@@ -3,9 +3,11 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import plist from "plist";
 import { build } from "vite-plus/pack";
 
@@ -13,26 +15,45 @@ import rootPackage from "../package.json" with { type: "json" };
 import desktopPackage from "../apps/desktop/package.json" with { type: "json" };
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 import { bundleLinuxLibatomic, stageRuntimeExternals } from "./build-cli-archive.ts";
-import { stageMacIcons, stageResourceMonitor } from "./build-desktop-artifact.ts";
+import {
+  resolveResourceMonitorRustTargets,
+  stageMacIcons,
+  stageResourceMonitor,
+} from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
+import { windowsSystemTar } from "./lib/windows-tar.ts";
 
 const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 const desktop = NodePath.join(repoRoot, "apps/desktop");
-const arch = Effect.runSync(HostProcess.Architecture);
 const host = Effect.runSync(HostProcess.Platform);
-if (!["darwin", "linux"].includes(host) || !["arm64", "x64"].includes(arch)) {
-  throw new Error("Build the Rune app on a macOS or Linux x64 or ARM64 host.");
+const { values } = NodeUtil.parseArgs({ options: { "windows-node-dir": { type: "string" } } });
+const windowsNodeDir = values["windows-node-dir"];
+if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
+  throw new Error(
+    "--windows-node-dir takes an extracted Windows Node distribution on a Linux host.",
+  );
+}
+const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
+const node = await NodeFSP.realpath(
+  windowsNodeDir ? NodePath.join(windowsNodeDir, "node.exe") : process.execPath,
+);
+const arch =
+  platform === "win"
+    ? await windowsNodeArchitecture(node, rootPackage.engines.node)
+    : Effect.runSync(HostProcess.Architecture);
+if (!platform || !["arm64", "x64"].includes(arch)) {
+  throw new Error("Build the Rune app on a macOS, Linux or Windows x64 or ARM64 host.");
 }
 if (process.versions.node !== rootPackage.engines.node) {
   throw new Error(`Use Node ${rootPackage.engines.node} to build the bundled runtime.`);
 }
 
-const mac = host === "darwin";
-const platform = mac ? "mac" : "linux";
+const mac = platform === "mac";
+const win = platform === "win";
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
 const run = (command, args, options) =>
   NodeChildProcess.execFileSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
-const node = await NodeFSP.realpath(process.execPath);
 if (mac) {
   const libraries = NodeChildProcess.execFileSync("otool", ["-L", node], { encoding: "utf8" })
     .trimEnd()
@@ -49,7 +70,9 @@ if (mac) {
 }
 
 const manifest = NodePath.join(desktop, "native/Cargo.toml");
-const rustTarget = `${cpu}-${mac ? "apple-darwin" : "unknown-linux-gnu"}`;
+const rustTarget = windowsNodeDir
+  ? { x64: "x86_64-pc-windows-gnu", arm64: "aarch64-pc-windows-gnullvm" }[arch]
+  : resolveResourceMonitorRustTargets(platform, arch)[0];
 
 async function writeRuneNotices(resources) {
   const metadata = JSON.parse(
@@ -99,7 +122,9 @@ async function writeAppImageRuntime(tmp) {
 }
 
 run("cargo", [
-  "build",
+  win ? "rustc" : "build",
+  "--bin",
+  "t3-code",
   "--release",
   "--locked",
   "--manifest-path",
@@ -108,29 +133,51 @@ run("cargo", [
   rustTarget,
   "--target-dir",
   NodePath.join(desktop, "native/target"),
+  // PE resource editing requires a shell executable without a COFF symbol table.
+  ...(win ? ["--", "-Cstrip=symbols"] : []),
 ]);
-run("vp", ["run", "--filter", "t3", "build"]);
+const vp = await Effect.runPromise(
+  resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
+    Effect.provide(NodeServices.layer),
+  ),
+);
+run(vp.command, vp.args, { shell: vp.shell });
 const output = NodePath.join(repoRoot, "release");
 await NodeFSP.mkdir(output, { recursive: true });
 const tmp = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
 const published = await NodeFSP.mkdtemp(NodePath.join(output, ".rune-"));
 try {
-  const app = NodePath.join(tmp, mac ? "T3 Code.app" : "T3-Code.AppDir");
-  const contents = NodePath.join(app, mac ? "Contents" : "usr");
-  const resources = NodePath.join(contents, mac ? "Resources" : "lib/t3-code");
-  const bin = NodePath.join(contents, mac ? "MacOS" : "bin");
-  const helpers = mac ? NodePath.join(contents, "Helpers") : resources;
+  const layout = {
+    mac: {
+      root: "T3 Code.app",
+      bin: "Contents/MacOS",
+      resources: "Contents/Resources",
+      helpers: "Contents/Helpers",
+    },
+    linux: {
+      root: "T3-Code.AppDir",
+      bin: "usr/bin",
+      resources: "usr/lib/t3-code",
+      helpers: "usr/lib/t3-code",
+    },
+    win: { root: "T3 Code", bin: ".", resources: "resources", helpers: "resources" },
+  }[platform];
+  const app = NodePath.join(tmp, layout.root);
+  const resources = NodePath.join(app, layout.resources);
+  const bin = NodePath.join(app, layout.bin);
+  const helpers = NodePath.join(app, layout.helpers);
+  const executable = NodePath.join(bin, win ? "T3 Code.exe" : "t3-code");
   const server = NodePath.join(resources, "server/dist");
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
   await NodeFSP.mkdir(server, { recursive: true });
   await NodeFSP.copyFile(
-    NodePath.join(desktop, "native/target", rustTarget, "release/t3-code"),
-    NodePath.join(bin, "t3-code"),
+    NodePath.join(desktop, "native/target", rustTarget, "release", win ? "t3-code.exe" : "t3-code"),
+    executable,
   );
-  await NodeFSP.copyFile(node, NodePath.join(helpers, "node"));
+  await NodeFSP.copyFile(node, NodePath.join(helpers, win ? "node.exe" : "node"));
   await NodeFSP.copyFile(
-    NodePath.resolve(node, "../../LICENSE"),
+    NodePath.resolve(NodePath.dirname(node), win ? "LICENSE" : "../LICENSE"),
     NodePath.join(resources, "LICENSE-node"),
   );
   await NodeFSP.copyFile(NodePath.join(repoRoot, "LICENSE"), NodePath.join(resources, "LICENSE"));
@@ -174,6 +221,7 @@ try {
       yield* stageResourceMonitor({
         repoRoot,
         stageResourcesDir: server,
+        rustTarget,
         platform,
         arch,
         verbose: false,
@@ -184,7 +232,7 @@ try {
           NodePath.join(repoRoot, BRAND_ASSET_PATHS.productionMacIconPng),
           false,
         );
-      } else {
+      } else if (platform === "linux") {
         yield* bundleLinuxLibatomic({
           repoRoot,
           contentDir: resources,
@@ -195,10 +243,10 @@ try {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  const file = `T3-Code-Rune-${platform}-${arch}.${mac ? "zip" : "AppImage"}`;
+  const file = `T3-Code-Rune-${platform}-${arch}.${platform === "linux" ? "AppImage" : "zip"}`;
   if (mac) {
     await NodeFSP.writeFile(
-      NodePath.join(contents, "Info.plist"),
+      NodePath.join(app, "Contents/Info.plist"),
       plist.build({
         CFBundlePackageType: "APPL",
         CFBundleIdentifier: "com.t3tools.t3code.rune",
@@ -214,6 +262,18 @@ try {
     run("codesign", ["--force", "--sign", "-", app]);
     run("codesign", ["--verify", "--strict", app]);
     run("ditto", ["-c", "-k", "--keepParent", app, NodePath.join(published, file)]);
+  } else if (win) {
+    await stampWindowsExecutable(
+      executable,
+      NodePath.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
+      desktopPackage.version,
+    );
+    const archive = NodePath.join(published, file);
+    if (host === "win32") {
+      run(windowsSystemTar(), ["-a", "-cf", archive, "-C", tmp, layout.root]);
+    } else {
+      run("zip", ["-q", "-r", "-X", archive, layout.root], { cwd: tmp });
+    }
   } else {
     const desktopId = "com.t3tools.T3Code.Rune";
     const icon = `usr/share/icons/hicolor/1024x1024/apps/${desktopId}.png`;

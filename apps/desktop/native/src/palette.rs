@@ -529,6 +529,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         el().absolute(0.0, 0.0)
             .w_full()
             .h_full()
+            .backdrop_blur(3.0)
             .fill(rune::Color::BLACK.alpha(0.4))
             .a11y_hidden(),
     );
