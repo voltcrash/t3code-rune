@@ -231,6 +231,9 @@ export function watchWorkspace(
     if (!signal.aborted) paused();
   });
   return {
+    hasThread(id: string) {
+      return threads.has(id);
+    },
     visitSource(id: string) {
       return visitRows.get(id) ?? null;
     },

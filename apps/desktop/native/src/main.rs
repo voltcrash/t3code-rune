@@ -126,6 +126,10 @@ enum Reply {
         options: Vec<models::Choice>,
         error: Option<String>,
     },
+    ThreadRenamed {
+        watch: u64,
+        error: Option<String>,
+    },
     ModelSaved {
         thread: String,
         instance: String,
@@ -186,6 +190,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    RenameThread {
+        thread: String,
+        title: String,
+        watch: u64,
+        operation: String,
+    },
     VisitThread {
         thread: Option<&'a str>,
     },
@@ -401,7 +411,30 @@ impl Desktop {
         });
     }
 
+    fn refresh_after_rename(&mut self) {
+        if self.pending {
+            return;
+        }
+        if let Some(watch) = self.workspace.refresh_after_rename.take()
+            && self.workspace.paused
+            && self.workspace.feed == Some(watch)
+        {
+            self.send(Request::Refresh);
+        }
+    }
+
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::ThreadRenamed { watch, error } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                if let Some(message) = error {
+                    self.error = Some(message);
+                } else if self.workspace.paused {
+                    self.workspace.refresh_after_rename = Some(watch);
+                    self.refresh_after_rename();
+                }
+            }
+            return;
+        }
         if let Reply::WorkspaceLive { watch, changes } = message.reply {
             if self.workspace.feed == Some(watch) {
                 self.apply_workspace(changes);
@@ -658,6 +691,7 @@ impl Desktop {
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
+            | Reply::ThreadRenamed { .. }
             | Reply::WorkspacePaused { .. }
             | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
@@ -684,6 +718,7 @@ impl Desktop {
             }
         }
         self.close_stale_terminal();
+        self.refresh_after_rename();
     }
 }
 
@@ -875,13 +910,17 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
-            s.poll_answer(tx) || stop || clock
+            let renamed = s.finish_title_on_blur();
+            s.poll_answer(tx) || stop || clock || renamed
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
                 if !tx.key_repeat() {
                     s.toggle_palette(tx);
                 }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.cancel_title_edit(tx) {
                 return true;
             }
             if ev.key == rune::Key::Escape && s.close_image() {
