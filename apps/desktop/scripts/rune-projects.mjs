@@ -8,6 +8,8 @@ import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
+import * as Option from "effect/Option";
+import { resolvePackagedRuneHomes } from "../src/app/DesktopStatePaths.ts";
 import * as NodeTimersPromises from "node:timers/promises";
 import { turnItemNeedsDetailFetch } from "@t3tools/client-runtime/work-log/item-detail";
 import desktopPackage from "../package.json" with { type: "json" };
@@ -482,14 +484,29 @@ async function interruptRun(owner, request, reply) {
 
 const desktop = NodePath.resolve(import.meta.dirname, sourceBuild ? "../.." : "..");
 const devHome = process.argv[2] === "--integrated-dev" && process.env.T3CODE_RUNE_DEV_HOME;
-const t3Home = packaged
-  ? NodePath.resolve(
-      process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
-    )
-  : devHome || NodePath.resolve(desktop, "../../.t3/rune");
+const sourceHome = devHome || NodePath.resolve(desktop, "../../.t3/rune");
+const configuredHome = process.env.T3CODE_HOME?.trim();
+const homes = packaged
+  ? resolvePackagedRuneHomes({
+      homeDirectory: NodeOS.homedir(),
+      joinPath: NodePath.join,
+      t3Home: Option.fromNullishOr(configuredHome ? NodePath.resolve(configuredHome) : undefined),
+      hasUserdata: (base) => {
+        try {
+          return (
+            NodeFS.statSync(NodePath.join(base, "userdata"), { throwIfNoEntry: false }) !==
+            undefined
+          );
+        } catch {
+          // An unreadable profile belongs to the server to diagnose.
+          return true;
+        }
+      },
+    })
+  : { server: sourceHome, preferences: sourceHome };
 function readPreference(name) {
   try {
-    return NodeFS.readFileSync(NodePath.join(t3Home, name), "utf8").trim();
+    return NodeFS.readFileSync(NodePath.join(homes.preferences, name), "utf8").trim();
   } catch (error) {
     if (error.code !== "ENOENT") process.stderr.write(`Couldn’t read ${name}.\n`);
     return undefined;
@@ -497,13 +514,13 @@ function readPreference(name) {
 }
 
 function savePreference(name, value) {
-  const path = NodePath.join(t3Home, name);
+  const path = NodePath.join(homes.preferences, name);
   if (value === null) {
     NodeFS.rmSync(path, { force: true });
     return;
   }
   const temp = path + "." + NodeCrypto.randomUUID();
-  NodeFS.mkdirSync(t3Home, { recursive: true });
+  NodeFS.mkdirSync(homes.preferences, { recursive: true });
   try {
     NodeFS.writeFileSync(temp, String(value) + "\n", { mode: 0o600, flag: "wx" });
     NodeFS.renameSync(temp, path);
@@ -558,8 +575,8 @@ function setSidebarLayout(request) {
 }
 
 function openVisitDatabase() {
-  NodeFS.mkdirSync(t3Home, { recursive: true });
-  return new NodeSqlite.DatabaseSync(NodePath.join(t3Home, "desktop-visits.sqlite"), {
+  NodeFS.mkdirSync(homes.preferences, { recursive: true });
+  return new NodeSqlite.DatabaseSync(NodePath.join(homes.preferences, "desktop-visits.sqlite"), {
     timeout: 1000,
   });
 }
@@ -573,7 +590,8 @@ function localServer() {
       version: import.meta.t3codeVersion ?? desktopPackage.version,
       cwd,
       entryPath: NodePath.join(cwd, packaged || sourceBuild ? "dist/bin.mjs" : "src/bin.ts"),
-      t3Home,
+      t3Home: homes.server,
+      ...(homes.preferences !== homes.server && { previousSettingsHome: homes.preferences }),
       ...(devHome
         ? {
             dev: { port: Number(process.env.T3CODE_PORT), webUrl: process.env.VITE_DEV_SERVER_URL },

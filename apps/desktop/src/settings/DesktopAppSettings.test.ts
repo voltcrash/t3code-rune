@@ -154,8 +154,30 @@ describe("DesktopSettings", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
         yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        const previous = environment.path.join(environment.baseDir, "previous-settings.json");
+        yield* fileSystem.writeFileString(
+          previous,
+          JSON.stringify({
+            wslBackendEnabled: true,
+            wslOnly: true,
+            wslDistro: "Ubuntu",
+          }),
+        );
+        const readForUpgrade = DesktopAppSettings.readDesktopSettingsProfile(
+          fileSystem,
+          environment.desktopSettingsPath,
+          environment.appVersion,
+          previous,
+        );
+        const inherited = yield* readForUpgrade;
+        assert.equal(inherited.path, previous);
+        assert.isTrue(inherited.settings.wslBackendEnabled && inherited.settings.wslOnly);
+        assert.equal(inherited.settings.wslDistro, "Ubuntu");
         yield* fileSystem.writeFileString(environment.desktopSettingsPath, "{not-json");
-
+        assert.deepEqual(yield* readForUpgrade, {
+          path: environment.desktopSettingsPath,
+          settings: DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+        });
         assert.deepEqual(yield* settings.load, DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS);
       }),
     ),

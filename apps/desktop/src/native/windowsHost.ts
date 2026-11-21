@@ -80,6 +80,7 @@ export const prepareWindowsHost = Effect.fn("nativeDesktop.prepareWindowsHost")(
   local: DesktopBackendStartConfig & { readonly bootstrap: LocalBootstrap },
   paths: { readonly t3Home: string; readonly packaged: boolean; readonly version: string },
   settings: DesktopSettings,
+  settingsDirectory: string,
 ) {
   const path = yield* Path.Path;
   const root = path.resolve(local.cwd, paths.packaged ? ".." : "../..");
@@ -106,7 +107,7 @@ export const prepareWindowsHost = Effect.fn("nativeDesktop.prepareWindowsHost")(
     ),
   );
   return yield* Effect.gen(function* () {
-    const hostScope = yield* readOrCreateHostScope;
+    const hostScope = yield* readOrCreateHostScope(settingsDirectory);
     const windows = {
       config: { ...local, env: { ...local.env, T3CODE_DESKTOP_HOST_SCOPE: hostScope } },
       afterReady: Effect.void,

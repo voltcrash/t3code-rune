@@ -85,7 +85,11 @@ distribution for the repository’s version. Install `zip` and the matching tool
 uses MinGW-w64 and the `x86_64-pc-windows-gnu` rustup target. Windows ARM64 uses LLVM-MinGW
 and `aarch64-pc-windows-gnullvm`.
 
-These local builds keep their data in `~/.t3/rune`. Set `T3CODE_HOME` to select another directory.
+The installed app opens the existing T3 home in `~/.t3`. If only an earlier Rune package has
+a `userdata` directory, it continues using `~/.t3/rune`. Set `T3CODE_HOME` to open a specific
+profile when both exist. With the default home, the app also reads earlier Rune desktop settings
+if the selected profile has no desktop settings file. Quit the server currently using that profile before starting the app,
+or paste a pairing link to use the running server. Source builds keep using checkout-local data.
 
 See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
 

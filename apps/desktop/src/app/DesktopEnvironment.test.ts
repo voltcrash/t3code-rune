@@ -3,6 +3,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import { resolvePackagedRuneHomes } from "./DesktopStatePaths.ts";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
@@ -70,6 +72,22 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(development.stateDir, "/Users/alice/.t3/dev");
       assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      const base = production.baseDir;
+      const previous = production.path.join(base, "rune");
+      const homes = (stores: string[], override?: string) =>
+        resolvePackagedRuneHomes({
+          homeDirectory: defaultInput.homeDirectory,
+          joinPath: production.path.join,
+          t3Home: Option.fromNullishOr(override),
+          hasUserdata: (dir) => stores.includes(dir),
+        });
+      assert.deepEqual(homes([]), { server: base, preferences: previous });
+      assert.deepEqual(homes([base, previous], "  "), { server: base, preferences: previous });
+      assert.deepEqual(homes([previous]), { server: previous, preferences: previous });
+      assert.deepEqual(homes([base, previous], "/custom"), {
+        server: "/custom",
+        preferences: "/custom",
+      });
     }),
   );
 });

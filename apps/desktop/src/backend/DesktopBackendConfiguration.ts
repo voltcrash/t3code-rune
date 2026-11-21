@@ -242,17 +242,20 @@ const HOST_SCOPE_PATTERN = /^[0-9a-f]{32}$/;
  * they run on one machine, so usage both read from one Windows directory counts
  * once. Persisted so summaries from earlier launches still match.
  */
-export const readOrCreateHostScope = Effect.gen(function* () {
+export const readOrCreateHostScope = Effect.fn("desktop.readOrCreateHostScope")(function* (
+  stateDirectory?: string,
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const random = yield* SecureRandom.SecureRandom;
-  const scopePath = environment.path.join(environment.stateDir, HOST_SCOPE_FILE_NAME);
+  const directory = stateDirectory ?? environment.stateDir;
+  const scopePath = environment.path.join(directory, HOST_SCOPE_FILE_NAME);
   const existing = (yield* fileSystem
     .readFileString(scopePath)
     .pipe(Effect.orElseSucceed(() => ""))).trim();
   if (HOST_SCOPE_PATTERN.test(existing)) return existing;
   const scope = Hex.encode(yield* random.randomBytes(16).pipe(Effect.orDie));
-  yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true }).pipe(
+  yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
     Effect.andThen(fileSystem.writeFileString(scopePath, scope)),
     Effect.catch((cause) =>
       Effect.logWarning("Could not persist the desktop host scope.", { cause }),
@@ -767,7 +770,7 @@ export const make = Effect.gen(function* () {
   // Random generation yields; serialize it so concurrent backends cannot capture distinct bootstrap secrets.
   const secretRef = yield* SynchronizedRef.make(Option.none<string>());
   const hostScope = yield* Effect.cached(
-    readOrCreateHostScope.pipe(
+    readOrCreateHostScope().pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(SecureRandom.SecureRandom, random),

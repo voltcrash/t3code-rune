@@ -386,29 +386,34 @@ function applyWslWindowsFallback(settings: DesktopSettings): DesktopSettings {
   return setWslOnly(setWslBackendEnabled(settings, false), false);
 }
 
-// Fails only when the file may exist but could not be read; a missing file means defaults.
-export function readDesktopSettings(
+// Only a missing file permits an upgrade to inherit another profile's settings.
+export function readDesktopSettingsProfile(
   fileSystem: FileSystem.FileSystem,
   settingsPath: string,
   appVersion: string,
-): Effect.Effect<DesktopSettings, PlatformError.PlatformError> {
-  const defaultSettings = resolveDefaultDesktopSettings(appVersion);
-
-  return fileSystem.readFileString(settingsPath).pipe(
-    Effect.asSome,
-    Effect.catchIf(
-      (cause) => cause.reason._tag === "NotFound",
-      () => Effect.succeed(Option.none<string>()),
-    ),
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.succeed(defaultSettings),
-        onSome: (raw) =>
-          decodeDesktopSettingsJson(raw).pipe(
-            Effect.map((parsed) => normalizeDesktopSettingsDocument(parsed, appVersion)),
-            Effect.orElseSucceed(() => defaultSettings),
+  previousSettingsPath?: string,
+) {
+  const defaults = resolveDefaultDesktopSettings(appVersion);
+  const read = (path: string) =>
+    fileSystem.readFileString(path).pipe(
+      Effect.flatMap((raw) =>
+        decodeDesktopSettingsJson(raw).pipe(
+          Effect.map((parsed) => normalizeDesktopSettingsDocument(parsed, appVersion)),
+          Effect.orElseSucceed(() => defaults),
+        ),
+      ),
+      Effect.map((settings) => ({ settings, path })),
+    );
+  const missing = (error: PlatformError.PlatformError) => error.reason._tag === "NotFound";
+  return read(settingsPath).pipe(
+    Effect.catchIf(missing, () =>
+      previousSettingsPath === undefined
+        ? Effect.succeed({ settings: defaults, path: settingsPath })
+        : read(previousSettingsPath).pipe(
+            Effect.catchIf(missing, () =>
+              Effect.succeed({ settings: defaults, path: settingsPath }),
+            ),
           ),
-      }),
     ),
   );
 }
@@ -531,11 +536,12 @@ export const make = Effect.gen(function* () {
   return DesktopAppSettings.of({
     get: SynchronizedRef.get(settingsRef),
     load: Effect.gen(function* () {
-      const settings = yield* readDesktopSettings(
+      const settings = yield* readDesktopSettingsProfile(
         fileSystem,
         environment.desktopSettingsPath,
         environment.appVersion,
       ).pipe(
+        Effect.map((profile) => profile.settings),
         Effect.catch((cause) =>
           Effect.logWarning(
             "Could not read desktop settings; using defaults without saving changes.",
