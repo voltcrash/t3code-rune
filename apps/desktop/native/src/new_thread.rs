@@ -327,7 +327,9 @@ pub(super) fn view(
     let width = cx
         .layout_size("thread-titlebar")
         .map_or(840., |size| size[0]);
-    let heading_width = (width - 32.).clamp(100., 736.);
+    let [viewport_width, viewport_height] = cx.layout_size("workspace").unwrap_or([1100., 780.]);
+    let lane_inset = super::workspace::chat_lane_inset(viewport_width);
+    let heading_width = (width - 2. * lane_inset).clamp(0., 736.);
     let compact = width < 404.;
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
@@ -444,6 +446,24 @@ pub(super) fn view(
         !s.pending && draft.ready(),
         Desktop::launch,
     ));
+    let heading_font = if viewport_width >= 640. {
+        TextStyle::new(30., 400.).tracking(-0.75).lh(36.)
+    } else {
+        TextStyle::new(24., 400.).tracking(-0.6).lh(32.)
+    };
+    let project_font = TextStyle {
+        weight: 500.,
+        ..heading_font
+    };
+    let prefix = "What should we build in";
+    let inline = !scratch
+        && viewport_width >= 1024.
+        && rune::text::advance(prefix, heading_font)
+            + 8.
+            + rune::text::advance(title, project_font)
+            + rune::text::advance("?", heading_font)
+            <= heading_width;
+    let show_question = scratch || viewport_height > 448.;
     let project_options = s.workspace.launch_projects();
     let project_picker = Combobox::new(
         "launch-project",
@@ -458,74 +478,61 @@ pub(super) fn view(
     .trigger(
         row()
             .label("Project")
+            .help(if scratch { "No project" } else { title })
             .role("button")
             .focusable(true)
             .shrink()
             .child(
-                text(if scratch {
-                    "No project".into()
-                } else {
-                    format!("{title}?")
-                })
-                .truncate()
-                .max_w(heading_width)
-                .font(TextStyle::new(
-                    if scratch {
-                        14.0
-                    } else if compact {
-                        24.
+                text(if scratch { "No project" } else { title })
+                    .truncate()
+                    .max_w(heading_width)
+                    .font(if inline {
+                        project_font
+                    } else if scratch {
+                        TextStyle::new(14., 400.).lh(24.)
                     } else {
-                        30.0
-                    },
-                    if scratch { 400.0 } else { 500.0 },
-                ))
-                .color(if scratch {
-                    theme.text_secondary
-                } else {
-                    theme.text
-                }),
+                        TextStyle::new(16., 500.).lh(24.)
+                    })
+                    .color(if scratch {
+                        theme.text_secondary
+                    } else {
+                        theme.text
+                    }),
             ),
     )
     .on_choose(|s, id, _| s.prepare_thread(id))
     .build(kit, overlays);
-    let heading = if scratch {
-        col()
-            .center()
-            .gap(8.0)
-            .child(
-                text("What should we work on?")
-                    .max_w(heading_width)
-                    .wrap()
-                    .font(TextStyle::new(if compact { 24. } else { 30. }, 400.0))
-                    .color(theme.text),
-            )
-            .child(project_picker)
-    } else {
-        let title = row()
-            .w(heading_width)
-            .flex_wrap()
-            .center()
-            .gap(6.0)
-            .child(
-                text("What should we build in")
-                    .max_w(heading_width)
-                    .wrap()
-                    .font(TextStyle::new(if compact { 24. } else { 30. }, 400.0))
-                    .color(theme.text)
-                    .shrink(),
-            )
-            .child(project_picker);
-        let mut heading = col().center().gap(8.0).child(title);
-        if s.workspace.scratch_available {
-            heading = heading.child(super::workspace::action(
-                "or start without a project",
-                theme,
-                !s.pending,
-                Desktop::prepare_scratch,
-            ));
-        }
-        heading
-    };
+    let mut headline = if inline { row() } else { col() };
+    headline = headline.w(heading_width).center().gap(8.);
+    if show_question {
+        let question = if scratch {
+            "What should we work on?"
+        } else if inline {
+            prefix
+        } else {
+            "What should we build?"
+        };
+        headline = headline.child(
+            text(question)
+                .max_w(heading_width)
+                .wrap()
+                .font(heading_font)
+                .color(theme.text),
+        );
+    }
+    let mut selector = row().center_y().min_w(0.).child(project_picker);
+    if inline && show_question {
+        selector = selector.child(text("?").font(heading_font).color(theme.text));
+    }
+    let mut heading = col().items_center().gap(8.).child(headline.child(selector));
+    if !scratch && s.workspace.scratch_available {
+        heading = heading.child(super::workspace::action(
+            "or start without a project",
+            theme,
+            !s.pending,
+            Desktop::prepare_scratch,
+        ));
+    }
     let list = target.list(&draft.files, theme, locked);
     let surface = composer::surface(
         "new-thread",
@@ -534,14 +541,26 @@ pub(super) fn view(
         theme,
         list,
         Some(footer),
-        24.,
-    );
-    let mut content = col()
+        lane_inset,
+    )
+    .pt(0.)
+    .pb(28.);
+    let top = col()
         .w_full()
-        .grow(1.0)
-        .center()
-        .gap(12.0)
-        .child(heading)
+        .grow(1.)
+        .justify_end()
+        .items_center()
+        .child(heading.pb(16.));
+    let mut content = col()
+        .key("new-thread-body")
+        .w_full()
+        .grow(1.)
+        .min_h(0.)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: false,
+        })
+        .items_center()
+        .child(top)
         .child(target.drop_area(surface, locked));
     if draft.uncertain {
         content = content.child(
@@ -552,6 +571,9 @@ pub(super) fn view(
     if draft.choices.is_empty() {
         content = content
             .child(text("No available models for this project.").color(theme.text_secondary));
+    }
+    if viewport_height > 544. {
+        content = content.child(spacer());
     }
     content
 }
