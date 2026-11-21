@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-mod permissions;
+use crate::permissions;
 pub(super) type ProviderPermissions = HashMap<String, Vec<permissions::OptionRow>>;
 
 #[derive(Deserialize)]
@@ -21,7 +21,6 @@ pub(super) struct Choice {
 pub(super) struct NewThreads {
     pub active: Option<String>,
     project_picker: ComboboxState,
-    permission_menu: Option<permissions::Menu>,
     drafts: HashMap<String, LaunchDraft>,
 }
 
@@ -46,7 +45,6 @@ impl NewThreads {
     }
     pub(super) fn reopen(&mut self, project: String) {
         self.active = Some(project);
-        self.permission_menu = None;
         self.project_picker = ComboboxState::default();
         self.current().picker = ComboboxState::default();
     }
@@ -76,7 +74,6 @@ impl NewThreads {
                 uncertain: false,
             });
         self.active = Some(project.clone());
-        self.permission_menu = None;
         self.project_picker = ComboboxState::default();
         if draft.uncertain {
             return;
@@ -117,6 +114,34 @@ impl NewThreads {
     pub(super) fn editable_files(&mut self) -> Option<&mut Vec<String>> {
         let draft = self.current();
         (!draft.uncertain).then_some(&mut draft.files)
+    }
+    pub(super) fn picker_options(&mut self) -> Option<(Vec<permissions::OptionRow>, String)> {
+        let draft = self.current();
+        if draft.uncertain {
+            return None;
+        }
+        Some((
+            draft.permission_options().to_vec(),
+            draft
+                .permission()
+                .map_or_else(String::new, |p| p.mode.clone()),
+        ))
+    }
+    pub(super) fn select_permission(&mut self, mode: &str) -> bool {
+        if self.active.is_none() {
+            return false;
+        }
+        let draft = self.current();
+        if draft.uncertain
+            || !draft
+                .permission_options()
+                .iter()
+                .any(|p| p.mode == mode && p.denied.is_none())
+        {
+            return false;
+        }
+        draft.runtime_override = Some(mode.into());
+        true
     }
     fn current(&mut self) -> &mut LaunchDraft {
         self.drafts
@@ -316,7 +341,15 @@ pub(super) fn view(
     }
     if draft.choice().is_some() {
         footer = footer.child(permissions::control(
-            s, draft, theme, kit, overlays, locked, compact,
+            s,
+            draft
+                .permission()
+                .map(|p| (p.mode.as_str(), p.label.as_str())),
+            theme,
+            kit,
+            overlays,
+            locked,
+            compact,
         ));
     }
     controls = controls.child(spacer());

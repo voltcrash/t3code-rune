@@ -1,14 +1,23 @@
-use super::{Desktop, LaunchDraft};
 use crate::workspace::label;
+use crate::{Desktop, Request};
 use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, tok};
 use rune_kit::{Kit, Placement, popover};
+use uuid::Uuid;
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub(crate) struct OptionRow {
     pub(super) mode: String,
-    label: String,
+    pub(super) label: String,
     description: String,
     pub(super) denied: Option<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub(super) struct Selection {
+    pub instance: String,
+    pub mode: String,
+    #[serde(skip_serializing)]
+    pub label: String,
 }
 
 impl OptionRow {
@@ -16,8 +25,8 @@ impl OptionRow {
         self.denied.as_deref().unwrap_or(&self.description)
     }
 
-    fn glyph(&self) -> &'static Icon {
-        match self.mode.as_str() {
+    fn glyph(mode: &str) -> &'static Icon {
+        match mode {
             "approval-required" => &LOCK,
             "auto-accept-edits" => &PEN,
             "auto" => &SHIELD_CHECK,
@@ -30,42 +39,219 @@ impl OptionRow {
     }
 }
 
+enum Target {
+    Launch(String),
+    Thread {
+        watch: u64,
+        operation: String,
+        instance: String,
+    },
+}
+
 pub(super) struct Menu {
+    target: Target,
+    options: Vec<OptionRow>,
     focused: String,
     hovered: Option<String>,
+    status: Option<String>,
+}
+
+impl Menu {
+    fn focus_option(&mut self, tx: &mut Tx) {
+        if let Some(row) = self
+            .options
+            .iter()
+            .find(|p| p.mode == self.focused && p.denied.is_none())
+            .or_else(|| self.options.iter().find(|p| p.denied.is_none()))
+        {
+            self.focused = row.mode.clone();
+            tx.focus(row.key(), true);
+        } else {
+            tx.focus("launch-permission-panel", true);
+        }
+    }
 }
 
 impl Desktop {
-    fn show_launch_permissions(&mut self, tx: &mut Tx) {
-        if self.pending || !self.can_operate || self.new_threads.active.is_none() {
+    fn show_permissions(&mut self, tx: &mut Tx) {
+        if self.pending || !self.can_operate || self.palette.is_some() {
             return;
         }
-        let draft = self.new_threads.current();
-        if draft.uncertain {
-            return;
-        }
-        let Some(option) = draft.permission().or_else(|| {
-            draft
-                .permission_options()
-                .iter()
-                .find(|p| p.denied.is_none())
-        }) else {
-            return;
+        let mut menu = if let Some(project) = self.new_threads.active.clone() {
+            let Some((options, focused)) = self.new_threads.picker_options() else {
+                return;
+            };
+            Menu {
+                target: Target::Launch(project),
+                options,
+                focused,
+                hovered: None,
+                status: None,
+            }
+        } else {
+            let Some(thread) = self.workspace.visible_thread() else {
+                return;
+            };
+            let Some(watch) = self.workspace.terminal_watch() else {
+                return;
+            };
+            if self.workspace.questions.contains_key(&thread.id) {
+                return;
+            }
+            let Some(permission) = &thread.permission else {
+                return;
+            };
+            let instance = permission.instance.clone();
+            let focused = self
+                .workspace
+                .drafts
+                .get(&thread.id)
+                .and_then(|draft| draft.permission.as_ref())
+                .filter(|pick| pick.instance == instance)
+                .unwrap_or(permission)
+                .mode
+                .clone();
+            let operation = Uuid::new_v4().to_string();
+            if !self.write_request(
+                None,
+                Request::ThreadPermissions {
+                    watch,
+                    operation: operation.clone(),
+                },
+            ) {
+                return;
+            }
+            Menu {
+                target: Target::Thread {
+                    watch,
+                    operation,
+                    instance,
+                },
+                options: vec![],
+                focused,
+                hovered: None,
+                status: Some("Loading permissions…".into()),
+            }
         };
-        tx.focus(option.key(), true);
-        self.new_threads.permission_menu = Some(Menu {
-            focused: option.mode.clone(),
-            hovered: None,
-        });
+        menu.focus_option(tx);
+        self.permission_menu = Some(menu);
     }
 
-    pub(crate) fn launch_permission_key(&mut self, event: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.new_threads.active.is_none() || self.palette.is_some() {
+    pub(super) fn close_stale_permissions(&mut self) {
+        let Some(menu) = &self.permission_menu else {
+            return;
+        };
+        let visible = match &menu.target {
+            Target::Launch(project) => self.new_threads.active.as_ref() == Some(project),
+            Target::Thread {
+                watch, instance, ..
+            } => {
+                self.new_threads.active.is_none()
+                    && self.workspace.terminal_watch() == Some(*watch)
+                    && self.workspace.visible_thread().is_some_and(|t| {
+                        !self.workspace.questions.contains_key(&t.id)
+                            && t.permission
+                                .as_ref()
+                                .is_some_and(|p| &p.instance == instance)
+                    })
+            }
+        };
+        if !visible {
+            self.permission_menu = None;
+        }
+    }
+
+    pub(super) fn receive_permissions(
+        &mut self,
+        watch: u64,
+        operation: &str,
+        instance: &str,
+        options: Vec<OptionRow>,
+        error: Option<String>,
+        tx: &mut Tx,
+    ) {
+        let Some(menu) = self.permission_menu.as_mut() else {
+            return;
+        };
+        let Target::Thread {
+            watch: expected,
+            operation: request,
+            instance: provider,
+        } = &menu.target
+        else {
+            return;
+        };
+        if *expected != watch || request != operation {
+            return;
+        }
+        if provider != instance && error.is_none() {
+            menu.status =
+                Some("The thread’s provider changed. Reopen permissions to retry.".into());
+            return;
+        }
+        menu.options = options;
+        menu.status = error;
+        menu.focus_option(tx);
+    }
+
+    fn select_permission(&mut self, mode: &str, tx: &mut Tx) {
+        let Some(menu) = &self.permission_menu else {
+            return;
+        };
+        let Some(row) = menu
+            .options
+            .iter()
+            .find(|p| p.denied.is_none() && p.mode == mode)
+        else {
+            return;
+        };
+        match &menu.target {
+            Target::Launch(_) => {
+                if !self.new_threads.select_permission(mode) {
+                    return;
+                }
+                tx.focus("new-thread-prompt", true);
+            }
+            Target::Thread {
+                watch, instance, ..
+            } => {
+                if self.workspace.terminal_watch() != Some(*watch) {
+                    return;
+                }
+                let Some(thread) = self.workspace.visible_thread() else {
+                    return;
+                };
+                if thread
+                    .permission
+                    .as_ref()
+                    .is_none_or(|p| &p.instance != instance)
+                {
+                    return;
+                }
+                let id = thread.id.clone();
+                if let Some(draft) = self.workspace.drafts.get_mut(&id) {
+                    draft.select_permission(Selection {
+                        instance: instance.clone(),
+                        mode: row.mode.clone(),
+                        label: row.label.clone(),
+                    });
+                }
+                tx.focus("message-input", true);
+            }
+        }
+        self.permission_menu = None;
+    }
+
+    pub(crate) fn permission_shortcut(&mut self, event: &KeyEvent, tx: &mut Tx) -> bool {
+        if tx.focused() == Some("thread-terminal-grid")
+            || self.palette.is_some()
+            || (self.new_threads.active.is_none() && self.workspace.visible_thread().is_none())
+        {
             return false;
         }
         if event.mods.shift && !event.mods.alt && event.is_command('a') {
             if !tx.key_repeat() {
-                self.show_launch_permissions(tx);
+                self.show_permissions(tx);
             }
             return true;
         }
@@ -73,18 +259,17 @@ impl Desktop {
     }
 
     fn permission_menu_key(&mut self, event: &KeyEvent, tx: &mut Tx) -> bool {
-        let Some(menu) = self.new_threads.permission_menu.as_ref() else {
+        let Some(menu) = self.permission_menu.as_mut() else {
             return false;
         };
         match event.key {
             Key::Escape => {
-                self.new_threads.permission_menu = None;
+                self.permission_menu = None;
                 tx.focus("launch-permission-button", true);
             }
             Key::Left | Key::Right | Key::Up | Key::Down | Key::Home | Key::End => {
-                let draft = &self.new_threads.drafts[self.new_threads.active.as_ref().unwrap()];
-                let allowed: Vec<_> = draft
-                    .permission_options()
+                let allowed: Vec<_> = menu
+                    .options
                     .iter()
                     .filter(|row| row.denied.is_none())
                     .collect();
@@ -103,10 +288,8 @@ impl Desktop {
                 };
                 let option = allowed[next];
                 tx.focus(option.key(), true);
-                self.new_threads.permission_menu = Some(Menu {
-                    focused: option.mode.clone(),
-                    hovered: None,
-                });
+                menu.focused = option.mode.clone();
+                menu.hovered = None;
             }
             _ => return false,
         }
@@ -158,18 +341,17 @@ pub(super) fn branch_label(branch: &str, theme: &tok::Theme, compact: bool) -> E
 
 pub(super) fn control(
     s: &Desktop,
-    draft: &LaunchDraft,
+    selected: Option<(&str, &str)>,
     theme: &tok::Theme,
     kit: &Kit,
     overlays: &mut Vec<El>,
     locked: bool,
     compact: bool,
 ) -> El {
-    let selected = draft.permission();
-    let caption = selected.map_or("Choose permissions", |o| o.label.as_str());
+    let caption = selected.map_or("Choose permissions", |(_, caption)| caption);
     let trigger = context_button(
         caption,
-        selected.map_or(&LOCK, OptionRow::glyph),
+        selected.map_or(&LOCK, |(mode, _)| OptionRow::glyph(mode)),
         theme,
         compact,
     )
@@ -178,8 +360,8 @@ pub(super) fn control(
     .help("Permissions")
     .focusable(!locked)
     .disabled(locked)
-    .on_press_tx(Desktop::show_launch_permissions);
-    let menu = s.new_threads.permission_menu.as_ref().filter(|_| !locked);
+    .on_press_tx(Desktop::show_permissions);
+    let menu = s.permission_menu.as_ref().filter(|_| !locked);
     if let Some(menu) = menu {
         let shown = menu.hovered.as_ref().unwrap_or(&menu.focused);
         let mut buttons = row()
@@ -190,10 +372,10 @@ pub(super) fn control(
             .radius(6.)
             .padding(2.)
             .fill(theme.text.alpha(0.06));
-        for option in draft.permission_options() {
+        for option in &menu.options {
             let mode = option.mode.clone();
             let hover = option.mode.clone();
-            let checked = selected.is_some_and(|s| s.mode == mode);
+            let checked = selected.is_some_and(|(m, _)| m == mode);
             let available = option.denied.is_none();
             let mut button = el()
                 .key(option.key())
@@ -209,9 +391,9 @@ pub(super) fn control(
                 .h(24.)
                 .radius(4.)
                 .hover(theme.text.alpha(0.09))
-                .child(icon(option.glyph(), 14.).color(theme.text_secondary))
+                .child(icon(OptionRow::glyph(&option.mode), 14.).color(theme.text_secondary))
                 .on_hover_change(move |s: &mut Desktop, inside, _| {
-                    if let Some(menu) = &mut s.new_threads.permission_menu {
+                    if let Some(menu) = &mut s.permission_menu {
                         if inside {
                             menu.hovered = Some(hover.clone());
                         } else if menu.hovered.as_ref() == Some(&hover) {
@@ -224,17 +406,7 @@ pub(super) fn control(
             }
             button = if available {
                 button.on_press_tx(move |s: &mut Desktop, tx| {
-                    let draft = s.new_threads.current();
-                    if !draft.uncertain
-                        && draft
-                            .permission_options()
-                            .iter()
-                            .any(|p| p.mode == mode && p.denied.is_none())
-                    {
-                        draft.runtime_override = Some(mode.clone());
-                        s.new_threads.permission_menu = None;
-                        tx.focus("new-thread-prompt", true);
-                    }
+                    s.select_permission(&mode, tx);
                 })
             } else {
                 button.disabled(true).opacity(0.4)
@@ -246,9 +418,10 @@ pub(super) fn control(
             .w(288.)
             .padding(8.)
             .role("dialog")
+            .focusable(true)
             .label("Permissions")
             .focus_return("launch-permission-button")
-            .modal(true, |s: &mut Desktop| s.new_threads.permission_menu = None)
+            .modal(true, |s: &mut Desktop| s.permission_menu = None)
             .on_key(Desktop::permission_menu_key)
             .child(
                 label("Permissions", 12., 500., theme.text_secondary)
@@ -256,7 +429,9 @@ pub(super) fn control(
                     .pb(6.),
             )
             .child(buttons);
-        if let Some(option) = draft.permission_options().iter().find(|p| &p.mode == shown) {
+        if let Some(status) = &menu.status {
+            panel = panel.child(label(status, 12., 400., theme.text_secondary).wrap());
+        } else if let Some(option) = menu.options.iter().find(|p| &p.mode == shown) {
             panel = panel
                 .child(label(&option.label, 14., 500., theme.text).pt(6.))
                 .child(

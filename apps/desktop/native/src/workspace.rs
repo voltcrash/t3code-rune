@@ -61,7 +61,8 @@ pub(super) struct Thread {
     order_key: Option<String>,
     #[serde(default)]
     recent_at: f64,
-    model: String,
+    pub(super) model: String,
+    pub(super) permission: Option<crate::permissions::Selection>,
     settled: bool,
 }
 
@@ -259,6 +260,13 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
+    pub(super) fn visible_thread(&self) -> Option<&Thread> {
+        if self.show_projects {
+            return None;
+        }
+        let id = &self.conversation.as_ref()?.id;
+        self.by_thread.get(id).map(|&i| &self.threads[i])
+    }
     pub(crate) fn terminal_watch(&self) -> Option<u64> {
         self.conversation.as_ref()?.watch
     }
@@ -1388,12 +1396,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .unwrap_or(false);
     let composing = s.new_threads.active.as_deref();
     let mut overlays = Vec::new();
-    let thread = s.workspace.conversation.as_ref().and_then(|p| {
-        s.workspace
-            .by_thread
-            .get(&p.id)
-            .map(|&i| &s.workspace.threads[i])
-    });
+    let thread = s.workspace.visible_thread();
     let inset = cx.chrome_insets();
     let empty = s.workspace.projects.is_empty() && s.project_path.is_none() && !s.pending;
     let mut header = row()
@@ -1519,10 +1522,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         }
         main = main.child(composer::view(
             s,
-            &thread.id,
-            &thread.model,
+            thread,
             theme,
             cx.system_dark(),
+            &mut overlays,
         ));
     }
     if let Some(drawer) = crate::terminal::view(
@@ -1688,6 +1691,7 @@ mod tests {
             recent_at: sort_at as f64,
             order_key: None,
             model: String::new(),
+            permission: None,
             settled: false,
         };
         app.workspace

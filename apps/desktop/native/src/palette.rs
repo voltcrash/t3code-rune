@@ -283,6 +283,7 @@ impl Desktop {
             return;
         }
         self.workspace.project_scope.close();
+        self.permission_menu = None;
         self.palette = Some(Palette::new());
         self.filter_palette(false);
         tx.focus("palette-query", true);
@@ -629,6 +630,7 @@ mod tests {
             recent_at: 0.,
             order_key: None,
             model: String::new(),
+            permission: None,
             settled: false,
         });
         app.workspace.replace(vec![], threads.into());
