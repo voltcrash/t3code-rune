@@ -2774,6 +2774,25 @@ export function resolveDesktopProductName(version: string): string {
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
+export function desktopDmgLayout(version: string) {
+  return {
+    // Finder caches DMG backgrounds by volume name; give each installer its own.
+    title: `${resolveDesktopProductName(version)} ${version} Installer`,
+    background: `dmg/dmg-background-${resolveDesktopUpdateChannel(version)}.png`,
+    window: {
+      width: 640,
+      // DMG bounds include Finder's 32px title bar; keep that artwork strip clear.
+      height: 432,
+    },
+    contents: [
+      { x: 166, y: 214, type: "file" as const },
+      { x: 474, y: 214, type: "link" as const, path: "/Applications" },
+    ],
+    iconSize: 120,
+    iconTextSize: 12,
+  };
+}
+
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
@@ -2893,22 +2912,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac" && target === "dmg") {
-    buildConfig.dmg = {
-      // Finder caches DMG backgrounds by volume name; give each installer its own.
-      title: `${resolveDesktopProductName(version)} ${version} Installer`,
-      background: `dmg/dmg-background-${updateChannel}.png`,
-      window: {
-        width: 640,
-        // DMG bounds include Finder's 32px title bar; keep that artwork strip clear.
-        height: 432,
-      },
-      contents: [
-        { x: 166, y: 214, type: "file" },
-        { x: 474, y: 214, type: "link", path: "/Applications" },
-      ],
-      iconSize: 120,
-      iconTextSize: 12,
-    };
+    buildConfig.dmg = desktopDmgLayout(version);
   }
 
   if (platform === "linux") {

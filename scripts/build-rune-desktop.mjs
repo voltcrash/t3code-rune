@@ -21,13 +21,16 @@ import {
   stageResourceMonitor,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
 import { windowsSystemTar } from "./lib/windows-tar.ts";
 
 const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 const desktop = NodePath.join(repoRoot, "apps/desktop");
 const host = Effect.runSync(HostProcess.Platform);
-const { values } = NodeUtil.parseArgs({ options: { "windows-node-dir": { type: "string" } } });
+const { values } = NodeUtil.parseArgs({
+  options: { target: { type: "string" }, "windows-node-dir": { type: "string" } },
+});
 const windowsNodeDir = values["windows-node-dir"];
 if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
   throw new Error(
@@ -35,6 +38,10 @@ if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")
   );
 }
 const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
+const target = values.target ?? (platform === "linux" ? "AppImage" : "zip");
+if (!{ mac: ["dmg", "zip"], linux: ["AppImage"], win: ["zip"] }[platform]?.includes(target)) {
+  throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
+}
 const node = await NodeFSP.realpath(
   windowsNodeDir ? NodePath.join(windowsNodeDir, "node.exe") : process.execPath,
 );
@@ -224,7 +231,7 @@ try {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  const file = `T3-Code-Rune-${platform}-${arch}.${platform === "linux" ? "AppImage" : "zip"}`;
+  const file = `T3-Code-Rune-${platform}-${arch}.${target}`;
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
@@ -242,7 +249,12 @@ try {
     );
     run("codesign", ["--force", "--sign", "-", app]);
     run("codesign", ["--verify", "--strict", app]);
-    run("ditto", ["-c", "-k", "--keepParent", app, NodePath.join(published, file)]);
+    const artifact = NodePath.join(published, file);
+    if (target === "dmg") {
+      await buildRuneDmg({ app, artifact, desktop, tmp, version: desktopPackage.version });
+    } else {
+      run("ditto", ["-c", "-k", "--keepParent", app, artifact]);
+    }
   } else if (win) {
     await stampWindowsExecutable(
       executable,
