@@ -32,12 +32,14 @@
     "lucide": "0.564.0",
     "mrmime": "2.0.1",
     "playwright-core": "1.64.1",
+    "proper-lockfile": "4.1.2",
     "react-grab": "^0.1.32",
     "tldts": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "@types/proper-lockfile": "^4.1.4",
     "acorn": "8.16.0",
     "electron-builder": "26.16.1",
     "gt": "2.27.0",

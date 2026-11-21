@@ -1,7 +1,10 @@
 import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
+import { lock } from "proper-lockfile";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -14,16 +17,18 @@ import * as Ref from "effect/Ref";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 
 const ClientSettingsJson = fromLenientJson(ClientSettingsSchema);
-const decodeClientSettingsDocument = Schema.decodeEffect(
-  fromLenientJson(Schema.Record(Schema.String, Schema.Unknown)),
-);
+const SettingsRecord = Schema.Record(Schema.String, Schema.Unknown);
+const decodeSettingsRecord = Schema.decodeUnknownEffect(SettingsRecord);
+const encodeSettingsRecord = Schema.encodeEffect(Schema.fromJsonString(SettingsRecord));
+const decodeClientSettingsDocument = Schema.decodeEffect(fromLenientJson(SettingsRecord));
 const decodeClientSettingsValue = Schema.decodeUnknownEffect(ClientSettingsSchema);
 const decodeClientSettingsJson = Effect.fnUntraced(function* (raw: string) {
   const document = yield* decodeClientSettingsDocument(raw);
   // Select the shape before validation so invalid legacy settings cannot become defaults.
-  return yield* decodeClientSettingsValue(
-    Object.hasOwn(document, "settings") ? document.settings : document,
-  );
+  const wrapped = Object.hasOwn(document, "settings");
+  const values = wrapped ? yield* decodeSettingsRecord(document.settings) : document;
+  const settings = yield* decodeClientSettingsValue(values);
+  return { document, values, settings, wrapped };
 });
 const encodeClientSettingsJson = Schema.encodeEffect(ClientSettingsJson);
 
@@ -42,6 +47,7 @@ export class DesktopClientSettingsReadError extends Schema.TaggedError<DesktopCl
 
 const DesktopClientSettingsWriteOperation = Schema.Literals([
   "create-temporary-file-name",
+  "lock-file",
   "resolve-symlink",
   "encode-document",
   "create-directory",
@@ -100,6 +106,7 @@ export const readClientSettings = (
         onNone: () => Effect.succeed(Option.none<ClientSettings>()),
         onSome: (raw) =>
           decodeClientSettingsJson(raw).pipe(
+            Effect.map(({ settings }) => settings),
             Effect.asSome,
             Effect.catchTags({
               SchemaError: (cause) =>
@@ -121,43 +128,80 @@ export const readClientSettings = (
     ),
   );
 
+function withSettingsWriteLock<A, E, R>(
+  settingsPath: string,
+  update: (target: string) => Effect.Effect<A, E, R>,
+) {
+  const failed = (operation: typeof DesktopClientSettingsWriteOperation.Type, cause: unknown) =>
+    new DesktopClientSettingsWriteError({ operation, path: settingsPath, cause });
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const target = yield* resolveSymlinkTarget(settingsPath).pipe(
+      Effect.mapError((cause) => failed("resolve-symlink", cause)),
+    );
+    yield* fs
+      .makeDirectory(path.dirname(target), { recursive: true })
+      .pipe(Effect.mapError((cause) => failed("create-directory", cause)));
+    const compromised = yield* Deferred.make<never, DesktopClientSettingsWriteError>();
+    const services = yield* Effect.context<never>();
+    return yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: () =>
+          lock(target, {
+            realpath: false,
+            retries: { retries: 30, factor: 1.3, minTimeout: 20, maxTimeout: 200 },
+            onCompromised: (cause) =>
+              Effect.runSyncWith(services)(Deferred.fail(compromised, failed("lock-file", cause))),
+          }),
+        catch: (cause) => failed("lock-file", cause),
+      }),
+      () => Effect.raceFirst(update(target), Deferred.await(compromised)),
+      (release) =>
+        Effect.tryPromise({
+          try: () => release(),
+          catch: (cause) => failed("lock-file", cause),
+        }).pipe(Effect.ignore),
+    );
+  });
+}
+
+export const setClientFontSmoothing = Effect.fn("desktop.clientSettings.setFontSmoothing")(
+  function (settingsPath: string, fontSmoothing: boolean) {
+    return withSettingsWriteLock(settingsPath, (target) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const raw = yield* fs.readFileString(target).pipe(
+          Effect.catchIf(
+            (error) => error.reason._tag === "NotFound",
+            () => Effect.succeed("{}"),
+          ),
+        );
+        const { document, values, settings, wrapped } = yield* decodeClientSettingsJson(raw);
+        const updated = { ...values, fontSmoothing };
+        const encoded = yield* encodeSettingsRecord(
+          wrapped ? { ...document, settings: updated } : updated,
+        );
+        yield* writeFileStringAtomically({ filePath: target, contents: encoded + "\n" });
+        return { ...settings, fontSmoothing };
+      }),
+    );
+  },
+);
+
 const writeClientSettings = Effect.fnUntraced(function* (input: {
   readonly fileSystem: FileSystem.FileSystem;
-  readonly path: Path.Path;
   readonly settingsPath: string;
   readonly settings: ClientSettings;
   readonly suffix: string;
 }): Effect.fn.Return<void, DesktopClientSettingsWriteError> {
-  const targetPath = yield* resolveSymlinkTarget(input.settingsPath).pipe(
-    Effect.provideService(FileSystem.FileSystem, input.fileSystem),
-    Effect.provideService(Path.Path, input.path),
-    Effect.mapError(
-      (cause) =>
-        new DesktopClientSettingsWriteError({
-          operation: "resolve-symlink",
-          path: input.settingsPath,
-          cause,
-        }),
-    ),
-  );
-  const directory = input.path.dirname(targetPath);
-  const tempPath = `${targetPath}.${process.pid}.${input.suffix}.tmp`;
+  const tempPath = `${input.settingsPath}.${process.pid}.${input.suffix}.tmp`;
   const encoded = yield* encodeClientSettingsJson(input.settings).pipe(
     Effect.mapError(
       (cause) =>
         new DesktopClientSettingsWriteError({
           operation: "encode-document",
           path: input.settingsPath,
-          cause,
-        }),
-    ),
-  );
-  yield* input.fileSystem.makeDirectory(directory, { recursive: true }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new DesktopClientSettingsWriteError({
-          operation: "create-directory",
-          path: directory,
           cause,
         }),
     ),
@@ -173,7 +217,7 @@ const writeClientSettings = Effect.fnUntraced(function* (input: {
           }),
       ),
     );
-    yield* input.fileSystem.rename(tempPath, targetPath).pipe(
+    yield* input.fileSystem.rename(tempPath, input.settingsPath).pipe(
       Effect.mapError(
         (cause) =>
           new DesktopClientSettingsWriteError({
@@ -200,13 +244,12 @@ export const make = Effect.gen(function* () {
       return random.uuidV4().pipe(
         Effect.map((uuid) => uuid.replace(/-/g, "")),
         Effect.flatMap((suffix) =>
-          writeClientSettings({
-            fileSystem,
-            path,
-            settingsPath: environment.clientSettingsPath,
-            settings,
-            suffix,
-          }),
+          withSettingsWriteLock(environment.clientSettingsPath, (target) =>
+            writeClientSettings({ fileSystem, settingsPath: target, settings, suffix }),
+          ).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          ),
         ),
       );
     }),

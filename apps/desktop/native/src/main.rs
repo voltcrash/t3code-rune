@@ -37,6 +37,7 @@ enum Reply {
         sans: String,
         code: String,
         smoothing: bool,
+        error: Option<String>,
     },
     Appearance {
         mode: appearance::Mode,
@@ -282,6 +283,9 @@ enum Request<'a> {
     SetAppearance {
         mode: appearance::Mode,
     },
+    SetFontSmoothing {
+        smoothing: bool,
+    },
     SetSettlement {
         thread: String,
         watch: u64,
@@ -443,6 +447,9 @@ enum Request<'a> {
 struct Desktop {
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
+    font_smoothing: Option<bool>,
+    saving_smoothing: bool,
+    typography_advanced: bool,
     settings_open: bool,
     appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
@@ -480,6 +487,9 @@ impl Desktop {
             sidebar_layout: Default::default(),
             answer_advance: None,
             appearance: Default::default(),
+            font_smoothing: None,
+            saving_smoothing: false,
+            typography_advanced: false,
             settings_open: false,
             appearance_error: None,
             link: TextEdit::new("").secure(),
@@ -1018,6 +1028,8 @@ impl Desktop {
                     request_id: self.request_id,
                     sidebar_layout: self.sidebar_layout,
                     appearance: self.appearance,
+                    font_smoothing: self.font_smoothing,
+                    saving_smoothing: self.saving_smoothing,
                     error: lost.then(|| {
                         "The local environment stopped. Reconnect to start it again.".to_owned()
                     }),
@@ -1428,8 +1440,14 @@ fn start() -> io::Result<()> {
                     sans,
                     code,
                     smoothing,
+                    error,
                 } = reply.reply
                 {
+                    s.font_smoothing = Some(smoothing);
+                    if s.saving_smoothing {
+                        s.appearance_error = error;
+                        s.saving_smoothing = false;
+                    }
                     appearance::apply_fonts(tx, sans, code, smoothing);
                     return;
                 }
