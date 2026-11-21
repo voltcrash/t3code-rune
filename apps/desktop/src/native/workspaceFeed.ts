@@ -7,7 +7,7 @@ import { openEnvironmentRpc } from "./environmentRpc.ts";
 import {
   projectSummary,
   loadWorkspace,
-  type readWorkspace,
+  readWorkspace,
   threadSummary,
   visibleThread,
   workspaceRows,
@@ -117,15 +117,18 @@ export function watchWorkspace(
     scratchAvailable = view.scratch_available;
     flush();
   }
+  function adopt(fresh: Loaded) {
+    sequence = fresh.sequence;
+    identities = fresh.identities;
+    scratchRoot = fresh.scratchRoot;
+    replace(fresh.view);
+  }
   let failures = 0;
   let needSnapshot = false;
   const subscribe = Effect.fn("nativeDesktop.followWorkspace")(function* () {
     if (needSnapshot) {
       const fresh = yield* loadWorkspace(session).pipe(Effect.timeout("20 seconds"));
-      sequence = fresh.sequence;
-      identities = fresh.identities;
-      scratchRoot = fresh.scratchRoot;
-      replace(fresh.view);
+      adopt(fresh);
       needSnapshot = false;
     }
     const rpc = yield* openEnvironmentRpc(session);
@@ -196,6 +199,24 @@ export function watchWorkspace(
     if (!signal.aborted) paused();
   });
   return {
+    async launched(row: ThreadRow, committed: number | undefined) {
+      if (committed === undefined) {
+        const fresh = await readWorkspace(session, signal);
+        if (fresh.sequence >= sequence) adopt(fresh);
+      }
+      const current = threads.get(row.id);
+      if (current) return current;
+      if (committed === undefined || sequence >= committed) return null;
+      // The receipt reaches Rune before its shell event. Track it so the next removal is delivered.
+      threads.set(row.id, row);
+      return row;
+    },
+    opened(id: string, at: number) {
+      const row = threads.get(id);
+      if (!row || row.recent_at >= at) return;
+      changeRow(threads, dirtyThreads, id, { ...row, recent_at: at });
+      flush();
+    },
     handled: () => {
       waiting = false;
       flush();

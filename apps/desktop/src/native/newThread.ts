@@ -283,15 +283,18 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   pending.delete(request.operation);
   const thread = result.projection.thread;
   return {
-    id: result.threadId,
-    recent_at: DateTime.toEpochMillis(thread.updatedAt),
-    sort_at: DateTime.toEpochMillis(thread.createdAt),
-    order_key: thread.activeOrderKey ?? null,
-    project: thread.projectId,
-    title: thread.title,
-    branch: thread.branch,
-    model: thread.modelSelection.model,
-    status: result.projection.runs.at(-1)?.status ?? "idle",
-    settled: thread.settledOverride === "settled",
+    sequence: result.sequence,
+    thread: {
+      id: result.threadId,
+      recent_at: DateTime.toEpochMillis(thread.updatedAt),
+      sort_at: DateTime.toEpochMillis(thread.createdAt),
+      order_key: thread.activeOrderKey ?? null,
+      project: thread.projectId,
+      title: thread.title,
+      branch: thread.branch,
+      model: thread.modelSelection.model,
+      status: result.projection.runs.at(-1)?.status ?? "idle",
+      settled: thread.settledOverride === "settled",
+    },
   };
 });

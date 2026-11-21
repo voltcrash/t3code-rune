@@ -14,6 +14,8 @@ import {
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
   WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
+  type OrchestrationV2AppThread,
   CommandId,
   ProjectId,
   type Project,
@@ -71,6 +73,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     environmentId: descriptor.environmentId,
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
+    visitTracking: descriptor.capabilities.threadVisitedTracking === true,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,
     streamsCommandOutput: descriptor.capabilities.commandOutputStreaming === true,
     attachmentUploads: descriptor.capabilities.attachmentUploads === true,
@@ -304,3 +307,18 @@ export function changeProject(session: Session, edit: ProjectEdit) {
     { signal: session.signal },
   );
 }
+
+export const recordOpen = Effect.fn("nativeDesktop.recordOpen")(function* (
+  session: Session,
+  thread: OrchestrationV2AppThread,
+) {
+  const random = yield* SecureRandom.SecureRandom;
+  const rpc = yield* openEnvironmentRpc(session);
+  yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+    type: "thread.visit",
+    commandId: CommandId.make(yield* random.uuidV4()),
+    threadId: thread.id,
+    visitedAt: DateTime.formatIso(thread.updatedAt),
+    opened: true,
+  });
+}, Effect.provide(SecureRandom.layerWebCrypto));

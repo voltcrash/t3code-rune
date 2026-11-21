@@ -1,3 +1,4 @@
+import { claimThreadOpen } from "@t3tools/client-runtime/state/thread-search";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
@@ -23,6 +24,7 @@ import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 import { isLocalServerStartupError, startLocalServer } from "../src/native/localServer.ts";
 import {
+  recordOpen,
   HomePathNeedsBrowseAccess,
   changeProject,
   pairWithEnvironment,
@@ -513,7 +515,7 @@ async function handleWorkspaceRequest(request, reply) {
         );
         if (reading === session) reply({ type: "launchoptions", ...options });
       } else {
-        const thread = await Effect.runPromise(
+        const launch = await Effect.runPromise(
           launchThread(reading, request, pendingLaunches).pipe(
             Effect.timeout(request.files?.length ? "5 minutes" : "60 seconds"),
             Effect.scoped,
@@ -521,7 +523,40 @@ async function handleWorkspaceRequest(request, reply) {
           ),
           { signal: reading.signal },
         );
-        if (reading === session) reply({ type: "threadlaunched", thread });
+        if (reading !== session) return;
+        let thread = null;
+        try {
+          thread = (await workspaceFeed?.launched(launch.thread, launch.sequence)) ?? null;
+        } catch {
+          if (session === reading)
+            reply({
+              type: "threadlaunched",
+              project: request.project,
+              thread: null,
+              error: "Thread started. Reconnect to load it.",
+            });
+          return;
+        }
+        if (reading === session)
+          reply({ type: "threadlaunched", project: request.project, thread });
+      }
+      return;
+    } else if (request.type === "visitthread") {
+      const record = watching;
+      if (!record || record.owner !== session || record.thread !== request.thread) return;
+      const at = Date.now();
+      const send = claimThreadOpen(session.environmentId, record.thread, at);
+      workspaceFeed?.opened(record.thread, at);
+      const thread = record.state.projection.thread;
+      if (send && session.canOperate && session.visitTracking && workspaceFeed) {
+        void Effect.runPromise(
+          recordOpen(session, thread).pipe(
+            Effect.scoped,
+            Effect.timeout("5 seconds"),
+            Effect.provide(session.http),
+          ),
+          { signal: workspaceFeed.controller.signal },
+        ).catch(() => {});
       }
       return;
     } else if (request.type === "thread" && session) {

@@ -122,7 +122,9 @@ enum Reply {
         worktree: bool,
     },
     ThreadLaunched {
-        thread: Thread,
+        project: String,
+        thread: Option<Thread>,
+        error: Option<String>,
     },
     LaunchFailed {
         project: String,
@@ -154,6 +156,9 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    VisitThread {
+        thread: &'a str,
+    },
     WorkspaceHandled {
         watch: u64,
     },
@@ -519,12 +524,23 @@ impl Desktop {
                     .configure(project, choices, worktree, &base);
                 self.workspace.show_projects = false;
             }
-            Reply::ThreadLaunched { thread } => {
-                let id = thread.id.clone();
-                self.history.launched(&thread.project, &id);
-                self.new_threads.forget(&thread.project);
-                self.workspace.insert_launched(thread);
-                self.open_thread(&id);
+            Reply::ThreadLaunched {
+                project,
+                thread,
+                error,
+            } => {
+                self.new_threads.forget(&project);
+                if let Some(thread) = thread {
+                    let id = thread.id.clone();
+                    self.history.launched(&project, &id);
+                    self.workspace.insert_launched(thread);
+                    self.open_thread(&id);
+                } else {
+                    self.show_projects();
+                    self.error = error.or_else(|| {
+                        Some("The thread started and is no longer in this workspace.".into())
+                    });
+                }
                 self.history.retain(&self.workspace, &self.new_threads);
             }
             Reply::LaunchFailed {

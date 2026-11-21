@@ -546,6 +546,14 @@ impl Desktop {
         if self.pending {
             return;
         }
+        let opened = self.workspace.show_projects
+            || self.new_threads.active.is_some()
+            || !self.history.on_thread(id)
+            || self
+                .workspace
+                .conversation
+                .as_ref()
+                .is_none_or(|pane| pane.id != id);
         self.history.visit(Page::Thread(id.into()));
         self.new_threads.active = None;
         self.workspace.show_projects = false;
@@ -555,6 +563,9 @@ impl Desktop {
             .as_ref()
             .is_some_and(|p| p.id == id)
         {
+            if opened {
+                self.write_request(None, Request::VisitThread { thread: id });
+            }
             return;
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
@@ -586,6 +597,9 @@ impl Desktop {
             revision: 0,
         });
         self.refresh_thread();
+        if opened {
+            self.write_request(None, Request::VisitThread { thread: id });
+        }
     }
 
     pub(super) fn toggle_sidebar(&mut self) {
