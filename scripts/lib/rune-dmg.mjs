@@ -9,7 +9,7 @@ import {
   desktopDmgLayout,
   resolveDesktopUpdateChannel,
   stageDesktopDmgBackground,
-} from "../build-desktop-artifact.ts";
+} from "../desktop-packaging.ts";
 
 const checksums = {
   arm64: "793404d0c96687e27d5ee40a668d498c92e36a64d6c2906df511031adb33cbeb",
