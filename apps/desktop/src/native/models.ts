@@ -1,3 +1,6 @@
+import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
+import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2BoundedSnapshot";
+import { PermissionUnavailable, permissionsForProvider } from "./permissions.ts";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
   isProviderInstancePickerReady,
@@ -51,52 +54,128 @@ type CatalogThread = Pick<
 const readModelCatalog = Effect.fn("nativeDesktop.readModelCatalog")(function* (
   session: Session,
   rpc: EnvironmentRpc,
-  thread: CatalogThread,
+  projectId: string,
+  instance?: string,
 ) {
   const config = yield* rpc[WS_METHODS.serverGetConfig]({});
-  const scoped = config.providers
-    .find((p) => p.instanceId === thread.modelSelection.instanceId)
-    ?.workspaceSnapshots?.some((w) => w.models !== undefined);
+  const scoped = config.providers.some(
+    (p) =>
+      (!instance || p.instanceId === instance) &&
+      p.workspaceSnapshots?.some((w) => w.models !== undefined),
+  );
   if (!scoped) return { config, root: undefined };
   const projects = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "projects");
   const { projects: records } = yield* projects.snapshot({
     headers: { authorization: `Bearer ${session.token}` },
   });
-  const root = records.find(
-    (p) => p.id === thread.projectId && p.deletedAt === null,
-  )?.workspaceRoot;
+  const root = records.find((p) => p.id === projectId && p.deletedAt === null)?.workspaceRoot;
   return { config, root };
 });
 
-const threadModels = Effect.fn("nativeDesktop.threadModels")(function* (
+function threadModels(
   config: ServerConfig,
   thread: CatalogThread,
-  root?: string,
+  root: string | undefined,
+  instance?: string,
 ) {
-  const entry = providerInstanceEntriesFor(
-    config.providers,
-    config.settings,
-    thread.projectId,
-  ).find((p) => p.instanceId === thread.modelSelection.instanceId);
-  if (!entry || !isProviderInstancePickerReady(entry))
-    return yield* new ModelUnavailable({
-      message: "This provider’s model catalog is unavailable. Reopen the picker to retry.",
-    });
   const settings = resolveProjectSettings(config.settings, thread.projectId).settings;
-  return availableModels(entry, settings, thread.worktreePath ?? root).map((m) => ({
-    id: m.slug,
-    name: m.name,
-    provider: entry.displayName,
-  }));
-});
+  return providerInstanceEntriesFor(config.providers, config.settings, thread.projectId)
+    .filter(
+      (entry) =>
+        (!instance || entry.instanceId === instance) && isProviderInstancePickerReady(entry),
+    )
+    .flatMap((entry) =>
+      availableModels(entry, settings, thread.worktreePath ?? root).map((m) => ({
+        instance: entry.instanceId,
+        model: m.slug,
+        name: m.name,
+        provider: entry.displayName,
+      })),
+    );
+}
 
 export const readThreadModels = Effect.fn("nativeDesktop.readThreadModels")(function* (
   session: Session,
   rpc: EnvironmentRpc,
-  thread: CatalogThread,
+  projection: OrchestrationV2ThreadProjection,
 ) {
-  const { config, root } = yield* readModelCatalog(session, rpc, thread);
-  return yield* threadModels(config, thread, root);
+  const { thread } = projection;
+  const instance = threadSupportsProviderHandoff(projection)
+    ? undefined
+    : thread.modelSelection.instanceId;
+  const { config, root } = yield* readModelCatalog(session, rpc, thread.projectId, instance);
+  return threadModels(config, thread, root, instance);
+});
+
+export type Handoff = { project: string; source: string; instance: string; model: string };
+type Permission = { instance: string; mode: string };
+
+export const selectionForSend = Effect.fn("nativeDesktop.selectionForSend")(function* (
+  session: Session,
+  rpc: EnvironmentRpc,
+  input: {
+    thread: string;
+    operation: string;
+    permission?: Permission | null;
+    model?: Handoff | null;
+  },
+) {
+  const { permission, model } = input;
+  if (!permission && !model) return undefined;
+  const target = model?.instance ?? permission!.instance;
+  const { config, root } = model
+    ? yield* readModelCatalog(session, rpc, model.project, target)
+    : { config: yield* rpc[WS_METHODS.serverGetConfig]({}), root: undefined };
+  const modes = yield* permissionsForProvider(config, target);
+  const snapshot = yield* readThreadSettingsSnapshot(session, input.thread);
+  const validate = (state: typeof snapshot) => {
+    const thread = state.projection.thread;
+    if (
+      thread.deletedAt ||
+      thread.archivedAt ||
+      thread.modelSelection.instanceId !== (model?.source ?? target)
+    )
+      return null;
+    if (!model) return thread.modelSelection;
+    if (
+      thread.projectId !== model.project ||
+      !threadSupportsProviderHandoff(boundedSnapshotProjection(state))
+    )
+      return null;
+    const choice = threadModels(config, thread, root, target).find((c) => c.model === model.model);
+    return choice && { instanceId: choice.instance, model: choice.model };
+  };
+  const selection = validate(snapshot);
+  if (!selection)
+    return yield* new ModelUnavailable({
+      message:
+        "This thread or its provider changed. Review the model and permissions before sending.",
+    });
+  const mode = modes.find(
+    (m) => m.mode === (permission?.mode ?? snapshot.projection.thread.runtimeMode),
+  );
+  if ((permission && permission.instance !== target) || !mode || mode.denied)
+    return yield* new PermissionUnavailable({
+      message:
+        mode?.denied ??
+        "Choose a permission level supported by the selected provider before sending.",
+    });
+  if (mode.mode === snapshot.projection.thread.runtimeMode) return selection;
+  // Existing servers persist the shared thread mode separately from dispatch, as in the web composer.
+  yield* rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+    type: "thread.runtime-mode.set",
+    commandId: CommandId.make(input.operation + ":permissions:" + snapshot.snapshotSequence),
+    threadId: snapshot.projection.thread.id,
+    runtimeMode: mode.mode,
+  });
+  const current = yield* readThreadSettingsSnapshot(session, input.thread);
+  const latest = validate(current);
+  if (!latest || current.projection.thread.runtimeMode !== mode.mode)
+    return yield* new PermissionUnavailable({
+      message:
+        "This thread changed while saving permissions. Review the current selection before sending.",
+    });
+  return latest;
 });
 
 export const setThreadModel = Effect.fn("nativeDesktop.setThreadModel")(function* (
@@ -109,7 +188,12 @@ export const setThreadModel = Effect.fn("nativeDesktop.setThreadModel")(function
       message: "This thread’s provider changed. Reopen the model picker.",
     });
   const rpc = yield* openEnvironmentRpc(session);
-  const { config, root } = yield* readModelCatalog(session, rpc, watched);
+  const { config, root } = yield* readModelCatalog(
+    session,
+    rpc,
+    watched.projectId,
+    request.instance,
+  );
   const current = (yield* readThreadSettingsSnapshot(session, request.thread)).projection.thread;
   if (
     current.archivedAt ||
@@ -121,8 +205,8 @@ export const setThreadModel = Effect.fn("nativeDesktop.setThreadModel")(function
       message: "This thread changed. Reopen the model picker.",
     });
   if (current.modelSelection.model === request.model) return;
-  const options = yield* threadModels(config, current, root);
-  if (!options.some((o) => o.id === request.model))
+  const options = threadModels(config, current, root, request.instance);
+  if (!options.some((o) => o.model === request.model))
     return yield* new ModelUnavailable({
       message: "This model is no longer available. Reopen the picker to choose another.",
     });

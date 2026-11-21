@@ -102,7 +102,10 @@ impl Desktop {
             let Some(permission) = &thread.permission else {
                 return;
             };
-            let instance = permission.instance.clone();
+            let Some(draft) = self.workspace.drafts.get(&thread.id) else {
+                return;
+            };
+            let instance = draft.target_instance(&permission.instance).to_string();
             let focused = self
                 .workspace
                 .drafts
@@ -117,6 +120,7 @@ impl Desktop {
                 None,
                 Request::ThreadPermissions {
                     watch,
+                    instance: instance.clone(),
                     operation: operation.clone(),
                 },
             ) {
@@ -153,7 +157,8 @@ impl Desktop {
                         !self.workspace.questions.contains_key(&t.id)
                             && t.permission
                                 .as_ref()
-                                .is_some_and(|p| &p.instance == instance)
+                                .zip(self.workspace.drafts.get(&t.id))
+                                .is_some_and(|(p, d)| d.target_instance(&p.instance) == instance)
                     })
             }
         };
@@ -225,7 +230,8 @@ impl Desktop {
                 if thread
                     .permission
                     .as_ref()
-                    .is_none_or(|p| &p.instance != instance)
+                    .zip(self.workspace.drafts.get(&thread.id))
+                    .is_none_or(|(p, d)| d.target_instance(&p.instance) != instance)
                 {
                     return;
                 }

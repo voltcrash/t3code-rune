@@ -2,7 +2,12 @@ import {
   managedRuntimeModeDenial,
   runtimeModeMessages,
 } from "@t3tools/client-runtime/contract-labels";
-import { RuntimeMode, WS_METHODS, type ManagedPolicySummary } from "@t3tools/contracts";
+import {
+  RuntimeMode,
+  WS_METHODS,
+  type ServerConfig,
+  type ManagedPolicySummary,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { mFallback } from "gt-i18n";
@@ -32,11 +37,10 @@ export function permissionOptions(
   });
 }
 
-export const readThreadPermissions = Effect.fn("nativeDesktop.readThreadPermissions")(function* (
-  rpc: EnvironmentRpc,
+export const permissionsForProvider = Effect.fn("nativeDesktop.permissionsForProvider")(function* (
+  config: ServerConfig,
   instance: string,
 ) {
-  const config = yield* rpc[WS_METHODS.serverGetConfig]({});
   const provider = config.providers.find((p) => p.instanceId === instance);
   if (!provider)
     return yield* new PermissionUnavailable({
@@ -47,4 +51,11 @@ export const readThreadPermissions = Effect.fn("nativeDesktop.readThreadPermissi
       !provider.supportedRuntimeModes?.length || provider.supportedRuntimeModes.includes(mode),
   );
   return permissionOptions(modes, config.managedPolicy);
+});
+
+export const readThreadPermissions = Effect.fn("nativeDesktop.readThreadPermissions")(function* (
+  rpc: EnvironmentRpc,
+  instance: string,
+) {
+  return yield* permissionsForProvider(yield* rpc[WS_METHODS.serverGetConfig]({}), instance);
 });

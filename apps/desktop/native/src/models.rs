@@ -5,9 +5,20 @@ use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub(super) struct Choice {
-    id: String,
+    instance: String,
+    model: String,
     name: String,
     provider: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub(super) struct Handoff {
+    pub project: String,
+    pub source: String,
+    pub instance: String,
+    pub model: String,
+    #[serde(skip)]
+    pub name: String,
 }
 
 #[derive(Default)]
@@ -15,6 +26,7 @@ pub(super) struct Picker {
     watch: Option<u64>,
     instance: String,
     request: String,
+    choices: Vec<Choice>,
     options: Vec<ComboboxOption>,
     combo: ComboboxState,
     empty: String,
@@ -67,9 +79,9 @@ impl Desktop {
             empty: "Loading models…".into(),
             ..Picker::default()
         };
-        self.models.combo.step(ComboboxEvent::Toggle {
-            current: Some(&thread.model),
-        });
+        self.models
+            .combo
+            .step(ComboboxEvent::Toggle { current: None });
         self.write_request(None, Request::ThreadModels { watch, operation });
         tx.focus("search", true);
     }
@@ -120,37 +132,84 @@ impl Desktop {
             self.models.empty = "The provider changed. Reopen the model picker.".into();
         } else {
             self.models.options = options
-                .into_iter()
-                .map(|c| {
-                    let mut item = ComboboxOption::new(c.id, c.name);
-                    item.detail = c.provider;
+                .iter()
+                .enumerate()
+                .map(|(index, c)| {
+                    let mut item = ComboboxOption::new(index.to_string(), &c.name);
+                    item.detail = c.provider.clone();
                     item
                 })
                 .collect();
+            self.models.choices = options;
+            if self.models.combo.search().text.is_empty()
+                && let Some(thread) = self.workspace.visible_thread()
+                && let Some(i) = self.model_choice_index(thread)
+            {
+                self.models.combo.step(ComboboxEvent::Highlight {
+                    id: i.to_string(),
+                    reveal: true,
+                });
+            }
             self.models.empty = "No matching models".into();
         }
     }
 
-    fn choose_thread_model(&mut self, model: &str, tx: &mut Tx) {
+    fn model_choice_index(&self, thread: &Thread) -> Option<usize> {
+        let requested = self.workspace.drafts.get(&thread.id)?.model.as_ref();
+        let instance = requested
+            .map(|m| m.instance.as_str())
+            .or_else(|| thread.permission.as_ref().map(|p| p.instance.as_str()))?;
+        let model = requested.map_or(thread.model.as_str(), |m| m.model.as_str());
+        self.models
+            .choices
+            .iter()
+            .position(|c| c.instance == instance && c.model == model)
+    }
+
+    fn choose_thread_model(&mut self, index: &str, tx: &mut Tx) {
         let Some(watch) = self.models.watch else {
             return;
         };
         let Some(thread) = self.workspace.visible_thread() else {
             return;
         };
+        let Some(source) = &thread.permission else {
+            return;
+        };
+        let Some(choice) = index
+            .parse::<usize>()
+            .ok()
+            .and_then(|i| self.models.choices.get(i))
+        else {
+            return;
+        };
         if !self.can_operate
             || self.pending
             || Some(watch) != self.workspace.terminal_watch()
-            || !self.models.options.iter().any(|o| o.id == model)
+            || self.models.instance != source.instance
         {
             return;
         }
         tx.focus("message-input", true);
+        if choice.instance != source.instance {
+            let handoff = Handoff {
+                project: thread.project.clone(),
+                source: source.instance.clone(),
+                instance: choice.instance.clone(),
+                model: choice.model.clone(),
+                name: choice.name.clone(),
+            };
+            let id = thread.id.clone();
+            if let Some(draft) = self.workspace.drafts.get_mut(&id) {
+                draft.set_model(Some(handoff), &choice.instance, &choice.model);
+            }
+            return;
+        }
         self.send(Request::SetThreadModel {
             watch,
             thread: thread.id.clone(),
-            instance: self.models.instance.clone(),
-            model: model.into(),
+            instance: source.instance.clone(),
+            model: choice.model.clone(),
             operation: Uuid::new_v4().to_string(),
         });
     }
@@ -194,12 +253,18 @@ pub(super) fn control(
         && s.can_operate
         && s.workspace.terminal_watch().is_some()
         && thread.permission.is_some();
-    let name = s
-        .models
-        .options
-        .iter()
-        .find(|o| o.id == thread.model)
-        .map_or(thread.model.as_str(), |o| o.label.as_str());
+    let index = s.model_choice_index(thread);
+    let name = index
+        .map(|i| s.models.choices[i].name.as_str())
+        .or_else(|| {
+            s.workspace
+                .drafts
+                .get(&thread.id)?
+                .model
+                .as_ref()
+                .map(|m| m.name.as_str())
+        })
+        .unwrap_or(&thread.model);
     let trigger = trigger(
         name,
         theme,
@@ -220,7 +285,7 @@ pub(super) fn control(
     .label("Model")
     .search_placeholder("Search models")
     .empty_message(&s.models.empty)
-    .current(Some(&thread.model))
+    .current(index.map(|i| i.to_string()).as_deref())
     .disabled(!available)
     .trigger(trigger)
     .placement(Placement::TopEnd)

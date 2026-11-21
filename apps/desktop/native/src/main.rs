@@ -126,7 +126,11 @@ enum Reply {
         options: Vec<models::Choice>,
         error: Option<String>,
     },
-    ModelSaved,
+    ModelSaved {
+        thread: String,
+        instance: String,
+        model: String,
+    },
     ThreadPermissions {
         watch: u64,
         operation: String,
@@ -270,10 +274,12 @@ enum Request<'a> {
         operation: String,
     },
     ThreadPermissions {
+        instance: String,
         watch: u64,
         operation: String,
     },
     SendMessage {
+        model: Option<models::Handoff>,
         permission: Option<permissions::Selection>,
         thread: String,
         text: String,
@@ -520,7 +526,15 @@ impl Desktop {
                     }
                 }
             }
-            Reply::ModelSaved => {
+            Reply::ModelSaved {
+                thread,
+                instance,
+                model,
+            } => {
+                if let Some(draft) = self.workspace.drafts.get_mut(&thread) {
+                    draft.set_model(None, &instance, &model);
+                }
+
                 if self.workspace.paused {
                     self.send(Request::Refresh);
                 }
