@@ -30,6 +30,19 @@ pub(crate) enum Input {
     },
     Close,
     Handled,
+    Select {
+        phase: &'static str,
+        x: i32,
+        y: i32,
+        scroll: i32,
+        clicks: u32,
+        cancelled: bool,
+    },
+    SelectAll,
+    Copy {
+        request: u64,
+        interrupt_if_empty: bool,
+    },
     Paste {
         text: String,
     },
@@ -68,6 +81,8 @@ pub(crate) struct Frame {
 pub(crate) struct Panel {
     watch: u64,
     operation: String,
+    requested_copy: u64,
+    applied_copy: u64,
     grid: Option<(u16, u16, bool)>,
     background: Option<u32>,
     cursor: Option<[u32; 4]>,
@@ -108,6 +123,8 @@ impl Desktop {
             watch,
             operation: Uuid::new_v4().to_string(),
             grid: None,
+            requested_copy: 0,
+            applied_copy: 0,
             background: None,
             cursor: None,
             lines: vec![],
@@ -149,6 +166,37 @@ impl Desktop {
             );
         }
     }
+    fn copy_terminal_selection(&mut self, interrupt_if_empty: bool) {
+        if let Some(panel) = &mut self.terminal {
+            panel.requested_copy += 1;
+            let request = panel.requested_copy;
+            self.terminal_input(Input::Copy {
+                request,
+                interrupt_if_empty,
+            });
+        }
+    }
+    pub(crate) fn receive_terminal_copy(
+        &mut self,
+        watch: u64,
+        operation: &str,
+        request: u64,
+        text: String,
+        tx: &mut Tx,
+    ) {
+        if let Some(panel) = &mut self.terminal
+            && panel.watch == watch
+            && panel.operation == operation
+            && request > panel.applied_copy
+            && request <= panel.requested_copy
+            && !text.is_empty()
+        {
+            panel.applied_copy = request;
+            if tx.focused() == Some("thread-terminal-grid") {
+                tx.copy(text);
+            }
+        }
+    }
     fn terminal_layout(&mut self, w: f32, h: f32, dark: bool) {
         let cols = (((w - 8.) / CW).floor() as u16).clamp(1, 1000);
         let rows = (((h - 8.) / CH).floor() as u16).clamp(1, 500);
@@ -186,6 +234,23 @@ impl Desktop {
     }
 }
 fn input(s: &mut Desktop, e: &KeyEvent, tx: &mut Tx) -> bool {
+    let shortcut = !e.mods.alt && (cfg!(target_os = "macos") != e.mods.shift);
+    if shortcut && e.is_command('a') {
+        s.terminal_input(Input::SelectAll);
+        return true;
+    }
+    let copy_key = e.is_command('c');
+    let copy_insert = !cfg!(target_os = "macos")
+        && e.key == Key::Insert
+        && e.mods.ctrl
+        && !e.mods.shift
+        && !e.mods.logo;
+    if copy_key || copy_insert {
+        s.copy_terminal_selection(
+            copy_key && !cfg!(target_os = "macos") && !e.mods.shift && !e.mods.alt,
+        );
+        return true;
+    }
     if !s.terminal_write || s.terminal.as_ref().is_none_or(|p| p.status != "running") {
         return false;
     }
@@ -271,7 +336,36 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
         .focusable(true)
         .fill(panel.background.map(color).unwrap_or(theme.bg))
         .on_layout(move |s: &mut Desktop, rect| s.terminal_layout(rect[2], rect[3], dark))
-        .on_press_tx(|_: &mut Desktop, tx| tx.focus("thread-terminal-grid", true))
+        .cursor(rune::Cursor::Text)
+        .on_drag(|s: &mut Desktop, d, tx| {
+            let phase = match d.phase {
+                rune::Phase::Down => {
+                    tx.focus("thread-terminal-grid", true);
+                    "down"
+                }
+                rune::Phase::Move => "move",
+                rune::Phase::Up => "up",
+            };
+            let distance = if d.y < 4. {
+                d.y - 4.
+            } else {
+                (d.y - d.h + 4.).max(0.)
+            };
+            let scroll = if distance == 0. {
+                0
+            } else {
+                (distance.signum() + (distance / 50.).clamp(-1., 1.) * 14.).round() as i32
+            };
+            s.terminal_input(Input::Select {
+                phase,
+                x: ((d.x - 4.) / CW).floor() as i32,
+                y: ((d.y - 4.) / CH).floor() as i32,
+                scroll,
+                clicks: d.clicks,
+                cancelled: d.cancelled(),
+            });
+            tx.live_only();
+        })
         .on_key(input)
         .on_wheel(|s: &mut Desktop, e, _| {
             let lines = (-e.dy / CH).round() as i32;
@@ -318,11 +412,60 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
                 .fill(color(c).alpha(0.65)),
         );
     }
-    let mut drawer = col()
-        .key("thread-terminal")
+    let thread = &s.workspace.conversation.as_ref()?.id;
+    let pref = s
+        .workspace
+        .terminal_heights
+        .get(thread)
+        .copied()
+        .unwrap_or(280.);
+    let max = (height * 0.75).max(180.).min((height - 160.).max(0.));
+    let clamp = move |value: f32| value.round().max(180.).min(max);
+    let shown = clamp(pref);
+    let resize = el()
+        .key("terminal-resize")
+        .role("slider")
+        .label("Terminal height")
+        .focusable(true)
+        .range_value(
+            f64::from(shown),
+            f64::from(180_f32.min(max)),
+            f64::from(max),
+        )
+        .range_step(16.)
+        .on_step(move |s: &mut Desktop, steps, _| {
+            if let Some(pane) = &s.workspace.conversation {
+                s.workspace
+                    .terminal_heights
+                    .insert(pane.id.clone(), clamp(shown + steps as f32 * CH));
+            }
+        })
+        .cursor(rune::Cursor::ResizeRow)
+        .no_window_drag()
         .w_full()
-        .h(280_f32.min((height - 160.).max(0.)))
-        .child(el().w_full().h(1.).fill(theme.separator));
+        .h(4.)
+        .child(el().w_full().h(1.).fill(theme.separator))
+        .on_drag(move |s: &mut Desktop, drag, tx| {
+            let Some(pane) = &s.workspace.conversation else {
+                return;
+            };
+            match drag.phase {
+                rune::Phase::Down => drag.data = shown,
+                rune::Phase::Move => {
+                    s.workspace
+                        .terminal_heights
+                        .insert(pane.id.clone(), clamp(drag.data - drag.dy));
+                    tx.instant();
+                }
+                rune::Phase::Up if drag.cancelled() => {
+                    s.workspace
+                        .terminal_heights
+                        .insert(pane.id.clone(), drag.data);
+                }
+                _ => {}
+            }
+        });
+    let mut drawer = col().key("thread-terminal").w_full().h(shown).child(resize);
     let feedback = panel.error.as_deref().or(match panel.status.as_str() {
         "connecting" => Some("Connecting…"),
         "closed" | "exited" => Some("Terminal session ended."),

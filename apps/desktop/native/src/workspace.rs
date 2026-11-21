@@ -205,6 +205,7 @@ pub(super) struct Workspace {
     settled_count: usize,
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
+    pub(crate) terminal_heights: HashMap<String, f32>,
     search: TextEdit,
     search_target: Option<String>,
     project_scope: sidebar_header::ProjectScope,
@@ -230,6 +231,7 @@ impl Workspace {
             settled_count: 0,
             conversation: None,
             drafts: HashMap::new(),
+            terminal_heights: HashMap::new(),
             questions: HashMap::new(),
             search: TextEdit::new(""),
             search_target: None,
@@ -265,6 +267,8 @@ impl Workspace {
             self.diff = Default::default();
         }
         self.questions
+            .retain(|id, _| self.by_thread.contains_key(id));
+        self.terminal_heights
             .retain(|id, _| self.by_thread.contains_key(id));
         self.drafts.retain(|id, _| self.by_thread.contains_key(id));
         self.project_scope.update(&projects);
@@ -357,6 +361,7 @@ impl Workspace {
             self.diff = Default::default();
         }
         self.drafts.remove(id);
+        self.terminal_heights.remove(id);
         self.questions.remove(id);
         if let Some(index) = self.by_thread.remove(id) {
             self.threads.remove(index);

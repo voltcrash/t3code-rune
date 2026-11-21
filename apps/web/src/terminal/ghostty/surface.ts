@@ -1,3 +1,4 @@
+import { GhosttySelection } from "@t3tools/client-runtime/terminal/ghostty/selection";
 import { resolveEventKeys } from "@t3tools/shared/keybindingMatching";
 import { isMacPlatform } from "../../lib/utils";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
@@ -588,13 +589,7 @@ export class GhosttyTerminalSurface {
   private resizeNotifyTimer: number | null = null;
   private originY = CONTENT_PADDING;
   private mountHeight = 0;
-  private selectionEnd: { x: number; y: number } | null = null;
-  private selectionAnchorScreen: { x: number; y: number } | null = null;
-  private selectionMode: "cell" | "word" | "line" = "cell";
-  private selectionBase: {
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-  } | null = null;
+  private readonly selection: GhosttySelection;
   private selectionScrollTimer: number | null = null;
   private selectionScrollDelta = 0;
   private selectionPointer: { x: number; y: number } | null = null;
@@ -618,7 +613,6 @@ export class GhosttyTerminalSurface {
     changedAt: number;
   }> = [];
   private selectionClickSequence: TerminalSelectionClickSequence | null = null;
-  private selectionMoved = false;
   private composing = false;
   private focused = false;
   private resizeNotified = false;
@@ -675,6 +669,7 @@ export class GhosttyTerminalSurface {
     this.scrollbarThumb = scrollbarThumb;
     this.context = context;
     this.core = core;
+    this.selection = new GhosttySelection(core);
     this.mouseAnyEventTracking = core.isMouseAnyEventTracking();
     this.metrics = metrics;
     this.options = options;
@@ -1023,11 +1018,7 @@ export class GhosttyTerminalSurface {
   selectAll(): void {
     this.linkActivationRequestId += 1;
     this.clearPrimedCopy();
-    const range = this.core.selectAll();
-    this.selectionAnchorScreen = range?.start ?? null;
-    this.selectionEnd = range ? this.core.screenPointToViewport(range.end.x, range.end.y) : null;
-    this.selectionMode = "cell";
-    this.selectionBase = null;
+    this.selection.selectAll();
     this.setSelectionAutoscroll(0);
     this.options.onSelectionChange();
     this.forceFullRender = true;
@@ -1047,11 +1038,7 @@ export class GhosttyTerminalSurface {
   clearSelection({ source = "user" }: { source?: "user" | "output" } = {}): void {
     if (source === "user") this.linkActivationRequestId += 1;
     this.clearPrimedCopy();
-    this.core.clearSelection();
-    this.selectionEnd = null;
-    this.selectionAnchorScreen = null;
-    this.selectionMode = "cell";
-    this.selectionBase = null;
+    this.selection.clear();
     this.setSelectionAutoscroll(0);
     this.options.onSelectionChange();
     // Selection highlights span rows Ghostty may not mark dirty for this change.
@@ -1435,31 +1422,8 @@ export class GhosttyTerminalSurface {
 
   private beginSelection(event: { clientX: number; clientY: number }, clickCount: number): void {
     const cell = this.cellAt(event.clientX, event.clientY);
-    this.selectionMoved = false;
-    this.selectionMode = clickCount >= 3 ? "line" : clickCount === 2 ? "word" : "cell";
-    const range =
-      this.selectionMode === "line"
-        ? this.core.selectLine(cell.x, cell.y)
-        : this.selectionMode === "word"
-          ? this.core.selectWord(cell.x, cell.y)
-          : null;
-    if (range) {
-      this.selectionBase = range.screen;
-      this.selectionEnd = range.viewport.end;
-      this.selectionAnchorScreen = range.screen.start;
-      this.options.onSelectionChange();
-    } else {
-      this.selectionMode = "cell";
-      this.selectionBase = null;
-      this.selectionEnd = cell;
-      const screen = this.core.viewportPointToScreen(cell.x, cell.y);
-      this.selectionAnchorScreen = screen;
-      if (screen) {
-        this.core.setSelection({ ...screen, tag: 2 }, { ...screen, tag: 2 });
-      } else {
-        this.core.setSelection(cell, cell);
-      }
-    }
+    this.selection.begin(cell, clickCount);
+    if (this.selection.mode !== "cell") this.options.onSelectionChange();
     this.forceFullRender = true;
     this.requestRender();
   }
@@ -1520,7 +1484,7 @@ export class GhosttyTerminalSurface {
       return;
     }
     this.lastMouseMotionData = null;
-    if (!this.selectionAnchorScreen || !this.canvas.hasPointerCapture(event.pointerId)) {
+    if (!this.selection.anchor || !this.canvas.hasPointerCapture(event.pointerId)) {
       this.updateHoverCursor(event);
       return;
     }
@@ -1531,43 +1495,12 @@ export class GhosttyTerminalSurface {
     const bottom = Math.min(bounds.bottom, window.innerHeight) - CONTENT_PADDING;
     this.setSelectionAutoscroll(terminalSelectionAutoscrollRows(event.clientY, top, bottom));
     const cell = this.cellAt(event.clientX, event.clientY);
-    if (cell.x === this.selectionEnd?.x && cell.y === this.selectionEnd.y) return;
+    if (cell.x === this.selection.end?.x && cell.y === this.selection.end.y) return;
     this.extendSelectionTo(event.clientX, event.clientY);
   };
 
   private extendSelectionTo(clientX: number, clientY: number): void {
-    if (this.selectionAnchorScreen === null) return;
-    // Ghostty moves its selection with output; keep the drag on those rows too.
-    const anchorScreen = this.core.selectionRange()?.start;
-    if (!anchorScreen) return;
-    const rowDelta = anchorScreen.y - this.selectionAnchorScreen.y;
-    if (this.selectionBase && rowDelta !== 0) {
-      const { start, end } = this.selectionBase;
-      this.selectionBase = {
-        start: { x: start.x, y: start.y + rowDelta },
-        end: { x: end.x, y: end.y + rowDelta },
-      };
-    }
-    const cell = this.cellAt(clientX, clientY);
-    this.selectionMoved = true;
-    this.selectionEnd = cell;
-    const range =
-      this.selectionMode === "line"
-        ? this.core.selectLine(cell.x, cell.y)
-        : this.selectionMode === "word"
-          ? this.core.selectWord(cell.x, cell.y)
-          : null;
-    const cellScreen = this.core.viewportPointToScreen(cell.x, cell.y);
-    if (cellScreen === null) return;
-    const base = this.selectionBase;
-    const beforeBase =
-      base !== null &&
-      (cellScreen.y < base.start.y ||
-        (cellScreen.y === base.start.y && cellScreen.x < base.start.x));
-    const anchor = base === null ? anchorScreen : beforeBase ? base.end : base.start;
-    const end = range === null ? cellScreen : beforeBase ? range.screen.start : range.screen.end;
-    this.selectionAnchorScreen = anchor;
-    this.core.setSelection({ ...anchor, tag: 2 }, { ...end, tag: 2 });
+    if (!this.selection.extend(this.cellAt(clientX, clientY))) return;
     this.options.onSelectionChange();
     this.forceFullRender = true;
     this.requestRender();
@@ -1745,7 +1678,7 @@ export class GhosttyTerminalSurface {
       return;
     }
     if (event.button !== 0) return;
-    if (!this.selectionMoved && this.selectionMode === "cell") {
+    if (!this.selection.moved && this.selection.mode === "cell") {
       this.clearSelection();
     }
     this.options.onSelectionChange();
