@@ -1606,6 +1606,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
     let inset = cx.chrome_insets();
+    let trailing = inset.trailing;
+    #[cfg(target_os = "linux")]
+    let trailing = trailing.max(s.frame.trailing(s.zoom.factor));
     let landing = s.landing.project().is_some();
     let empty = (s.workspace.projects.is_empty()
         || (matches!(s.landing, Landing::Index)
@@ -1613,6 +1616,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             && !s.workspace.projects.iter().any(|p| !p.archived)))
         && s.project_path.is_none()
         && !s.pending;
+    let diff_open = s.workspace.diff.visible(s);
+    let panel_open =
+        diff_open || s.workspace.file_preview.is_some() || s.workspace.explorer.is_some();
+    let split_panel = panel_open
+        && cx
+            .layout_with("workspace", |rect| rect[2] >= 980.)
+            .unwrap_or(false);
     let mut header = row()
         .key("thread-titlebar")
         .w_full()
@@ -1700,7 +1710,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if s.pending || refreshing_projects {
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
-    header = header.pr(inset.trailing + 12.0).child(action(
+    let header_trailing = if split_panel { 0. } else { trailing };
+    header = header.pr(header_trailing + 12.0).child(action(
         "Refresh",
         theme,
         !s.pending && !refreshing_projects,
@@ -1783,13 +1794,6 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if let Some(drawer) = crate::terminal::view(s, theme, dark, viewport[1]) {
         main = main.child(drawer);
     }
-    let diff_open = s.workspace.diff.visible(s);
-    let panel_open =
-        diff_open || s.workspace.file_preview.is_some() || s.workspace.explorer.is_some();
-    let split_panel = panel_open
-        && cx
-            .layout_with("workspace", |rect| rect[2] >= 980.)
-            .unwrap_or(false);
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     let show_sidebar = s.sidebar_layout.open && (!panel_open || split_panel);
     let bounds = crate::sidebar_layout::Bounds::new(viewport[0], inset.leading);
@@ -1814,16 +1818,16 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         let leading = if split_panel { 0. } else { inset.leading };
         let kit = Kit::neutral(dark);
         let panel = if diff_open {
-            file_diff::view(s, theme, &kit, leading, inset.trailing)
+            file_diff::view(s, theme, &kit, leading, trailing)
         } else if s.workspace.explorer.is_some() {
             let width = if split_panel {
                 (viewport[0] - if show_sidebar { width } else { 0. }) * 0.5
             } else {
                 viewport[0]
             };
-            workspace_tree::panel(s, theme, &kit, leading, inset.trailing, width)
+            workspace_tree::panel(s, theme, &kit, leading, trailing, width)
         } else {
-            workspace_files::view(s, theme, &kit, leading, inset.trailing)
+            workspace_files::view(s, theme, &kit, leading, trailing)
         };
         if split_panel {
             root.child(main)

@@ -10,9 +10,11 @@ pub(super) fn register(app: App<Desktop>) -> App<Desktop> {
             RawWindowHandle::Xcb(x) => Some(x.window.get()),
             _ => None,
         });
-        if let Ok(Some(window)) = xid {
+        if let Ok(Some(xid)) = xid {
+            let scale = window.placement().map_or(1., |placement| placement.scale);
+            crate::linux_frame::attach(owner.clone(), xid, scale);
             owner.update(move |s, _| {
-                s.write_request(None, Request::X11Menu { window });
+                s.write_request(None, Request::X11Menu { window: xid });
             });
         }
     })

@@ -14,6 +14,8 @@ mod composer;
 mod image_decode;
 mod launch_check;
 #[cfg(target_os = "linux")]
+mod linux_frame;
+#[cfg(target_os = "linux")]
 mod linux_menu;
 mod models;
 mod navigation;
@@ -462,6 +464,8 @@ enum Request<'a> {
 }
 
 struct Desktop {
+    #[cfg(target_os = "linux")]
+    frame: linux_frame::Frame,
     zoom: window_zoom::WindowZoom,
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
@@ -501,6 +505,8 @@ struct Desktop {
 impl Desktop {
     fn new() -> Self {
         Self {
+            #[cfg(target_os = "linux")]
+            frame: Default::default(),
             output: None,
             zoom: Default::default(),
             sidebar_layout: Default::default(),
@@ -538,6 +544,14 @@ impl Desktop {
         }
     }
 
+    fn worker_closed(&mut self) {
+        *self = Self {
+            #[cfg(target_os = "linux")]
+            frame: self.frame,
+            ..Self::new()
+        };
+    }
+
     fn write_request(&mut self, id: Option<u64>, request: Request<'_>) -> bool {
         let Some(mut output) = self.output.as_mut() else {
             return false;
@@ -549,7 +563,7 @@ impl Desktop {
                 .and_then(|()| output.flush())
                 .is_ok();
         if !sent {
-            *self = Self::new();
+            self.worker_closed();
         }
         sent
     }
@@ -1049,6 +1063,8 @@ impl Desktop {
                 let lost = matches!(message.reply, Reply::LocalClosed);
                 let output = self.output.take();
                 *self = Self {
+                    #[cfg(target_os = "linux")]
+                    frame: self.frame,
                     output,
                     last_id: self.last_id,
                     request_id: self.request_id,
@@ -1105,6 +1121,17 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     theme.text = rune::color::hex(if dark { "#f5f5f5" } else { "#18181b" }).unwrap();
     theme.text_secondary = rune::color::hex(if dark { "#a3a3a3" } else { "#71717a" }).unwrap();
     theme.separator = theme.text.alpha(0.12);
+    let content = if s.output.is_some() && s.environment.is_some() {
+        workspace::view(s, cx, &theme)
+    } else {
+        connection(s, cx, theme)
+    };
+    #[cfg(target_os = "linux")]
+    let content = linux_frame::view(s, content, dark);
+    content
+}
+
+fn connection(s: &Desktop, cx: &mut Cx<Desktop>, theme: tok::Theme) -> El {
     let title = |label: &str| {
         text(label)
             .font(TextStyle::new(20.0, 600.0))
@@ -1115,8 +1142,6 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
         panel = panel
             .child(title("The desktop connection closed"))
             .child(text("Relaunch T3 Code to reconnect.").color(theme.text_secondary));
-    } else if s.environment.is_some() {
-        return workspace::view(s, cx, &theme);
     } else if s.starting_local {
         panel = panel.child(title("T3 Code"));
     } else {
@@ -1180,6 +1205,15 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
         .center()
         .fill(theme.bg)
         .child(panel);
+    #[cfg(target_os = "linux")]
+    if s.frame.visible() {
+        root = root.child(
+            el().absolute(0., 0.)
+                .w_full()
+                .h(40. / s.zoom.factor as f32)
+                .window_drag(),
+        );
+    }
     if s.output.is_some() {
         root = root.child(appearance::trigger(&theme).absolute(12., 50.));
     }
@@ -1649,7 +1683,7 @@ fn start() -> io::Result<()> {
                 }
             });
         }
-        handle.update(|s, _| *s = Desktop::new());
+        handle.update(|s, _| s.worker_closed());
         let status = child.wait()?;
         if source_build && !received_response && !status.success() {
             handle.close();
