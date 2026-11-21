@@ -25,6 +25,7 @@ import {
 } from "./build-desktop-artifact.ts";
 import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
+import { buildRuneDeb } from "./lib/rune-deb.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
 import { windowsSystemTar } from "./lib/windows-tar.ts";
@@ -49,7 +50,9 @@ if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")
 }
 const platform = windowsNodeDir ? "win" : { darwin: "mac", linux: "linux", win32: "win" }[host];
 const target = values.target ?? (platform === "linux" ? "AppImage" : "zip");
-if (!{ mac: ["dmg", "zip"], linux: ["AppImage"], win: ["zip"] }[platform]?.includes(target)) {
+if (
+  !{ mac: ["dmg", "zip"], linux: ["AppImage", "deb"], win: ["zip"] }[platform]?.includes(target)
+) {
   throw new Error(`Unsupported Rune package target "${target}" for ${platform ?? host}.`);
 }
 const node = await NodeFSP.realpath(
@@ -191,7 +194,7 @@ async function buildRunePackage() {
       helpers: "Contents/Helpers",
     },
     linux: {
-      root: "T3-Code.AppDir",
+      root: target === "deb" ? "debian/t3code-rune" : "T3-Code.AppDir",
       bin: "usr/bin",
       resources: "usr/lib/t3-code",
       helpers: "usr/lib/t3-code",
@@ -258,7 +261,7 @@ async function buildRunePackage() {
       });
       if (mac) {
         yield* stageMacIcons(resources, NodePath.join(repoRoot, icons.macIconPng), false);
-      } else if (platform === "linux") {
+      } else if (platform === "linux" && target === "AppImage") {
         yield* bundleLinuxLibatomic({
           repoRoot,
           contentDir: resources,
@@ -269,7 +272,8 @@ async function buildRunePackage() {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  const file = `T3-Code-Rune-${version}-${platform}-${arch}.${target}`;
+  const artifactArch = target === "deb" && arch === "x64" ? "amd64" : arch;
+  const file = `T3-Code-Rune-${version}-${platform}-${artifactArch}.${target}`;
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
@@ -322,27 +326,41 @@ async function buildRunePackage() {
       NodePath.join(app, entry),
       desktopEntry.replace(/^Name=.*$/m, `Name=${product}`),
     );
-    for (const [name, target] of [
-      ["AppRun", "usr/bin/t3-code"],
-      [`${desktopId}.desktop`, entry],
-      [`${desktopId}.png`, icon],
-      [".DirIcon", `${desktopId}.png`],
-    ]) {
-      await NodeFSP.symlink(target, NodePath.join(app, name));
+    if (target === "deb") {
+      await buildRuneDeb({
+        root: app,
+        tmp,
+        artifact: NodePath.join(published, file),
+        architecture: artifactArch,
+        version,
+        product,
+        desktopId,
+        desktop,
+        license: NodePath.join(repoRoot, "LICENSE"),
+      });
+    } else {
+      for (const [name, target] of [
+        ["AppRun", "usr/bin/t3-code"],
+        [`${desktopId}.desktop`, entry],
+        [`${desktopId}.png`, icon],
+        [".DirIcon", `${desktopId}.png`],
+      ]) {
+        await NodeFSP.symlink(target, NodePath.join(app, name));
+      }
+      run(
+        "appimagetool",
+        [
+          "--no-appstream",
+          "--runtime-file",
+          await writeAppImageRuntime(tmp),
+          app,
+          NodePath.join(published, file),
+        ],
+        {
+          env: { ...process.env, ARCH: cpu },
+        },
+      );
     }
-    run(
-      "appimagetool",
-      [
-        "--no-appstream",
-        "--runtime-file",
-        await writeAppImageRuntime(tmp),
-        app,
-        NodePath.join(published, file),
-      ],
-      {
-        env: { ...process.env, ARCH: cpu },
-      },
-    );
   }
   await NodeFSP.rename(NodePath.join(published, file), NodePath.join(output, file));
   console.log(NodePath.join(output, file));

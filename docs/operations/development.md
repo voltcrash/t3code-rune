@@ -66,7 +66,10 @@ icons and installer artwork. By default the builder resolves the version from th
   `--arch universal` for an installer that runs on both Intel and Apple Silicon. Install the
   corresponding Rust targets with `rustup target add x86_64-apple-darwin aarch64-apple-darwin`.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
-  and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
+  and the repository’s pinned Node distribution. For an AppImage, also install `appimagetool`
+  and run the resulting file from a graphical session. To build an installable Debian package,
+  use `vp run dist:desktop:rune --target deb` on the target architecture and install the result
+  with `sudo apt install ./<filename>.deb`.
 - On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
   launch the T3 Code executable beside its `resources` folder.
 
