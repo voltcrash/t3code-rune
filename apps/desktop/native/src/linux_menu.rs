@@ -24,6 +24,7 @@ pub(super) fn register(app: App<Desktop>) -> App<Desktop> {
 #[serde(rename_all = "kebab-case")]
 pub(super) enum Action {
     Settings,
+    CheckUpdates,
     Quit,
     Undo,
     Redo,
@@ -62,6 +63,7 @@ impl Action {
     pub(super) fn activate(self, s: &mut Desktop, tx: &mut Tx) {
         let terminal = tx.focused() == Some("thread-terminal-grid");
         let (key, shift) = match self {
+            Self::CheckUpdates => return s.check_updates(tx),
             Self::Settings => return s.open_settings(tx),
             Self::Quit => return tx.quit(),
             Self::Fullscreen => return tx.toggle_full_screen(),

@@ -1874,6 +1874,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     };
     images::overlay(s, theme, &mut overlays);
     crate::appearance::overlay(s, cx, theme, &mut overlays);
+    crate::updates::overlay(s, theme, dark, &mut overlays);
     rune_kit::root(workspace, overlays)
 }
 

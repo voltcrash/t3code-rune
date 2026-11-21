@@ -11,6 +11,7 @@ import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -598,6 +599,32 @@ export const stageDesktopDmgBackground = Effect.fn("stageDesktopDmgBackground")(
       },
     );
   }
+});
+
+export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
+  updateChannel: "latest" | "nightly",
+) {
+  const env = yield* Config.all({
+    updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
+    githubRepository: Config.String("GITHUB_REPOSITORY").pipe(Config.option),
+  });
+  const rawRepo = (
+    Option.getOrUndefined(env.updateRepository)?.trim() ||
+    Option.getOrUndefined(env.githubRepository)?.trim() ||
+    ""
+  ).trim();
+  if (!rawRepo) return undefined;
+
+  const [owner, repo, ...rest] = rawRepo.split("/");
+  if (!owner || !repo || rest.length > 0) return undefined;
+
+  return {
+    provider: "github",
+    owner,
+    repo,
+    releaseType: updateChannel === "nightly" ? "prerelease" : "release",
+    ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+  };
 });
 
 export const DESKTOP_APP_ID = "com.t3tools.t3code";
