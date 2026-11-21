@@ -1,3 +1,8 @@
+import {
+  runtimeModeMessages,
+  managedRuntimeModeDenial,
+} from "@t3tools/client-runtime/contract-labels";
+import { mFallback } from "gt-i18n";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import {
   isProviderInstancePickerReady,
@@ -86,6 +91,10 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
     now: yield* Clock.currentTimeMillis,
   });
   const entries = providerInstanceEntriesFor(config.providers, config.settings, projectId);
+  const permissions: Record<
+    string,
+    Array<{ mode: RuntimeMode; label: string; description: string; denied?: string }>
+  > = Object.create(null);
   const choices = entries.filter(isProviderInstancePickerReady).flatMap((entry) => {
     const supported = entry.snapshot.supportedRuntimeModes;
     const modes = RuntimeMode.literals.filter(
@@ -96,6 +105,15 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
       : modes[0];
     const runtime = mode && clampManagedRuntimeMode(config.managedPolicy, mode, modes);
     if (!runtime) return [];
+    permissions[entry.instanceId] = modes.map((mode) => {
+      const denied = managedRuntimeModeDenial(config.managedPolicy, mode);
+      return {
+        mode,
+        label: mFallback(runtimeModeMessages[mode].label),
+        description: mFallback(runtimeModeMessages[mode].description),
+        ...(denied ? { denied } : {}),
+      };
+    });
     const unavailable = new Set(
       entry.snapshot.subProviders?.filter((s) => s.unavailableReason).map((s) => s.name),
     );
@@ -128,6 +146,7 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
     startFromOrigin: settings.newWorktreesStartFromOrigin,
     project,
     choices,
+    permissions,
     worktree:
       resolveNewThreadEnvMode({
         projectSettings,
@@ -159,7 +178,9 @@ export const readLaunchOptions = Effect.fn("nativeDesktop.readLaunchOptions")(fu
     record: options.record,
     worktree: !options.record.scratch && options.worktree,
     base: branch?.refName ?? (options.startFromOrigin ? "" : "HEAD"),
-    choices: options.choices.map(({ id, name, provider, runtime, preferred }) => ({
+    permissions: options.permissions,
+    choices: options.choices.map(({ id, name, provider, selection, runtime, preferred }) => ({
+      instance: selection.instanceId,
       id,
       name,
       provider,
@@ -178,6 +199,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     files: readonly string[];
     operation: string;
     runtime: string;
+    runtime_override?: string | null;
     base: string | null;
   },
   rpc: EnvironmentRpc,
@@ -189,9 +211,17 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
       message:
         "This model is unavailable for this project. Reopen the model picker to refresh its choices.",
     });
-  if (choice.runtime !== request.runtime)
+  const runtime = options.permissions[choice.selection.instanceId]?.find(
+    ({ mode }) => mode === (request.runtime_override ?? request.runtime),
+  );
+  if (
+    !runtime ||
+    runtime.denied ||
+    (request.runtime_override == null && choice.runtime !== request.runtime)
+  )
     return yield* new NewThreadUnavailable({
       message:
+        runtime?.denied ??
         "The project’s permission settings changed. Refresh and review the permission level before starting.",
     });
   const attachments = yield* prepareAttachments(
@@ -208,7 +238,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     title: deriveThreadTitleSeed({ text: request.text, attachments }),
     creationSource: "web",
     modelSelection: choice.selection,
-    runtimeMode: choice.runtime,
+    runtimeMode: runtime.mode,
     interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
     workspaceStrategy:
       request.base === null
