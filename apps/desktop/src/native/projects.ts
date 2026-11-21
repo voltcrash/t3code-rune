@@ -6,7 +6,10 @@ import {
   resolveSidebarRowStatus,
   shouldRecedeSidebarThread,
 } from "@t3tools/client-runtime/state/sidebar-row-status";
-import { resolveThreadActivityTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  resolveSettledThreadTimestamp,
+  resolveThreadActivityTimestamp,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   presentThreadShell,
   resolveThreadWorkingStartedAt,
@@ -194,9 +197,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     order_key: thread.activeOrderKey ?? null,
     sort_at:
       thread.settledOverride === "settled"
-        ? DateTime.toEpochMillis(
-            thread.settledAt ?? thread.latestRunCompletedAt ?? thread.updatedAt,
-          )
+        ? Date.parse(resolveSettledThreadTimestamp(shell) ?? "") || 0
         : Math.max(
             DateTime.toEpochMillis(thread.createdAt),
             DateTime.toEpochMillis(thread.unsettledAt ?? thread.createdAt),

@@ -70,6 +70,13 @@ pub(super) struct Thread {
 
 impl Thread {
     fn sidebar_order(&self, other: &Self) -> std::cmp::Ordering {
+        if self.settled || other.settled {
+            return self
+                .settled
+                .cmp(&other.settled)
+                .then_with(|| other.sort_at.cmp(&self.sort_at))
+                .then_with(|| self.id.cmp(&other.id));
+        }
         self.order_key.cmp(&other.order_key).then_with(|| {
             if self.order_key.is_none() {
                 other
@@ -251,7 +258,7 @@ pub(super) struct Workspace {
     by_thread: HashMap<String, usize>,
     filtered: Vec<usize>,
     filter_revision: u64,
-    settled_count: usize,
+    settled: Vec<usize>,
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
     pub(crate) terminal_heights: HashMap<String, f32>,
@@ -289,7 +296,7 @@ impl Workspace {
             by_thread: HashMap::new(),
             filtered: Vec::new(),
             filter_revision: 0,
-            settled_count: 0,
+            settled: Vec::new(),
             conversation: None,
             drafts: HashMap::new(),
             terminal_heights: HashMap::new(),
@@ -405,28 +412,23 @@ impl Workspace {
 
     fn filter(&mut self) {
         let query = self.search.text.trim().to_lowercase();
-        let mut settled = 0;
-        self.filtered = self
-            .threads
-            .iter()
-            .enumerate()
-            .filter_map(|(i, t)| {
-                if !self.project_scope.includes(&t.project) {
-                    return None;
-                }
-                settled += usize::from(t.settled);
-                let matches = if query.is_empty() {
-                    self.show_settled || !t.settled
-                } else {
-                    t.search_title.contains(&query)
-                        || self
-                            .project(&t.project)
-                            .is_some_and(|p| p.search_title.contains(&query))
-                };
-                matches.then_some(i)
-            })
-            .collect();
-        self.settled_count = settled;
+        self.filtered.clear();
+        self.settled.clear();
+        for (index, thread) in self.threads.iter().enumerate() {
+            if !self.project_scope.includes(&thread.project) {
+                continue;
+            }
+            if query.is_empty() && thread.settled {
+                self.settled.push(index);
+            } else if query.is_empty()
+                || thread.search_title.contains(&query)
+                || self
+                    .project(&thread.project)
+                    .is_some_and(|p| p.search_title.contains(&query))
+            {
+                self.filtered.push(index);
+            }
+        }
         if let Some(id) = &self.search_target
             && !self
                 .by_thread
@@ -437,6 +439,20 @@ impl Workspace {
         }
         self.filter_revision += 1;
     }
+    fn settled_rows(&self, draft_open: bool) -> &[usize] {
+        if self.settled.is_empty() || self.show_settled {
+            return &self.settled;
+        }
+        if !draft_open
+            && let Some(t) = self.visible_thread()
+            && t.settled
+            && self.project_scope.includes(&t.project)
+        {
+            return std::slice::from_ref(&self.by_thread[&t.id]);
+        }
+        &[]
+    }
+
     pub(super) fn has_thread(&self, id: &str) -> bool {
         self.by_thread.contains_key(id)
     }
@@ -812,6 +828,7 @@ fn thread_row(
     if selected {
         base = base.fill(theme.separator);
     }
+    let base = s.workspace.row_clock.track_row(thread, base);
     if editing {
         return base;
     }
@@ -831,39 +848,40 @@ static NEW_THREAD_ICON: rune::Icon = rune::Icon {
     body: r#"<path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6 M15.5 5.5l3 3 M9 15l1-4 8-8a2 2 0 0 1 3 3l-8 8-4 1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-fn sidebar(
-    s: &Desktop,
-    inset: f32,
-    width: f32,
-    theme: &tok::Theme,
-    dark: bool,
-    overlays: &mut Vec<El>,
-) -> El {
-    let compact = width - inset < 174.;
-    let mut on_art = *theme;
-    if s.stage.has_art() {
-        on_art.text = rune::Color::WHITE;
-        on_art.text_secondary = rune::Color::WHITE.alpha(0.76);
-        on_art.separator = rune::Color::WHITE.alpha(0.14);
+impl Desktop {
+    fn sidebar_rows(&self, settled: bool) -> &[usize] {
+        if settled {
+            self.workspace
+                .settled_rows(self.new_threads.active.is_some())
+        } else {
+            &self.workspace.filtered
+        }
     }
+}
+
+fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> El {
+    let count = s.sidebar_rows(settled).len();
     let query_empty = s.workspace.search.text.trim().is_empty();
-    let count = s.workspace.filtered.len();
     let colors = *theme;
-    let rows = col()
-        .key("thread-rows")
+    col()
+        .key(if settled {
+            "settled-rows"
+        } else {
+            "thread-rows"
+        })
         .w_full()
         .growth(GrowthSpec::default())
         .virtual_rows(
             count,
             76.0,
             move |s: &Desktop, i| {
-                s.workspace.threads[s.workspace.filtered[i]]
+                s.workspace.threads[s.sidebar_rows(settled)[i]]
                     .id
                     .as_str()
                     .into()
             },
             move |s: &Desktop, i| {
-                let t = &s.workspace.threads[s.workspace.filtered[i]];
+                let t = &s.workspace.threads[s.sidebar_rows(settled)[i]];
                 let project = s
                     .workspace
                     .project(&t.project)
@@ -881,16 +899,65 @@ fn sidebar(
                 thread_row(s, t, project, selected, &colors, dark)
             },
         )
-        .virtual_rows_version(s.workspace.filter_revision)
-        .on_visible_rows(|s: &mut Desktop, range| {
-            if s.workspace.row_clock.visible == range {
-                return false;
-            }
-            s.workspace.row_clock.visible = range;
-            true
-        });
-    let list = col()
+        .virtual_rows_version((
+            s.workspace.filter_revision,
+            if settled && !s.workspace.show_settled {
+                s.sidebar_rows(true).first().copied()
+            } else {
+                None
+            },
+        ))
+}
+
+fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
+    let count = ws.settled.len().to_string();
+    let chevron = icon(&rune_kit::glyphs::CHEVRON_DOWN, 12.)
+        .rotate(if ws.show_settled {
+            0.
+        } else {
+            -std::f32::consts::FRAC_PI_2
+        })
+        .color(theme.text_secondary);
+    row()
+        .key("settled-section")
+        .role("button")
+        .focusable(true)
+        .label(format!("Settled, {count}"))
+        .expanded(ws.show_settled)
+        .w_full()
+        .h(32.)
+        .px(10.)
+        .center_y()
+        .gap(6.)
+        .radius(5.)
+        .hover(theme.separator)
+        .child(label("Settled", 12., 500., theme.text_secondary))
+        .child(spacer())
+        .child(label(&count, 12., 400., theme.text_secondary))
+        .child(chevron)
+        .on_press(|s: &mut Desktop| s.workspace.show_settled = !s.workspace.show_settled)
+}
+
+fn sidebar(
+    s: &Desktop,
+    inset: f32,
+    width: f32,
+    theme: &tok::Theme,
+    dark: bool,
+    overlays: &mut Vec<El>,
+) -> El {
+    let compact = width - inset < 174.;
+    let mut on_art = *theme;
+    if s.stage.has_art() {
+        on_art.text = rune::Color::WHITE;
+        on_art.text_secondary = rune::Color::WHITE.alpha(0.76);
+        on_art.separator = rune::Color::WHITE.alpha(0.14);
+    }
+    let query_empty = s.workspace.search.text.trim().is_empty();
+    let count = s.workspace.filtered.len();
+    let mut list = col()
         .key("thread-list")
+        .drawn_rect_into(&s.workspace.row_clock.viewport)
         .w_full()
         .grow(1.0)
         .min_h(0.0)
@@ -912,7 +979,7 @@ fn sidebar(
                     );
                 }
                 empty
-            } else if count == 0 {
+            } else if count == 0 && s.workspace.settled.is_empty() {
                 label(
                     if query_empty {
                         "No threads"
@@ -925,10 +992,15 @@ fn sidebar(
                 )
                 .padding(10.0)
             } else {
-                rows
+                sidebar_rows(s, false, theme, dark)
             },
         );
-    let settled = s.workspace.settled_count;
+    if !s.workspace.settled.is_empty() {
+        list = list
+            .child(spacer())
+            .child(settled_header(&s.workspace, theme))
+            .child(sidebar_rows(s, true, theme, dark));
+    }
     let mut sidebar = col()
         .key("sidebar")
         .w(width)
@@ -956,15 +1028,6 @@ fn sidebar(
             !s.pending,
             |s| s.send(Request::Refresh),
         ));
-    }
-    if settled > 0 && query_empty {
-        sidebar = sidebar.child(
-            action(&format!("Settled  {settled}"), theme, true, |s| {
-                s.workspace.show_settled = !s.workspace.show_settled;
-                s.workspace.filter();
-            })
-            .self_start(),
-        );
     }
     let content = sidebar.child(
         row()
