@@ -640,6 +640,40 @@ function requestError(error, type, editing) {
   return "Couldn’t pair with this environment. Check the pairing link and try again.";
 }
 
+async function prepareDraft(owner, project, signal, reply) {
+  const options = await Effect.runPromise(
+    readLaunchOptions(owner, project).pipe(
+      Effect.timeout("20 seconds"),
+      Effect.scoped,
+      Effect.provide(owner.http),
+    ),
+    { signal },
+  );
+  if (owner === session && !signal.aborted) reply({ type: "launchoptions", ...options });
+}
+
+let landingRead;
+async function prepareLanding(project, reply) {
+  landingRead?.abort();
+  landingRead = undefined;
+  if (typeof project !== "string" || !session?.canOperate || !workspaceFeed) return;
+  const controller = new AbortController();
+  landingRead = controller;
+  const signal = AbortSignal.any([
+    controller.signal,
+    workspaceFeed.controller.signal,
+    session.signal,
+  ]);
+  try {
+    await prepareDraft(session, project, signal, reply);
+  } catch (error) {
+    if (!signal.aborted)
+      reply({ type: "error", message: requestError(error, "preparethread", false) });
+  } finally {
+    if (landingRead === controller) landingRead = undefined;
+  }
+}
+
 async function handleWorkspaceRequest(request, reply) {
   if (lifetime.signal.aborted) return;
   let reading;
@@ -687,14 +721,12 @@ async function handleWorkspaceRequest(request, reply) {
       reading = session;
       if (!reading?.canOperate) throw new Error("Read-only session");
       if (request.type !== "launchthread") {
-        const options = await Effect.runPromise(
-          readLaunchOptions(
-            reading,
-            request.type === "preparescratch" ? null : request.project,
-          ).pipe(Effect.timeout("20 seconds"), Effect.scoped, Effect.provide(reading.http)),
-          { signal: reading.signal },
+        await prepareDraft(
+          reading,
+          request.type === "preparescratch" ? null : request.project,
+          reading.signal,
+          reply,
         );
-        if (reading === session) reply({ type: "launchoptions", ...options });
       } else {
         const launch = await Effect.runPromise(
           launchThread(reading, request, pendingLaunches).pipe(
@@ -916,14 +948,15 @@ async function handleWorkspaceRequest(request, reply) {
         leaveThread(watching.thread);
         stopWatching();
       }
+      startWorkspaceFeed(reading, workspace, request.id);
       reply({
         type: "workspace",
+        landing_project: workspaceFeed.initialLanding,
         watch: request.id,
         clock_offset: workspace.clockOffset,
         sequence: workspace.sequence,
         ...workspace.view,
       });
-      startWorkspaceFeed(reading, workspace, request.id);
     }
   } catch (error) {
     if (reading && session !== reading) return;
@@ -959,6 +992,8 @@ try {
       if (visibleThread !== request.thread) leaveThread();
       visibleThread = request.thread;
       updateVisibleVisit();
+    } else if (request?.type === "preparelanding") {
+      void prepareLanding(request.project, reply);
     } else if (request?.type === "workspacehandled") {
       if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
     } else if (request?.type === "terminal") {

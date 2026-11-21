@@ -285,3 +285,18 @@ export function sortActiveThreadsByOrderKey<
     );
   });
 }
+
+export function sortProjectsByLatestActivity<
+  T extends { id: string; title: string; environmentId?: string },
+>(projects: readonly T[], activity: (project: T) => number): T[] {
+  return projects
+    .map((project) => ({ project, at: activity(project) }))
+    .sort(
+      (a, b) =>
+        (a.at === b.at ? 0 : b.at > a.at ? 1 : -1) ||
+        a.project.title.localeCompare(b.project.title) ||
+        (a.project.environmentId ?? "").localeCompare(b.project.environmentId ?? "") ||
+        a.project.id.localeCompare(b.project.id),
+    )
+    .map(({ project }) => project);
+}

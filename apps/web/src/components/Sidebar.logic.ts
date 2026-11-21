@@ -49,6 +49,7 @@ import {
   getThreadSortTimestamp,
   planPinnedReorder,
   sortThreads,
+  sortProjectsByLatestActivity,
   toSortableTimestamp,
   type ThreadSortInput,
 } from "@t3tools/client-runtime/state/thread-sort";
@@ -1349,26 +1350,22 @@ export function sortScopedProjectsForSidebar<
   threads: readonly TThread[],
   sortOrder: SidebarProjectSortOrder,
 ): TProject[] {
+  if (sortOrder === "manual") return [...projects];
   const scopedKey = (environmentId: string, projectId: string) =>
     `${environmentId}\u0000${projectId}`;
-  const threadsByProject = new Map<string, TThread[]>();
+  const latest = new Map<string, number>();
   for (const thread of threads) {
-    if (thread.archivedAt !== null) {
-      continue;
-    }
+    if (thread.archivedAt !== null) continue;
     const key = scopedKey(thread.environmentId, thread.projectId);
-    const existing = threadsByProject.get(key) ?? [];
-    existing.push(thread);
-    threadsByProject.set(key, existing);
+    latest.set(
+      key,
+      Math.max(latest.get(key) ?? -Infinity, getThreadSortTimestamp(thread, sortOrder)),
+    );
   }
-
-  return sortProjectsByActivity(
+  return sortProjectsByLatestActivity(
     projects,
-    sortOrder,
-    (project) => threadsByProject.get(scopedKey(project.environmentId, project.id)) ?? [],
-    (left, right) =>
-      left.title.localeCompare(right.title) ||
-      left.environmentId.localeCompare(right.environmentId) ||
-      left.id.localeCompare(right.id),
+    (project) =>
+      latest.get(scopedKey(project.environmentId, project.id)) ??
+      getProjectSortTimestamp(project, [], sortOrder),
   );
 }

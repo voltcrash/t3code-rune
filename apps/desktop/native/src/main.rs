@@ -64,6 +64,7 @@ enum Reply {
         sequence: u64,
         #[serde(default)]
         clock_offset: Option<i64>,
+        landing_project: Option<String>,
         scratch_available: bool,
         projects: Vec<Project>,
         threads: Vec<Thread>,
@@ -246,6 +247,9 @@ enum Request<'a> {
         link: &'a str,
     },
     PrepareScratch,
+    PrepareLanding {
+        project: Option<String>,
+    },
     PrepareThread {
         project: String,
     },
@@ -366,6 +370,7 @@ struct Desktop {
     project_path: Option<TextEdit>,
     workspace: Workspace,
     history: navigation::History,
+    landing: navigation::Landing,
     new_threads: new_thread::NewThreads,
     permission_menu: Option<permissions::Menu>,
     models: models::Picker,
@@ -396,6 +401,7 @@ impl Desktop {
             project_path: None,
             workspace: Workspace::new(),
             history: Default::default(),
+            landing: Default::default(),
             new_threads: Default::default(),
             permission_menu: None,
             models: Default::default(),
@@ -426,6 +432,19 @@ impl Desktop {
     fn send(&mut self, request: Request<'_>) {
         if self.pending || self.output.is_none() {
             return;
+        }
+        if matches!(request, Request::Refresh) {
+            self.retry_landing();
+        } else if self.landing.project().is_some()
+            || matches!(
+                request,
+                Request::Thread { .. }
+                    | Request::PrepareThread { .. }
+                    | Request::PrepareScratch
+                    | Request::Disconnect
+            )
+        {
+            self.leave_landing();
         }
         if !matches!(request, Request::Refresh | Request::SetSettlement { .. }) {
             self.cancel_settle_navigation();
@@ -590,11 +609,16 @@ impl Desktop {
             }
             return;
         }
+        let landing = self.landing.matches(message.id);
+        if landing && matches!(message.reply, Reply::Error { .. }) {
+            self.landing.fail();
+            return;
+        }
         if matches!(message.reply, Reply::LocalClosed) {
             if self.environment.is_none() {
                 return;
             }
-        } else if !self.pending || message.id != Some(self.request_id) {
+        } else if !landing && (!self.pending || message.id != Some(self.request_id)) {
             return;
         }
         self.pending = false;
@@ -668,6 +692,7 @@ impl Desktop {
                 terminal_read,
                 terminal_write,
             } => {
+                self.landing = Default::default();
                 self.workspace.set_clock_offset(0);
                 self.stage = stage;
                 self.local = local;
@@ -684,6 +709,7 @@ impl Desktop {
                 threads,
                 scratch_available,
                 clock_offset,
+                landing_project,
             } => {
                 if let Some(offset) = clock_offset {
                     self.workspace.set_clock_offset(offset);
@@ -693,6 +719,9 @@ impl Desktop {
                 self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
                 self.replace_workspace(projects, threads);
+                if let Some(project) = landing_project {
+                    self.begin_landing(project);
+                }
             }
             Reply::LaunchOptions {
                 record,
@@ -704,9 +733,14 @@ impl Desktop {
             } => {
                 self.leave_visible_thread();
                 self.close_conversation_inspectors();
-                self.history
-                    .visit(navigation::Page::NewThread(project.clone()));
-                self.workspace.upsert_project(record);
+                let page = navigation::Page::NewThread(project.clone());
+                if landing {
+                    self.landing = navigation::Landing::Left;
+                    self.history.replace(page);
+                } else {
+                    self.history.visit(page);
+                    self.workspace.upsert_project(record);
+                }
                 self.new_threads
                     .configure(project, choices, permissions, worktree, &base);
                 self.workspace.show_projects = false;
@@ -1185,8 +1219,11 @@ fn start() -> io::Result<()> {
                     return;
                 }
                 let focus = matches!(reply.reply, Reply::LaunchOptions { .. })
-                    && s.pending
-                    && reply.id == Some(s.request_id);
+                    && ((s.pending && reply.id == Some(s.request_id))
+                        || (s.landing.matches(reply.id)
+                            && tx.focused().is_none()
+                            && !s.settings_open
+                            && s.palette.is_none()));
                 let update_palette = matches!(
                     reply.reply,
                     Reply::WorkspaceClock { .. }

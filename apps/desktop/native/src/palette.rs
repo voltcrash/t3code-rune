@@ -671,6 +671,7 @@ mod tests {
             reply: Reply::WorkspaceLive {
                 watch: 2,
                 changes: super::super::WorkspaceChanges {
+                    landing_project: None,
                     sequence: 1,
                     scratch_available: false,
                     projects: vec![],

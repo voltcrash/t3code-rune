@@ -1,3 +1,4 @@
+import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
@@ -20,6 +21,7 @@ type Loaded = Awaited<ReturnType<typeof readWorkspace>>;
 type ProjectRow = ReturnType<typeof projectSummary>;
 type ThreadRow = ReturnType<typeof threadSummary>;
 type Changes = {
+  landing_project: string | undefined;
   sequence: number;
   scratch_available: boolean;
   threads: ThreadRow[];
@@ -80,6 +82,18 @@ export function watchWorkspace(
   const threads = rowsById(initial.view.threads);
   const dirtyProjects = new Set<string>();
   const dirtyThreads = new Set<string>();
+  function pickLandingProject() {
+    if (!session.canOperate) return undefined;
+    const active = [...projects.values()].filter((p) => !p.archived);
+    if (active.length <= 1) return active[0]?.id;
+    const latest = new Map<string, number>();
+    for (const row of threads.values()) {
+      latest.set(row.project, Math.max(latest.get(row.project) ?? -Infinity, row.activity_at));
+    }
+    return sortProjectsByLatestActivity(active, (p) => latest.get(p.id) ?? p.activity_at)[0]?.id;
+  }
+  const initialLanding = pickLandingProject();
+  let landing = initialLanding;
   let scratchAvailable = initial.view.scratch_available;
   let scratchChanged = false;
   let waiting = false;
@@ -107,7 +121,14 @@ export function watchWorkspace(
             const t = takeChanges(threads, dirtyThreads);
             waiting = true;
             publishedSequence = sequence;
+            if (
+              (p.changed.length || p.removed.length) &&
+              (!landing || projects.get(landing)?.archived !== false)
+            ) {
+              landing = pickLandingProject();
+            }
             emit({
+              landing_project: landing,
               sequence,
               scratch_available: scratchAvailable,
               projects: p.changed,
@@ -239,6 +260,7 @@ export function watchWorkspace(
     if (!signal.aborted) paused();
   });
   return {
+    initialLanding,
     publishThrough(committed: number) {
       requestedSequence = committed;
       flush();
