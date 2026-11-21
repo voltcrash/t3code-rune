@@ -41,6 +41,12 @@ pub(super) struct Actions {
     input: TextEdit,
 }
 
+impl Actions {
+    pub(super) fn close_menu(&mut self) {
+        self.menu = None;
+    }
+}
+
 impl Default for Actions {
     fn default() -> Self {
         Self {

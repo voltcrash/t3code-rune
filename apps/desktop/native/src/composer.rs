@@ -235,7 +235,7 @@ pub(super) fn view(
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
 ) -> El {
-    let dark = cx.system_dark();
+    let dark = s.dark(cx);
     let id = thread.id.as_str();
     let draft = &s.workspace.drafts[id];
     let input_id = id.to_owned();

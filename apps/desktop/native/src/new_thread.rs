@@ -238,7 +238,7 @@ pub(super) fn view(
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
 ) -> El {
-    let kit = &Kit::neutral(cx.system_dark());
+    let kit = &Kit::neutral(s.dark(cx));
     let width = cx
         .layout_size("thread-titlebar")
         .map_or(840., |size| size[0]);

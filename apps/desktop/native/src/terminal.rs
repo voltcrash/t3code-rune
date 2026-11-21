@@ -335,7 +335,18 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
         .clip_rounded(0.)
         .focusable(true)
         .fill(panel.background.map(color).unwrap_or(theme.bg))
-        .on_layout(move |s: &mut Desktop, rect| s.terminal_layout(rect[2], rect[3], dark))
+        .child(
+            el().key(if dark {
+                "terminal-dark-layout"
+            } else {
+                "terminal-light-layout"
+            })
+            .absolute(0., 0.)
+            .w_full()
+            .h_full()
+            .a11y_hidden()
+            .on_layout(move |s: &mut Desktop, rect| s.terminal_layout(rect[2], rect[3], dark)),
+        )
         .cursor(rune::Cursor::Text)
         .on_drag(|s: &mut Desktop, d, tx| {
             let phase = match d.phase {
