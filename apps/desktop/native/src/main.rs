@@ -1346,6 +1346,7 @@ fn start() -> io::Result<()> {
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
     let app = App::new(spec)
+        .tab_visits_controls(true)
         .menu_item(
             rune::MenuItem::new("Settings…", Desktop::open_settings)
                 .id("settings")

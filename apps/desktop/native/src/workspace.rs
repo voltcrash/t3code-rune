@@ -869,73 +869,30 @@ fn hide_sidebar(theme: &tok::Theme) -> El {
         .on_press(Desktop::toggle_sidebar)
 }
 
-fn thread_row(
-    s: &Desktop,
+fn multiline_thread_card(
     thread: &Thread,
-    project: Option<&Project>,
-    selected: bool,
+    project_name: &str,
+    badge: Option<El>,
+    pin: Option<El>,
+    status: El,
+    title: El,
     theme: &tok::Theme,
-    dark: bool,
 ) -> El {
-    let id = thread.id.clone();
-    let recedes = thread.recedes && !selected;
-    let (status, name) = sidebar_status::view(thread, dark, theme, &s.workspace.row_clock);
-    let project_name = project.map_or("", |p| p.title.as_str());
-    let accessible = [Some(thread.title.as_str()), name, Some(project_name)]
-        .into_iter()
-        .flatten()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut heading = row()
+    let heading = row()
         .w_full()
         .h(20.)
         .center_y()
         .gap(6.)
-        .children(project.and_then(|p| p.badge(s.workspace.feed, dark)));
-    if thread.pinned {
-        heading = heading.child(thread_actions::pin_indicator(s, thread, theme));
-    }
-    let heading = heading
+        .children(badge)
+        .children(pin)
         .child(
-            label(project_name, 12.0, 400.0, theme.text_secondary)
+            label(project_name, 12., 400., theme.text_secondary)
                 .truncate()
                 .shrink(),
         )
         .child(spacer())
         .child(status);
-    let editor = thread_actions::editor(s, thread, thread_actions::Origin::Sidebar, theme);
-    let editing = editor.is_some();
-    let mut base = col()
-        .key(&id)
-        .label(&accessible)
-        .role("button")
-        .radius(6.0)
-        .w_full()
-        .px(10.0)
-        .py(8.0)
-        .child(heading)
-        .child(
-            editor
-                .unwrap_or_else(|| {
-                    row().h(20.).w_full().center_y().child(
-                        label(
-                            &thread.title,
-                            14.0,
-                            if recedes { 400. } else { 500. },
-                            if recedes {
-                                theme.text.alpha(0.75)
-                            } else {
-                                theme.text
-                            },
-                        )
-                        .truncate()
-                        .min_w(0.)
-                        .shrink(),
-                    )
-                })
-                .mt(4.),
-        );
+    let mut card = col().py(8.).child(heading).child(title.mt(4.));
     if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
         let mut meta = row().mt(2.).h(16.).w_full().center_y().gap(6.);
         if let Some(path) = thread
@@ -953,7 +910,7 @@ fn thread_row(
                     .help(description),
             );
         }
-        base = base.child(
+        card = card.child(
             meta.child(
                 label(branch, 12., 400., theme.text_secondary)
                     .min_w(0.)
@@ -962,11 +919,75 @@ fn thread_row(
             ),
         );
     }
+    card
+}
+
+fn thread_row(
+    s: &Desktop,
+    thread: &Thread,
+    selected: bool,
+    shelf: bool,
+    theme: &tok::Theme,
+    dark: bool,
+) -> El {
+    let project = s.workspace.project(&thread.project);
+    let id = thread.id.clone();
+    let recedes = thread.recedes && !selected;
+    let indicator = thread.indicator(shelf);
+    let (status, name) = sidebar_status::view(indicator, dark, theme, &s.workspace.row_clock);
+    let project_name = project.map_or("", |p| p.title.as_str());
+    let accessible = [Some(thread.title.as_str()), name, Some(project_name)]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let badge = project.and_then(|p| p.badge(s.workspace.feed, dark));
+    let pin = thread
+        .pinned
+        .then(|| thread_actions::pin_indicator(s, thread, theme));
+    let editor = thread_actions::editor(s, thread, thread_actions::Origin::Sidebar, theme);
+    let editing = editor.is_some();
+    let title = editor.unwrap_or_else(|| {
+        let color = if shelf && !selected {
+            theme.text_secondary
+        } else if recedes {
+            theme.text.alpha(0.75)
+        } else {
+            theme.text
+        };
+        row().h(20.).w_full().center_y().child(
+            label(&thread.title, 14., if recedes { 400. } else { 500. }, color)
+                .min_w(0.)
+                .shrink()
+                .truncate()
+                .group_color(theme.text),
+        )
+    });
+    let mut base = if shelf {
+        row()
+            .h(36.)
+            .center_y()
+            .gap(10.)
+            .hover_group()
+            .children(badge.map(|b| b.group_opacity(0.4, 1.)))
+            .child(title.min_w(0.).grow(1.).shrink())
+            .children(pin)
+            .child(row().min_w(32.).justify_end().center_y().child(status))
+    } else {
+        multiline_thread_card(thread, project_name, badge, pin, status, title, theme)
+    }
+    .key(&id)
+    .label(accessible)
+    .role("button")
+    .radius(6.)
+    .w_full()
+    .px(10.);
     if selected {
         base = base.fill(theme.separator);
     }
-    let base = s.workspace.row_clock.track_row(thread, base);
-    let card = if editing {
+    let base = s.workspace.row_clock.track_row(thread, indicator, base);
+    if editing {
         base
     } else {
         let base = thread_actions::context(base, &id, thread_actions::Origin::Sidebar);
@@ -977,8 +998,7 @@ fn thread_row(
                 .focusable(true)
                 .on_press(move |s: &mut Desktop| s.select_sidebar_thread(&id))
         }
-    };
-    col().w_full().pt(2.).pb(3.).child(card)
+    }
 }
 
 static NEW_THREAD_ICON: rune::Icon = rune::Icon {
@@ -1012,7 +1032,7 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
         .growth(GrowthSpec::default())
         .virtual_rows(
             count,
-            76.0,
+            if settled { 37. } else { 76. },
             move |s: &Desktop, i| {
                 s.workspace.threads[s.sidebar_rows(settled)[i]]
                     .id
@@ -1021,7 +1041,6 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
             },
             move |s: &Desktop, i| {
                 let t = &s.workspace.threads[s.sidebar_rows(settled)[i]];
-                let project = s.workspace.project(&t.project);
                 let selected = if query_empty {
                     s.new_threads.active.is_none()
                         && !s.workspace.show_projects
@@ -1032,7 +1051,10 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
                 } else {
                     s.workspace.search_target.as_ref() == Some(&t.id)
                 };
-                thread_row(s, t, project, selected, &colors, dark)
+                let card = thread_row(s, t, selected, settled, &colors, dark);
+                let gap = if i + 1 < count { 1. } else { 0. };
+                let inset = if settled { 0. } else { 2. };
+                col().w_full().pt(inset).pb(inset + gap).child(card)
             },
         )
         .virtual_rows_version((
@@ -1063,9 +1085,9 @@ fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
         .expanded(ws.show_settled)
         .w_full()
         .h(32.)
-        .px(10.)
+        .px(8.)
         .center_y()
-        .gap(6.)
+        .gap(8.)
         .radius(5.)
         .hover(theme.separator)
         .child(label("Settled", 12., 500., theme.text_secondary))
@@ -1092,6 +1114,7 @@ fn sidebar(
     }
     let query_empty = s.workspace.search.text.trim().is_empty();
     let count = s.workspace.filtered.len();
+    let show_shelf = query_empty && (count > 0 || !s.workspace.settled.is_empty());
     let mut list = col()
         .key("thread-list")
         .drawn_rect_into(&s.workspace.row_clock.viewport)
@@ -1132,10 +1155,22 @@ fn sidebar(
                 sidebar_rows(s, false, theme, dark)
             },
         );
-    if !s.workspace.settled.is_empty() {
+    if show_shelf {
+        let gap = if s.sidebar_rows(true).is_empty() {
+            0.
+        } else {
+            1.
+        };
         list = list
+            .pb(8.)
             .child(spacer())
-            .child(settled_header(&s.workspace, theme))
+            .child(
+                col()
+                    .w_full()
+                    .px(2.)
+                    .pb(gap)
+                    .child(settled_header(&s.workspace, theme)),
+            )
             .child(sidebar_rows(s, true, theme, dark));
     }
     let mut sidebar = col()
@@ -1169,6 +1204,9 @@ fn sidebar(
     let content = sidebar.child(
         row()
             .w_full()
+            .h(36.)
+            .pt(4.)
+            .center_y()
             .child(crate::appearance::trigger(theme))
             .child(action(
                 "Projects",

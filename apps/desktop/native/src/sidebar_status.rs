@@ -110,7 +110,29 @@ impl RowStatus {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct Indicator {
+    status: RowStatus,
+    status_at: Option<i64>,
+}
+
 impl Thread {
+    pub(super) fn indicator(&self, shelf: bool) -> Indicator {
+        if shelf {
+            Indicator {
+                status: RowStatus::Ready,
+                status_at: (self.sort_at > 0).then_some(self.sort_at),
+            }
+        } else {
+            Indicator {
+                status: self.status,
+                status_at: self.status_at,
+            }
+        }
+    }
+}
+
+impl Indicator {
     fn local_start(&self, offset: i64) -> Option<i64> {
         self.status_at
             .map(|at| if self.status.timed() { at - offset } else { at })
@@ -143,15 +165,15 @@ impl Thread {
 }
 
 pub(super) fn view(
-    thread: &Thread,
+    indicator: Indicator,
     dark: bool,
     theme: &tok::Theme,
     clock: &Clock,
 ) -> (El, Option<&'static str>) {
-    let elapsed = thread
+    let elapsed = indicator
         .local_start(clock.offset)
-        .map(|t| thread.elapsed_ms(clock.now, t) / 1000);
-    let Some((name, glyph, color)) = thread.status.badge(dark, theme) else {
+        .map(|t| indicator.elapsed_ms(clock.now, t) / 1000);
+    let Some((name, glyph, color)) = indicator.status.badge(dark, theme) else {
         return (
             elapsed.map_or_else(el, |seconds| {
                 super::label(&relative_age(seconds), 12., 400., theme.text_secondary)
@@ -160,7 +182,7 @@ pub(super) fn view(
         );
     };
     let mut text = name.to_owned();
-    if thread.status.timed()
+    if indicator.status.timed()
         && let Some(seconds) = elapsed
     {
         text.push(' ');
@@ -204,8 +226,8 @@ fn intersects(row: [f32; 4], viewport: [f32; 4]) -> bool {
 }
 
 impl Clock {
-    pub(super) fn track_row(&self, thread: &Thread, row: El) -> El {
-        if thread.next_label_change(self.now, self.offset).is_none() {
+    pub(super) fn track_row(&self, thread: &Thread, indicator: Indicator, row: El) -> El {
+        if indicator.next_label_change(self.now, self.offset).is_none() {
             return row;
         }
         let mut rows = self.rows.borrow_mut();
@@ -256,6 +278,7 @@ impl super::Workspace {
     fn sidebar_clock_deadline(&self, now: i64) -> (bool, Option<i64>) {
         let mut deadline = None;
         let mut changed = false;
+        let inbox = self.search.text.trim().is_empty();
         let viewport = self.row_clock.viewport.get();
         self.row_clock.rows.borrow_mut().retain(|id, weak| {
             let Some(bounds) = weak.upgrade() else {
@@ -265,10 +288,11 @@ impl super::Workspace {
                 && let Some(&index) = self.by_thread.get(id)
             {
                 let thread = &self.threads[index];
-                if let Some(next) = thread.next_label_change(now, self.row_clock.offset) {
+                let indicator = thread.indicator(thread.settled && inbox);
+                if let Some(next) = indicator.next_label_change(now, self.row_clock.offset) {
                     deadline = Some(deadline.map_or(next, |earlier: i64| earlier.min(next)));
                     changed |= now < self.row_clock.now
-                        || thread
+                        || indicator
                             .next_label_change(self.row_clock.now, self.row_clock.offset)
                             .is_some_and(|due| due <= now);
                 }
@@ -327,8 +351,12 @@ mod tests {
         fn view(s: &Desktop, _: &mut Cx<Desktop>) -> El {
             let ws = &s.workspace;
             let row = |id: &str| {
-                ws.row_clock
-                    .track_row(&ws.threads[ws.by_thread[id]], el().key(id).w_full().h(50.))
+                let thread = &ws.threads[ws.by_thread[id]];
+                ws.row_clock.track_row(
+                    thread,
+                    thread.indicator(thread.settled),
+                    el().key(id).w_full().h(50.),
+                )
             };
             col()
                 .key("viewport")
@@ -349,9 +377,10 @@ mod tests {
             ["active", "settled"]
                 .map(|id| {
                     serde_json::from_value(serde_json::json!({
-                "id":id,"project":"p","title":id,"model":"test","status_at":0,
-                "status": if id == "active" { "working" } else { "ready" }, "settled":id=="settled"
-            })).unwrap()
+                        "id":id,"project":"p","title":id,"model":"test","status_at":60_000,
+                        "status":"working", "settled":id=="settled", "sort_at":60_000
+                    }))
+                    .unwrap()
                 })
                 .into(),
         );
@@ -359,8 +388,8 @@ mod tests {
         rt.frame(0.);
         rt.frame(0.);
         assert_eq!(
-            rt.state.workspace.sidebar_clock_deadline(1000).1,
-            Some(2000)
+            rt.state.workspace.sidebar_clock_deadline(61_000).1,
+            Some(62_000)
         );
         rt.update(|_, tx| tx.scroll_to_bottom("viewport"));
         let mut saw_gap = false;
@@ -374,15 +403,18 @@ mod tests {
                 })
             };
             let expected = if visible("active") {
-                Some(2000)
+                Some(62_000)
             } else if visible("settled") {
-                Some(60_000)
+                Some(120_000)
             } else {
                 None
             };
-            assert_eq!(rt.state.workspace.sidebar_clock_deadline(1000).1, expected);
+            assert_eq!(
+                rt.state.workspace.sidebar_clock_deadline(61_000).1,
+                expected
+            );
             saw_gap |= expected.is_none();
-            saw_settled |= expected == Some(60_000);
+            saw_settled |= expected == Some(120_000);
         }
         assert!(saw_gap && saw_settled);
     }
