@@ -612,6 +612,10 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     col().w_full().h_full().center().fill(theme.bg).child(panel)
 }
 
+fn product_name() -> &'static str {
+    option_env!("T3CODE_RUNE_PRODUCT_NAME").unwrap_or("T3 Code")
+}
+
 fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
     use std::process::Command;
 
@@ -643,7 +647,7 @@ fn worker_command(mode: Option<&str>) -> io::Result<std::process::Command> {
         let exe = std::env::current_exe()?;
         exe.parent()
             .map(|dir| dir.join("resources"))
-            .filter(|dir| dir.is_dir() || exe.ends_with("T3 Code.exe"))
+            .filter(|dir| dir.is_dir() || exe.ends_with(format!("{}.exe", product_name())))
             .map(|dir| (dir.join("node.exe"), dir))
     };
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -747,7 +751,7 @@ fn start() -> io::Result<()> {
             "system-ui, Segoe UI, sans-serif",
             "ui-monospace, Menlo, Consolas, monospace",
         ),
-        ..AppSpec::new("T3 Code", (1100.0, 780.0), Desktop::new, view)
+        ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
     let app = App::new(spec)
         .menu_item(

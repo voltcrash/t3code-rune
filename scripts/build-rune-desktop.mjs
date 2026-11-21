@@ -12,15 +12,18 @@ import plist from "plist";
 import { bundleRuneWorker } from "../apps/desktop/scripts/bundle-rune-worker.mjs";
 
 import rootPackage from "../package.json" with { type: "json" };
-import desktopPackage from "../apps/desktop/package.json" with { type: "json" };
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 import { bundleLinuxLibatomic, stageRuntimeExternals } from "./build-cli-archive.ts";
 import {
+  resolveDesktopBuildIconAssets,
+  resolveDesktopProductName,
+  resolveDesktopWebAssetBrand,
   resolveResourceMonitorRustTargets,
+  withDesktopBuildLock,
   stageMacIcons,
   stageResourceMonitor,
 } from "./build-desktop-artifact.ts";
-import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import { windowsNodeArchitecture, stampWindowsExecutable } from "./lib/rune-windows.mjs";
@@ -32,6 +35,8 @@ const host = Effect.runSync(HostProcess.Platform);
 const { values } = NodeUtil.parseArgs({
   options: {
     arch: { type: "string" },
+    "build-version": { type: "string" },
+    "output-dir": { type: "string" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
   },
@@ -66,6 +71,10 @@ if (process.versions.node !== rootPackage.engines.node) {
   throw new Error(`Use Node ${rootPackage.engines.node} to build the bundled runtime.`);
 }
 
+const output = NodePath.resolve(
+  repoRoot,
+  values["output-dir"] ?? process.env.T3CODE_DESKTOP_OUTPUT_DIR ?? "release",
+);
 const mac = platform === "mac";
 const win = platform === "win";
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
@@ -123,36 +132,60 @@ async function writeAppImageRuntime(tmp) {
   return path;
 }
 
-for (const rustTarget of rustTargets)
-  run("cargo", [
-    win ? "rustc" : "build",
-    "--bin",
-    "t3-code",
-    "--release",
-    "--locked",
-    "--manifest-path",
-    manifest,
-    "--target",
-    rustTarget,
-    "--target-dir",
-    NodePath.join(desktop, "native/target"),
-    // PE resource editing requires a shell executable without a COFF symbol table.
-    ...(win ? ["--", "-Cstrip=symbols"] : []),
-  ]);
-const vp = await Effect.runPromise(
-  resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
-    Effect.provide(NodeServices.layer),
-  ),
-);
-run(vp.command, vp.args, { shell: vp.shell });
-const output = NodePath.join(repoRoot, "release");
-await NodeFSP.mkdir(output, { recursive: true });
-const tmp = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
-const published = await NodeFSP.mkdtemp(NodePath.join(output, ".rune-"));
-try {
+async function buildRunePackage() {
+  const override = values["build-version"] ?? process.env.T3CODE_DESKTOP_VERSION;
+  const version =
+    override === undefined
+      ? resolveTaggedSourceVersion(
+          repoRoot,
+          JSON.parse(await NodeFSP.readFile(NodePath.join(desktop, "package.json"), "utf8"))
+            .version,
+        )
+      : override.trim();
+  if (
+    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
+      version,
+    )
+  ) {
+    throw new Error("Specify a release version such as 1.2.3 or 1.2.3-nightly.20261121.42.");
+  }
+  const product = resolveDesktopProductName(version);
+  const icons = resolveDesktopBuildIconAssets(version);
+  const brand = resolveDesktopWebAssetBrand(version);
+  for (const rustTarget of rustTargets)
+    run(
+      "cargo",
+      [
+        win ? "rustc" : "build",
+        "--bin",
+        "t3-code",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        manifest,
+        "--target",
+        rustTarget,
+        "--target-dir",
+        NodePath.join(desktop, "native/target"),
+        // PE resource editing requires a shell executable without a COFF symbol table.
+        ...(win ? ["--", "-Cstrip=symbols"] : []),
+      ],
+      { env: { ...process.env, T3CODE_RUNE_PRODUCT_NAME: product } },
+    );
+  const vp = await Effect.runPromise(
+    resolveSpawnCommand("vp", ["run", "--filter", "t3", "build"]).pipe(
+      Effect.provide(NodeServices.layer),
+    ),
+  );
+  run(vp.command, vp.args, { shell: vp.shell, env: { ...process.env, APP_VERSION: version } });
+  await NodeFSP.mkdir(output, { recursive: true });
+  await using staging = await NodeFSP.mkdtempDisposable(NodePath.join(NodeOS.tmpdir(), "t3-rune-"));
+  await using publication = await NodeFSP.mkdtempDisposable(NodePath.join(output, ".rune-"));
+  const tmp = staging.path;
+  const published = publication.path;
   const layout = {
     mac: {
-      root: "T3 Code.app",
+      root: product + ".app",
       bin: "Contents/MacOS",
       resources: "Contents/Resources",
       helpers: "Contents/Helpers",
@@ -163,13 +196,13 @@ try {
       resources: "usr/lib/t3-code",
       helpers: "usr/lib/t3-code",
     },
-    win: { root: "T3 Code", bin: ".", resources: "resources", helpers: "resources" },
+    win: { root: product, bin: ".", resources: "resources", helpers: "resources" },
   }[platform];
   const app = NodePath.join(tmp, layout.root);
   const resources = NodePath.join(app, layout.resources);
   const bin = NodePath.join(app, layout.bin);
   const helpers = NodePath.join(app, layout.helpers);
-  const executable = NodePath.join(bin, win ? "T3 Code.exe" : "t3-code");
+  const executable = NodePath.join(bin, win ? product + ".exe" : "t3-code");
   const server = NodePath.join(resources, "server/dist");
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
@@ -204,7 +237,7 @@ try {
   });
   await NodeFSP.access(NodePath.join(server, "client/index.html"));
 
-  await bundleRuneWorker(resources);
+  await bundleRuneWorker(resources, version);
 
   await Effect.runPromise(
     Effect.gen(function* () {
@@ -213,7 +246,7 @@ try {
         stageDir: resources,
         platform,
         arch,
-        version: desktopPackage.version,
+        version,
       });
       yield* stageResourceMonitor({
         repoRoot,
@@ -224,11 +257,7 @@ try {
         verbose: false,
       });
       if (mac) {
-        yield* stageMacIcons(
-          resources,
-          NodePath.join(repoRoot, BRAND_ASSET_PATHS.productionMacIconPng),
-          false,
-        );
+        yield* stageMacIcons(resources, NodePath.join(repoRoot, icons.macIconPng), false);
       } else if (platform === "linux") {
         yield* bundleLinuxLibatomic({
           repoRoot,
@@ -236,22 +265,23 @@ try {
           executablePath: NodePath.join(helpers, "node"),
         });
       }
-      yield* applyWebBrandAssets("production", NodePath.join(server, "client"));
+      yield* applyWebBrandAssets(brand, NodePath.join(server, "client"));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  const file = `T3-Code-Rune-${platform}-${arch}.${target}`;
+  const file = `T3-Code-Rune-${version}-${platform}-${arch}.${target}`;
   if (mac) {
     await NodeFSP.writeFile(
       NodePath.join(app, "Contents/Info.plist"),
       plist.build({
         CFBundlePackageType: "APPL",
         CFBundleIdentifier: "com.t3tools.t3code.rune",
-        CFBundleName: "T3 Code",
+        CFBundleName: product,
+        CFBundleDisplayName: product,
         CFBundleExecutable: "t3-code",
         CFBundleIconFile: "icon.icns",
-        CFBundleShortVersionString: desktopPackage.version,
-        CFBundleVersion: desktopPackage.version,
+        CFBundleShortVersionString: version,
+        CFBundleVersion: version,
         LSApplicationCategoryType: "public.app-category.developer-tools",
         NSHighResolutionCapable: true,
       }),
@@ -260,15 +290,16 @@ try {
     run("codesign", ["--verify", "--strict", app]);
     const artifact = NodePath.join(published, file);
     if (target === "dmg") {
-      await buildRuneDmg({ app, artifact, desktop, tmp, version: desktopPackage.version });
+      await buildRuneDmg({ app, artifact, desktop, tmp, version });
     } else {
       run("ditto", ["-c", "-k", "--keepParent", app, artifact]);
     }
   } else if (win) {
     await stampWindowsExecutable(
       executable,
-      NodePath.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
-      desktopPackage.version,
+      NodePath.join(repoRoot, icons.windowsIconIco),
+      version,
+      product,
     );
     const archive = NodePath.join(published, file);
     if (host === "win32") {
@@ -282,13 +313,14 @@ try {
     const entry = `usr/share/applications/${desktopId}.desktop`;
     await NodeFSP.mkdir(NodePath.dirname(NodePath.join(app, icon)), { recursive: true });
     await NodeFSP.mkdir(NodePath.dirname(NodePath.join(app, entry)), { recursive: true });
-    await NodeFSP.copyFile(
-      NodePath.join(repoRoot, BRAND_ASSET_PATHS.productionLinuxIconPng),
-      NodePath.join(app, icon),
-    );
-    await NodeFSP.copyFile(
+    await NodeFSP.copyFile(NodePath.join(repoRoot, icons.linuxIconPng), NodePath.join(app, icon));
+    const desktopEntry = await NodeFSP.readFile(
       NodePath.join(desktop, "native/t3-code.desktop"),
+      "utf8",
+    );
+    await NodeFSP.writeFile(
       NodePath.join(app, entry),
+      desktopEntry.replace(/^Name=.*$/m, `Name=${product}`),
     );
     for (const [name, target] of [
       ["AppRun", "usr/bin/t3-code"],
@@ -314,7 +346,10 @@ try {
   }
   await NodeFSP.rename(NodePath.join(published, file), NodePath.join(output, file));
   console.log(NodePath.join(output, file));
-} finally {
-  await NodeFSP.rm(tmp, { recursive: true, force: true });
-  await NodeFSP.rm(published, { recursive: true, force: true });
 }
+
+await Effect.runPromise(
+  withDesktopBuildLock(repoRoot, Effect.promise(buildRunePackage)).pipe(
+    Effect.provide(NodeServices.layer),
+  ),
+);

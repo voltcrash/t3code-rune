@@ -17,7 +17,7 @@ export async function windowsNodeArchitecture(path, version) {
   return arch;
 }
 
-export async function stampWindowsExecutable(path, iconPath, version) {
+export async function stampWindowsExecutable(path, iconPath, version, product) {
   const exe = NtExecutable.from(await NodeFSP.readFile(path));
   const resources = NtExecutableResource.from(exe);
   const icon = Data.IconFile.from(await NodeFSP.readFile(iconPath));
@@ -29,17 +29,17 @@ export async function stampWindowsExecutable(path, iconPath, version) {
   );
   const info = Resource.VersionInfo.createEmpty();
   info.lang = 1033;
-  const numericVersion = version.split("-")[0];
+  const [numericVersion] = version.split(/[-+]/, 1);
   info.setFileVersion(numericVersion, 1033);
   info.setProductVersion(numericVersion, 1033);
   info.setStringValues(
     { lang: 1033, codepage: 1200 },
     {
-      FileDescription: "T3 Code",
-      ProductName: "T3 Code",
+      FileDescription: product,
+      ProductName: product,
       CompanyName: "T3 Tools",
       ProductVersion: version,
-      OriginalFilename: "T3 Code.exe",
+      OriginalFilename: product + ".exe",
     },
   );
   info.outputToResourceEntries(resources.entries);

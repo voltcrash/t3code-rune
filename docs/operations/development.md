@@ -56,17 +56,19 @@ server in the checkout’s `.t3/rune`. To run a release build from this checkout
 and the same checkout-local desktop data.
 
 `vp run dist:desktop:rune` builds the native desktop app for the host architecture using Rust
-and the repository’s pinned standalone Node distribution. Artifacts go to `release/`.
+and the repository’s pinned standalone Node distribution. Artifacts go to `release/` or the directory
+given by `--output-dir`. Use `--build-version` to package a specific release, including its nightly
+icons and installer artwork. By default the builder resolves the version from the Git tag or manifest.
 
 - On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
-  **T3 Code.app**, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
+  the app, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
   disk image and drag **T3 Code** to **Applications**. Pass `--arch x64` for Intel Macs or
   `--arch universal` for an installer that runs on both Intel and Apple Silicon. Install the
   corresponding Rust targets with `rustup target add x86_64-apple-darwin aarch64-apple-darwin`.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
 - On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
-  launch **T3 Code.exe** beside its `resources` folder.
+  launch the T3 Code executable beside its `resources` folder.
 
 To cross-build on Linux, pass `--windows-node-dir <directory>` with the extracted Windows Node
 distribution for the repository’s version. Install `zip` and the matching toolchain. Windows x64

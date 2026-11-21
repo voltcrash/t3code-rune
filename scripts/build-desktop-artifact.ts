@@ -1800,7 +1800,7 @@ export class DesktopBuildAlreadyRunningError extends Schema.TaggedError<DesktopB
   }
 }
 
-const withDesktopBuildLock = Effect.fn("withDesktopBuildLock")(function* <A, E, R>(
+export const withDesktopBuildLock = Effect.fn("withDesktopBuildLock")(function* <A, E, R>(
   repoRoot: string,
   build: Effect.Effect<A, E, R>,
 ) {
