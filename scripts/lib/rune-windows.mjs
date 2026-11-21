@@ -1,4 +1,5 @@
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -88,6 +89,28 @@ export async function buildRuneInstaller({
   tmp,
   signed,
 }) {
+  const revision = "b2905ed52ab5be0408e2f012123110abe443aab3";
+  const repository = "mozilla-firefox/firefox";
+  const plugin = `https://raw.githubusercontent.com/${repository}/${revision}/other-licenses/nsis/Plugins/ExecInExplorer.dll`;
+  const response = await fetch(plugin);
+  if (!response.ok) throw new Error(`Could not download ExecInExplorer: HTTP ${response.status}.`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (
+    NodeCrypto.hash("sha256", bytes) !==
+    "0d65131958d7ef898982f5772edef1b1491ed24fcc5c454712775b7bbb8edebc"
+  ) {
+    throw new Error("NSIS ExecInExplorer plug-in checksum mismatch.");
+  }
+  await NodeFSP.writeFile(NodePath.join(tmp, "ExecInExplorer.dll"), bytes);
+  await NodeFSP.writeFile(
+    NodePath.join(app, "resources", "LICENSE-ExecInExplorer.txt"),
+    [
+      "This installer includes Mozilla's ExecInExplorer NSIS plug-in under the Mozilla Public License 2.0.",
+      "https://mozilla.org/MPL/2.0/",
+      `Source: https://github.com/${repository}/tree/${revision}/other-licenses/nsis/Contrib/ExecInExplorer`,
+      "",
+    ].join("\n"),
+  );
   const files = [];
   const directories = [];
   const entries = await NodeFSP.readdir(app, { recursive: true, withFileTypes: true });
@@ -118,6 +141,7 @@ export async function buildRuneInstaller({
     VERSION: version,
     NUMERIC_VERSION: version.split(/[-+]/, 1)[0],
     INSTALL_NAME: product + " Rune",
+    PLUGIN_DIR: tmp,
     PAYLOAD: app,
     REMOVALS: manifest,
     ICON: icon,
