@@ -442,7 +442,7 @@ const threadWorkspaceRoot = Effect.fn("nativeDesktop.threadWorkspaceRoot")(funct
 });
 
 type WorkspaceFileInput =
-  | { readonly action: "search"; readonly query: string }
+  | { readonly action: "search" | "filter"; readonly query: string }
   | { readonly action: "read"; readonly path: string }
   | { readonly action: "list"; readonly directory: string };
 
@@ -460,6 +460,17 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
   const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
   const list = () => {
     switch (input.action) {
+      case "filter":
+        return rpc[WS_METHODS.projectsSearchEntries]({
+          cwd,
+          query: input.query
+            .trim()
+            .slice(0, 256)
+            .replace(/[\uD800-\uDBFF]$/, ""),
+          limit: 200,
+        }).pipe(
+          Effect.map(({ entries, truncated }) => ({ type: "filteredfiles", entries, truncated })),
+        );
       case "search":
         return rpc[WS_METHODS.projectsSearchEntries]({
           cwd,

@@ -43,6 +43,14 @@ enum Reply {
     Downloaded {
         error: Option<String>,
     },
+    FilteredFiles {
+        operation: u64,
+        #[serde(default)]
+        entries: Vec<workspace::workspace_tree::Entry>,
+        #[serde(default)]
+        truncated: bool,
+        error: Option<String>,
+    },
     FileEntries {
         operation: u64,
         directory: String,
@@ -571,6 +579,16 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::FilteredFiles {
+            operation,
+            entries,
+            truncated,
+            error,
+        } = message.reply
+        {
+            self.tree_filtered(operation, entries, truncated, error);
+            return;
+        }
         if let Reply::FileEntries {
             operation,
             directory,
@@ -936,6 +954,7 @@ impl Desktop {
             | Reply::Downloaded { .. }
             | Reply::FileMatches { .. }
             | Reply::FileEntries { .. }
+            | Reply::FilteredFiles { .. }
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
@@ -1267,7 +1286,7 @@ fn start() -> io::Result<()> {
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.file_preview.is_some() {
-                s.close_file_preview();
+                s.dismiss_file_preview(tx);
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
