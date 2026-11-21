@@ -24,6 +24,7 @@ import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
@@ -283,6 +284,8 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   const thread = result.projection.thread;
   return {
     id: result.threadId,
+    sort_at: DateTime.toEpochMillis(thread.createdAt),
+    order_key: thread.activeOrderKey ?? null,
     project: thread.projectId,
     title: thread.title,
     branch: thread.branch,

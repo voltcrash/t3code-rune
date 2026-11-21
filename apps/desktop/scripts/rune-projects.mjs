@@ -1,3 +1,4 @@
+import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
@@ -48,6 +49,7 @@ const write = (value) => {
   if (!lifetime.signal.aborted) process.stdout.write(JSON.stringify(value) + "\n");
 };
 const close = () => {
+  stopWorkspaceFeed();
   stopWatching();
   pendingLaunches.clear();
   lifetime.abort();
@@ -59,6 +61,30 @@ process.stdout.once("error", () => {
   close();
   input.close();
 });
+
+let workspaceFeed;
+function stopWorkspaceFeed() {
+  workspaceFeed?.controller.abort();
+  workspaceFeed = undefined;
+}
+
+function startWorkspaceFeed(owner, initial, watch) {
+  stopWorkspaceFeed();
+  const controller = new AbortController();
+  const signal = AbortSignal.any([owner.signal, controller.signal]);
+  const feed = watchWorkspace(
+    owner,
+    initial,
+    signal,
+    (changes) => {
+      if (watching?.owner === owner && changes.removed_threads.includes(watching.thread))
+        stopWatching();
+      write({ type: "workspacelive", watch, ...changes });
+    },
+    () => write({ type: "workspacepaused", watch }),
+  );
+  workspaceFeed = { watch, controller, ...feed };
+}
 
 function stopWatching() {
   const prior = watching;
@@ -391,6 +417,7 @@ function localServer() {
       if (server !== started) return;
       server = undefined;
       if (!localSession) return;
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       session = localSession = undefined;
@@ -440,6 +467,7 @@ async function handleWorkspaceRequest(request, reply) {
   let editing = false;
   try {
     if (request.type === "disconnect") {
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       session = localSession = undefined;
@@ -456,6 +484,7 @@ async function handleWorkspaceRequest(request, reply) {
         session = await pairWithEnvironment(request.link, lifetime.signal);
         localSession = undefined;
       }
+      stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
       reply({
@@ -587,9 +616,10 @@ async function handleWorkspaceRequest(request, reply) {
     reading = session;
     const workspace = await readWorkspace(reading);
     if (session === reading) {
-      if (watching && !workspace.threads.some((thread) => thread.id === watching.thread))
+      if (watching && !workspace.view.threads.some((thread) => thread.id === watching.thread))
         stopWatching();
-      reply({ type: "workspace", ...workspace });
+      reply({ type: "workspace", watch: request.id, ...workspace.view });
+      startWorkspaceFeed(reading, workspace, request.id);
     }
   } catch (error) {
     if (reading && session !== reading) return;
@@ -617,7 +647,9 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "terminal") {
+    if (request?.type === "workspacehandled") {
+      if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
+    } else if (request?.type === "terminal") {
       const record = watching;
       if (record && record.id === request.watch) {
         if (request.action === "open") openTerminal(record, request, write);

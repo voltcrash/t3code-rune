@@ -14,6 +14,8 @@ import {
   CommandId,
   ProjectId,
   type Project,
+  type OrchestrationV2ThreadShell,
+  type OrchestrationV2ShellSnapshot,
   isListedThreadLineage,
 } from "@t3tools/contracts";
 import { withOrchestrationProtocolHeader } from "@t3tools/client-runtime/state/environmentHttpAuth";
@@ -65,6 +67,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   return {
     label: descriptor.label,
     serverVersion: descriptor.serverVersion,
+    shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,
     streamsCommandOutput: descriptor.capabilities.commandOutputStreaming === true,
     attachmentUploads: descriptor.capabilities.attachmentUploads === true,
     maxFileBytes: descriptor.capabilities.fileAttachments?.maxUploadBytes ?? 0,
@@ -110,18 +113,57 @@ export function projectSummary(
   };
 }
 
+export function visibleThread(thread: OrchestrationV2ThreadShell) {
+  return (
+    thread.archivedAt === null && thread.deletedAt === null && isListedThreadLineage(thread.lineage)
+  );
+}
+
+export function threadSummary(thread: OrchestrationV2ThreadShell) {
+  return {
+    id: thread.id,
+    project: thread.projectId,
+    title: thread.title,
+    branch: thread.branch,
+    status: thread.status,
+    model: thread.modelSelection.model,
+    settled: thread.settledOverride === "settled",
+    order_key: thread.activeOrderKey ?? null,
+    sort_at:
+      thread.settledOverride === "settled"
+        ? DateTime.toEpochMillis(
+            thread.settledAt ?? thread.latestRunCompletedAt ?? thread.updatedAt,
+          )
+        : Math.max(
+            DateTime.toEpochMillis(thread.createdAt),
+            DateTime.toEpochMillis(thread.unsettledAt ?? thread.createdAt),
+          ),
+  };
+}
+
+export function workspaceRows(
+  snapshot: OrchestrationV2ShellSnapshot,
+  scratchRoot: string | undefined,
+) {
+  return {
+    scratch_available: Boolean(scratchRoot),
+    projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
+    threads: snapshot.threads.filter(visibleThread).map(threadSummary),
+  };
+}
+
 const readScratchRoot = Effect.fn("nativeDesktop.readScratchRoot")(function* (session: Session) {
   const rpc = yield* openEnvironmentRpc(session);
   return (yield* rpc[WS_METHODS.serverGetConfig]({})).scratchWorkspaceRoot;
 });
 
-const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: Session) {
+export const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: Session) {
   const client = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
   const [snapshot, scratchRoot] = yield* Effect.all(
     [
       client.shellSnapshot({
         headers: headersFor(session),
-        query: { omitIdleSubagents: "1" },
+        query: session.shellThreadFamilies ? { omitIdleSubagents: "1" } : {},
       }),
       session.canOperate
         ? readScratchRoot(session).pipe(
@@ -135,32 +177,17 @@ const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (session: S
   );
   if ("resumable" in snapshot) return yield* Effect.die("Unexpected resume without a shell cursor");
   return {
-    scratch_available: Boolean(scratchRoot),
-    projects: snapshot.projects.map((project) => projectSummary(project, scratchRoot)),
-    threads: snapshot.threads
-      .filter(
-        (thread) =>
-          thread.archivedAt === null &&
-          thread.deletedAt === null &&
-          isListedThreadLineage(thread.lineage),
-      )
-      .toSorted((a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt))
-      .map((thread) => ({
-        id: thread.id,
-        project: thread.projectId,
-        title: thread.title,
-        branch: thread.branch,
-        status: thread.status,
-        model: thread.modelSelection.model,
-        settled: thread.settledOverride === "settled",
-      })),
+    sequence: snapshot.snapshotSequence,
+    identities: snapshot.projectIdentities,
+    scratchRoot,
+    view: workspaceRows(snapshot, scratchRoot),
   };
 });
 
-export const readWorkspace = (session: Session) =>
+export const readWorkspace = (session: Session, signal = session.signal) =>
   Effect.runPromise(
     loadWorkspace(session).pipe(Effect.timeout("20 seconds"), Effect.provide(session.http)),
-    { signal: session.signal },
+    { signal },
   );
 
 type ProjectEdit =

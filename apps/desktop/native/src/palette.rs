@@ -573,6 +573,8 @@ mod tests {
             search_title: String::new(),
             branch: None,
             status: "idle".into(),
+            sort_at: 0,
+            order_key: None,
             model: String::new(),
             settled: false,
         });

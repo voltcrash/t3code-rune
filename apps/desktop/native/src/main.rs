@@ -33,7 +33,16 @@ enum Reply {
         #[serde(default)]
         terminal_write: bool,
     },
+    WorkspaceLive {
+        watch: u64,
+        #[serde(flatten)]
+        changes: workspace::WorkspaceChanges,
+    },
+    WorkspacePaused {
+        watch: u64,
+    },
     Workspace {
+        watch: u64,
         scratch_available: bool,
         projects: Vec<Project>,
         threads: Vec<Thread>,
@@ -145,6 +154,9 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    WorkspaceHandled {
+        watch: u64,
+    },
     Terminal {
         watch: u64,
         operation: String,
@@ -330,6 +342,19 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::WorkspaceLive { watch, changes } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.apply_workspace(changes);
+                self.write_request(None, Request::WorkspaceHandled { watch });
+            }
+            return;
+        }
+        if let Reply::WorkspacePaused { watch } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.paused = true;
+            }
+            return;
+        }
         if let Reply::ToolDetail {
             key,
             operation,
@@ -468,10 +493,13 @@ impl Desktop {
                 self.pending = true;
             }
             Reply::Workspace {
+                watch,
                 projects,
                 threads,
                 scratch_available,
             } => {
+                self.workspace.feed = Some(watch);
+                self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
                 self.replace_workspace(projects, threads);
             }
@@ -528,6 +556,8 @@ impl Desktop {
             }
             Reply::Live { .. }
             | Reply::StopResult { .. }
+            | Reply::WorkspaceLive { .. }
+            | Reply::WorkspacePaused { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
