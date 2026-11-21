@@ -312,6 +312,16 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ## Desktop artifacts
 
+`vp run dist:desktop:artifact` builds the host’s native Rune distribution. By default it
+produces a DMG and ZIP on macOS, an AppImage and Debian package on Linux, and an NSIS
+installer on Windows. Select an architecture with `--arch` or inspect an unpacked build
+with `--target dir`. For a single format, run `vp run dist:desktop:rune --target <format>`
+with `dmg` or `zip` on macOS, `AppImage` or `deb` on Linux, and `nsis` or `zip` on Windows.
+For older Electron formats, use the original builder on the matching host, for example
+`node scripts/build-desktop-artifact.ts --platform linux --target rpm` or
+`node scripts/build-desktop-artifact.ts --platform win --target portable`.
+To exercise the Electron updater locally, run `node scripts/build-desktop-artifact.ts --mock-updates`.
+
 Local artifact builds are unsigned by default and write to `release/`:
 
 ```sh
@@ -340,8 +350,11 @@ outputs can share it for the release manifest merge. Use `--signed` with the rel
 for installed clients.
 
 `dist:desktop:win` builds the native per-user installer. Install NSIS 3.08 or later and put
-`makensis` on PATH. Use the Node distribution for the target architecture. For a Linux cross-build,
-pass `--windows-node-dir <extracted-windows-node-directory>`. To include the WSL runtime,
+`makensis` on PATH. The generic distribution command defaults to ARM64 on Windows ARM64,
+including under x64 Node emulation. Run ARM64 Node or supply the extracted ARM64 Node
+distribution with `--windows-node-dir` and install the `aarch64-pc-windows-msvc` Rust target.
+Select `--arch x64` to package the emulated x64 runtime. Linux cross-builds also take
+`--windows-node-dir <extracted-windows-node-directory>`. To include the WSL runtime,
 pass `--wsl-runtime <path-to-linux-cli.tar.gz>` or set `T3CODE_DESKTOP_WSL_RUNTIME` to that path.
 Use the Linux CLI release archive for the same version and architecture as the Windows package.
 Pass `--signed` to use the release
