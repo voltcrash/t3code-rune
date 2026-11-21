@@ -37,7 +37,6 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "acorn": "8.16.0",
-    "cross-env": "^10.1.0",
     "electron-builder": "26.16.1",
     "gt": "2.27.0",
     "jsdom": "^30.0.1",
