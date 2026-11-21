@@ -274,7 +274,7 @@ pub(super) fn control(
     if !s.models.combo.is_open() {
         return rune_kit::Popover::new("thread-model")
             .trigger(trigger.on_press_tx(Desktop::show_thread_models))
-            .build(&Kit::neutral(cx.system_dark()), overlays);
+            .build(&Kit::neutral(s.dark(cx)), overlays);
     }
     Combobox::new(
         "thread-model",
@@ -290,5 +290,5 @@ pub(super) fn control(
     .trigger(trigger)
     .placement(Placement::TopEnd)
     .on_choose(Desktop::choose_thread_model)
-    .build(&Kit::neutral(cx.system_dark()), overlays)
+    .build(&Kit::neutral(s.dark(cx)), overlays)
 }

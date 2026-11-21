@@ -7,6 +7,7 @@ use rune::{
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 
+mod appearance;
 mod approval;
 mod attachments;
 mod composer;
@@ -24,6 +25,10 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    Appearance {
+        mode: appearance::Mode,
+        error: Option<String>,
+    },
     Connected {
         label: String,
         #[serde(default)]
@@ -196,6 +201,9 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    SetAppearance {
+        mode: appearance::Mode,
+    },
     SetSettlement {
         thread: String,
         watch: u64,
@@ -329,6 +337,9 @@ enum Request<'a> {
 }
 
 struct Desktop {
+    appearance: appearance::Mode,
+    settings_open: bool,
+    appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
@@ -357,6 +368,9 @@ impl Desktop {
         Self {
             output: None,
             answer_advance: None,
+            appearance: Default::default(),
+            settings_open: false,
+            appearance_error: None,
             link: TextEdit::new("").secure(),
             environment: None,
             stage: Default::default(),
@@ -440,6 +454,11 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::Appearance { mode, error } = message.reply {
+            self.appearance = mode;
+            self.appearance_error = error;
+            return;
+        }
         if let Reply::ThreadRenamed { watch, error } = message.reply {
             if self.workspace.feed == Some(watch) {
                 if let Some(message) = error {
@@ -723,6 +742,7 @@ impl Desktop {
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadRenamed { .. }
+            | Reply::Appearance { .. }
             | Reply::WorkspacePaused { .. }
             | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
@@ -744,6 +764,7 @@ impl Desktop {
                 *self = Self {
                     output,
                     request_id: self.request_id,
+                    appearance: self.appearance,
                     error: lost.then(|| {
                         "The local environment stopped. Reconnect to start it again.".to_owned()
                     }),
@@ -780,7 +801,7 @@ fn button(label: &str, enabled: bool, theme: &tok::Theme, action: fn(&mut Deskto
 }
 
 fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
-    let dark = cx.system_dark();
+    let dark = s.dark(cx);
     let mut theme = tok::theme(dark);
     theme.bg = if dark {
         rune::Color::BLACK
@@ -858,7 +879,19 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
     if let Some(error) = &s.error {
         panel = panel.child(text(error).wrap().color(theme.text));
     }
-    col().w_full().h_full().center().fill(theme.bg).child(panel)
+    let mut root = col()
+        .key("connection")
+        .w_full()
+        .h_full()
+        .center()
+        .fill(theme.bg)
+        .child(panel);
+    if s.output.is_some() {
+        root = root.child(appearance::trigger(&theme).absolute(12., 50.));
+    }
+    let mut overlays = Vec::new();
+    appearance::overlay(s, cx, &theme, &mut overlays);
+    rune_kit::root(root, overlays)
 }
 
 fn product_name() -> &'static str {
@@ -949,6 +982,15 @@ fn start() -> io::Result<()> {
             s.poll_answer(tx) || stop || clock || renamed
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
+            if !ev.mods.alt && !ev.mods.shift && ev.is_command(',') {
+                if !tx.key_repeat() {
+                    s.open_settings(tx);
+                }
+                return true;
+            }
+            if s.settings_open {
+                return false;
+            }
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
                 if !tx.key_repeat() {
                     s.toggle_palette(tx);
@@ -1020,6 +1062,12 @@ fn start() -> io::Result<()> {
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
     let app = App::new(spec)
+        .menu_item(
+            rune::MenuItem::new("Settings…", Desktop::open_settings)
+                .id("settings")
+                .key_equivalent("mod+,".parse().expect("valid settings shortcut"))
+                .keys_first(),
+        )
         .menu_item(
             rune::MenuItem::new("Command Palette…", Desktop::toggle_palette)
                 .id("command-palette")

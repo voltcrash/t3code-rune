@@ -18,6 +18,7 @@ enum Action {
     Forward,
     ToggleSidebar,
     ToggleTerminal,
+    Settings,
     Refresh,
     Project(usize),
     Thread(usize),
@@ -35,6 +36,7 @@ impl Action {
             Self::Scratch => "scratch".into(),
             Self::AddProject => "add-project".into(),
             Self::Projects => "projects".into(),
+            Self::Settings => "settings".into(),
             Self::Back => "go-back".into(),
             Self::Forward => "go-forward".into(),
             Self::ToggleSidebar => "toggle-sidebar".into(),
@@ -50,6 +52,7 @@ impl Action {
             Self::Scratch => "New thread without a project",
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
+            Self::Settings => "Settings",
             Self::Back => "Go back",
             Self::Forward => "Go forward",
             Self::ToggleSidebar => "Toggle sidebar",
@@ -84,6 +87,7 @@ impl Action {
             Self::NewThread(_) | Self::StartInProject(_) | Self::PickProject => &NEW_THREAD_ICON,
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
+            Self::Settings => &crate::appearance::GEAR,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
@@ -194,6 +198,7 @@ impl Palette {
                     command(Action::Forward);
                 }
                 command(Action::Projects);
+                command(Action::Settings);
                 command(Action::ToggleSidebar);
                 if terminal_available {
                     command(Action::ToggleTerminal);
@@ -279,7 +284,11 @@ impl Palette {
 
 impl Desktop {
     pub(crate) fn toggle_palette(&mut self, tx: &mut Tx) {
-        if self.palette.take().is_some() || self.environment.is_none() || self.pending {
+        if self.settings_open
+            || self.palette.take().is_some()
+            || self.environment.is_none()
+            || self.pending
+        {
             return;
         }
         self.workspace.project_scope.close();
@@ -352,6 +361,7 @@ impl Desktop {
                 add_project(self, tx);
             }
             Action::Projects => self.show_projects(),
+            Action::Settings => self.open_settings(tx),
             Action::PickProject | Action::Project(_) => unreachable!(),
         }
     }
@@ -504,7 +514,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                 block.child(option)
             },
         )
-        .virtual_rows_version(p.revision);
+        .virtual_rows_version((p.revision, s.dark(cx)));
     let result = if p.items.is_empty() {
         label("No results found.", 14.0, 400.0, theme.text_secondary).padding(16.0)
     } else {

@@ -649,6 +649,11 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn close_sidebar_menus(&mut self) {
+        self.workspace.project_scope.close();
+        self.workspace.actions.close_menu();
+    }
+
     pub(super) fn toggle_sidebar(&mut self) {
         self.workspace.project_scope.close();
         self.workspace.sidebar = !self.workspace.sidebar;
@@ -910,6 +915,7 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
             },
         )
         .virtual_rows_version((
+            dark,
             s.workspace.filter_revision,
             if settled && !s.workspace.show_settled {
                 s.sidebar_rows(true).first().copied()
@@ -1042,6 +1048,7 @@ fn sidebar(
     let content = sidebar.child(
         row()
             .w_full()
+            .child(crate::appearance::trigger(theme))
             .child(action(
                 "Projects",
                 theme,
@@ -1452,7 +1459,7 @@ fn timeline(
                 col().w_full().py(10.0).child(content)
             },
         )
-        .virtual_rows_version((&pane.id, pane.revision));
+        .virtual_rows_version((&pane.id, pane.revision, dark));
     content = content.child(list);
     for request in &pane.approvals {
         content = content.child(approval::view(s, request, &kit, theme, overlays));
@@ -1509,7 +1516,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             s,
             thread,
             theme,
-            &Kit::neutral(cx.system_dark()),
+            &Kit::neutral(s.dark(cx)),
             &mut overlays,
         ));
     } else if !empty {
@@ -1580,7 +1587,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
-            timeline(s, pane, theme, cx.system_dark(), &mut overlays)
+            timeline(s, pane, theme, s.dark(cx), &mut overlays)
         } else {
             if empty {
                 empty_home(s, theme, narrow)
@@ -1597,14 +1604,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && (s.can_operate || s.workspace.questions.contains_key(&thread.id))
     {
         if s.workspace.questions.contains_key(&thread.id) {
-            main = main.child(questions::banner(s, &thread.id, theme, cx.system_dark()));
+            main = main.child(questions::banner(s, &thread.id, theme, s.dark(cx)));
         }
         main = main.child(composer::view(s, thread, theme, cx, &mut overlays));
     }
     if let Some(drawer) = crate::terminal::view(
         s,
         theme,
-        cx.system_dark(),
+        s.dark(cx),
         cx.layout_size("workspace").unwrap_or([1100., 780.])[1],
     ) {
         main = main.child(drawer);
@@ -1624,22 +1631,16 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 inset.leading,
                 if narrow { 176.0 } else { 256.0 },
                 theme,
-                cx.system_dark(),
+                s.dark(cx),
                 &mut overlays,
             ))
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
-    thread_actions::sidebar_menu(s, &Kit::neutral(cx.system_dark()), &mut overlays);
+    thread_actions::sidebar_menu(s, &Kit::neutral(s.dark(cx)), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if diff_open {
         let leading = if split_panel { 0. } else { inset.leading };
-        let panel = file_diff::view(
-            s,
-            theme,
-            &Kit::neutral(cx.system_dark()),
-            leading,
-            inset.trailing,
-        );
+        let panel = file_diff::view(s, theme, &Kit::neutral(s.dark(cx)), leading, inset.trailing);
         if split_panel {
             root.child(main)
                 .child(el().w(1.).h_full().fill(theme.separator))
@@ -1651,6 +1652,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         root.child(main)
     };
     images::overlay(s, theme, &mut overlays);
+    crate::appearance::overlay(s, cx, theme, &mut overlays);
     rune_kit::root(workspace, overlays)
 }
 

@@ -24,6 +24,7 @@ import { followWindow, readWindow, windowReply } from "../src/native/conversatio
 import { readLaunchOptions, launchThread, NewThreadUnavailable } from "../src/native/newThread.ts";
 import { sendThreadMessage, stopThreadRun } from "../src/native/messages.ts";
 import * as NodeFS from "node:fs";
+import * as NodeCrypto from "node:crypto";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -486,6 +487,41 @@ const t3Home = packaged
       process.env.T3CODE_HOME?.trim() || NodePath.join(NodeOS.homedir(), ".t3", "rune"),
     )
   : devHome || NodePath.resolve(desktop, "../../.t3/rune");
+const appearancePath = NodePath.join(t3Home, "desktop-appearance");
+function validAppearance(mode) {
+  return mode === "system" || mode === "light" || mode === "dark";
+}
+let appearance = "system";
+try {
+  const saved = NodeFS.readFileSync(appearancePath, "utf8").trim();
+  if (validAppearance(saved)) appearance = saved;
+} catch (error) {
+  if (error.code !== "ENOENT")
+    process.stderr.write("Couldn’t read the desktop appearance preference.\n");
+}
+write({ type: "appearance", mode: appearance });
+
+function setAppearance(mode) {
+  const temp = appearancePath + "." + NodeCrypto.randomUUID();
+  try {
+    if (!validAppearance(mode)) throw new Error("Unknown appearance");
+    NodeFS.mkdirSync(t3Home, { recursive: true });
+    NodeFS.writeFileSync(temp, mode + "\n", { mode: 0o600, flag: "wx" });
+    NodeFS.renameSync(temp, appearancePath);
+    appearance = mode;
+    write({ type: "appearance", mode });
+  } catch {
+    write({
+      type: "appearance",
+      mode: appearance,
+      error: "Couldn’t save the appearance on this computer.",
+    });
+    try {
+      NodeFS.rmSync(temp, { force: true });
+    } catch {}
+  }
+}
+
 function openVisitDatabase() {
   NodeFS.mkdirSync(t3Home, { recursive: true });
   return new NodeSqlite.DatabaseSync(NodePath.join(t3Home, "desktop-visits.sqlite"), {
@@ -880,7 +916,9 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
-    if (request?.type === "visitthread") {
+    if (request?.type === "setappearance") {
+      setAppearance(request.mode);
+    } else if (request?.type === "visitthread") {
       if (visibleThread !== request.thread) leaveThread();
       visibleThread = request.thread;
       updateVisibleVisit();
