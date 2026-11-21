@@ -633,6 +633,7 @@ mod tests {
             model: String::new(),
             permission: None,
             settled: false,
+            snoozed_until: None,
         });
         app.workspace.replace(vec![], threads.into());
         app.open_thread("A");
@@ -660,6 +661,7 @@ mod tests {
             reply: Reply::WorkspaceLive {
                 watch: 2,
                 changes: super::super::WorkspaceChanges {
+                    sequence: 1,
                     scratch_available: false,
                     projects: vec![],
                     threads: vec![],

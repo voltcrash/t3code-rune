@@ -22,6 +22,13 @@ struct OpenMenu {
     point: Option<(f32, f32)>,
 }
 
+struct Forward {
+    committed: Option<u64>,
+    thread: String,
+    project: String,
+    next: Option<String>,
+}
+
 struct Rename {
     target: Target,
     original: String,
@@ -30,6 +37,7 @@ struct Rename {
 pub(super) struct Actions {
     menu: Option<OpenMenu>,
     rename: Option<Rename>,
+    forward: Option<Forward>,
     input: TextEdit,
 }
 
@@ -38,6 +46,7 @@ impl Default for Actions {
         Self {
             menu: None,
             rename: None,
+            forward: None,
             input: TextEdit::new(""),
         }
     }
@@ -81,6 +90,133 @@ impl Desktop {
             .workspace
             .action_target(thread, origin)
             .map(|target| OpenMenu { target, point });
+    }
+
+    fn set_settlement(&mut self, id: &str, settled: bool, origin: Origin) {
+        self.workspace.actions.menu = None;
+        let ws = &self.workspace;
+        let Some(target) = ws.action_target(id, origin) else {
+            return;
+        };
+        if self.pending || !self.can_operate {
+            return;
+        }
+        let thread = &ws.threads[ws.by_thread[id]];
+        if thread.settled == settled {
+            return;
+        }
+        let advance = settled
+            && origin == Origin::Sidebar
+            && self.new_threads.active.is_none()
+            && ws.visible_thread().is_some_and(|t| t.id == id);
+        self.workspace.actions.forward = advance.then(|| {
+            let next = ws
+                .filtered
+                .iter()
+                .position(|&i| ws.threads[i].id == id)
+                .and_then(|pos| {
+                    ws.filtered[pos + 1..]
+                        .iter()
+                        .chain(&ws.filtered[..pos])
+                        .map(|&i| &ws.threads[i])
+                        .find(|t| ws.can_advance_to(t))
+                        .map(|t| t.id.clone())
+                });
+            Forward {
+                committed: None,
+                thread: id.into(),
+                project: thread.project.clone(),
+                next,
+            }
+        });
+        self.send(Request::SetSettlement {
+            thread: id.into(),
+            watch: target.watch,
+            settled,
+            advance,
+            operation: Uuid::new_v4().to_string(),
+        });
+    }
+
+    pub(crate) fn settlement_committed(&mut self, sequence: Option<u64>) {
+        if let Some(plan) = &mut self.workspace.actions.forward {
+            plan.committed = sequence;
+        }
+        if sequence.is_none() {
+            self.cancel_settle_navigation();
+            self.send(Request::Refresh);
+        }
+    }
+
+    pub(crate) fn cancel_settle_navigation(&mut self) {
+        self.workspace.actions.forward = None;
+    }
+
+    pub(crate) fn waiting_for_settle(&self) -> bool {
+        self.workspace
+            .actions
+            .forward
+            .as_ref()
+            .is_some_and(|p| p.committed.is_some())
+    }
+
+    pub(crate) fn advance_after_settle(&mut self) {
+        if self.pending
+            || !self
+                .workspace
+                .actions
+                .forward
+                .as_ref()
+                .and_then(|p| p.committed)
+                .is_some_and(|n| self.workspace.sequence >= n)
+        {
+            return;
+        }
+        let Some(plan) = self.workspace.actions.forward.take() else {
+            return;
+        };
+        if self.new_threads.active.is_some()
+            || !self
+                .workspace
+                .visible_thread()
+                .is_some_and(|t| t.id == plan.thread && t.settled)
+        {
+            return;
+        }
+        if let Some(next) = plan.next
+            && self
+                .workspace
+                .by_thread
+                .get(&next)
+                .is_some_and(|&i| self.workspace.can_advance_to(&self.workspace.threads[i]))
+        {
+            self.open_thread(&next);
+        } else if self
+            .workspace
+            .project(&plan.project)
+            .is_some_and(|p| !p.archived)
+        {
+            self.prepare_thread(&plan.project);
+        }
+    }
+
+    pub(crate) fn settle_shortcut(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+        if !self.can_operate
+            || !ev.mods.shift
+            || ev.mods.alt
+            || !ev.is_command('s')
+            || tx.focused() == Some("thread-terminal-grid")
+            || self.new_threads.active.is_some()
+        {
+            return false;
+        }
+        let Some(t) = self.workspace.visible_thread() else {
+            return false;
+        };
+        if !tx.key_repeat() {
+            self.set_settlement(&t.id.clone(), !t.settled, Origin::Sidebar);
+        }
+        true
     }
 
     fn begin_rename(&mut self, id: &str, origin: Origin, tx: &mut Tx) {
@@ -269,6 +405,20 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
                 .on_select_tx(move |s: &mut Desktop, tx| s.begin_rename(&id, origin, tx)),
         );
     }
+    if s.can_operate {
+        let id = thread.id.clone();
+        let settled = !thread.settled;
+        menu = menu.item(
+            MenuItem::new(if settled {
+                "Settle thread"
+            } else {
+                "Un-settle thread"
+            })
+            .icon(&glyphs::CHECK)
+            .disabled(s.pending)
+            .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
+        );
+    }
     let id = thread.id.clone();
     menu.item(
         MenuItem::new("Copy thread ID").on_select_tx(move |s: &mut Desktop, tx| {
@@ -295,5 +445,52 @@ pub(super) fn sidebar_menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
             "sidebar-thread-actions",
         )
         .build(kit, overlays);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::WorkerMessage;
+    use serde_json::json;
+
+    #[test]
+    fn a_settle_receipt_waits_for_the_destination_in_the_same_shell_batch() {
+        let thread = |id: &str, settled: bool, snoozed: Option<i64>| {
+            json!({
+                "id": id, "project": "p", "title": id, "model": "m", "status": "idle",
+                "settled": settled, "snoozed_until": snoozed
+            })
+        };
+        for (snoozed, expected) in [(Some(i64::MAX), "a"), (None, "b")] {
+            let mut app = Desktop::new();
+            app.can_operate = true;
+            app.workspace.feed = Some(1);
+            app.workspace.replace(
+                vec![],
+                serde_json::from_value(json!([thread("a", false, None), thread("b", false, None)]))
+                    .unwrap(),
+            );
+            app.open_thread("a");
+            app.set_settlement("a", true, Origin::Sidebar);
+            app.pending = true;
+            app.receive(
+                serde_json::from_value::<WorkerMessage>(json!({
+                    "type":"settlementchanged","id":app.request_id,"watch":1,"sequence":9
+                }))
+                .unwrap(),
+            );
+            assert_eq!(app.workspace.visible_thread().unwrap().id, "a");
+            app.receive(
+                serde_json::from_value(json!({
+                    "type":"workspacelive","watch":1,"sequence":9,"scratch_available":false,
+                    "threads":[thread("a",true,None),thread("b",false,snoozed)],
+                    "removed_threads":[],"projects":[],"removed_projects":[]
+                }))
+                .unwrap(),
+            );
+            assert_eq!(app.workspace.visible_thread().unwrap().id, expected);
+            assert!(!app.waiting_for_settle());
+        }
     }
 }

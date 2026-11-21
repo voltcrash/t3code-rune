@@ -544,6 +544,10 @@ function requestError(error, type, editing) {
   }
   if (type === "setthreadmodel")
     return "Couldn’t confirm the model change. Reopen the picker to check the thread.";
+  if (type === "setsettlement") {
+    if (error?._tag === "OrchestrationV2DispatchCommandError" && error.detail) return error.detail;
+    return "Couldn’t confirm the thread change. Refresh to check its status.";
+  }
   if (type === "sendmessage") {
     if (error?._tag === "EnvironmentAuthorizationError")
       return "This connection does not have permission to send messages.";
@@ -711,6 +715,38 @@ async function handleWorkspaceRequest(request, reply) {
           });
       }
       return;
+    } else if (request.type === "setsettlement") {
+      reading = session;
+      const feed = workspaceFeed;
+      if (
+        !reading?.canOperate ||
+        feed?.watch !== request.watch ||
+        !feed?.hasThread(request.thread)
+      ) {
+        reply({ type: "error", message: "This thread cannot be changed on this connection." });
+        return;
+      }
+      const command = request.settled
+        ? { type: "thread.settle" }
+        : { type: "thread.unsettle", reason: "user" };
+      const receipt = await Effect.runPromise(
+        openEnvironmentRpc(reading).pipe(
+          Effect.flatMap((rpc) =>
+            rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+              ...command,
+              threadId: ThreadId.make(request.thread),
+              commandId: CommandId.make(request.operation),
+            }),
+          ),
+          Effect.scoped,
+          Effect.timeout("15 seconds"),
+          Effect.provide(reading.http),
+        ),
+        { signal: reading.signal },
+      );
+      if (request.advance && receipt.sequence !== undefined) feed.publishThrough(receipt.sequence);
+      reply({ type: "settlementchanged", watch: request.watch, sequence: receipt.sequence });
+      return;
     } else if (request.type === "renamethread") {
       reading = session;
       const feed = workspaceFeed;
@@ -813,6 +849,7 @@ async function handleWorkspaceRequest(request, reply) {
         type: "workspace",
         watch: request.id,
         clock_offset: workspace.clockOffset,
+        sequence: workspace.sequence,
         ...workspace.view,
       });
       startWorkspaceFeed(reading, workspace, request.id);

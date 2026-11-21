@@ -227,6 +227,13 @@ impl Clock {
     }
 }
 impl super::Workspace {
+    pub(super) fn can_advance_to(&self, thread: &Thread) -> bool {
+        !thread.settled
+            && thread
+                .snoozed_until
+                .is_none_or(|until| until <= unix_millis().saturating_add(self.row_clock.offset))
+    }
+
     pub(crate) fn set_clock_offset(&mut self, offset: i64) {
         self.row_clock.offset = offset;
         self.row_clock.now = unix_millis();
