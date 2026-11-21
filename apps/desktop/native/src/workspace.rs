@@ -847,6 +847,12 @@ const CLOSE_SIDEBAR: rune::Icon = rune::Icon {
     body: r#"<g stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m7-6-3-3 3-3"/></g>"#,
 };
 
+const WORKTREE_ICON: rune::Icon = rune::Icon {
+    name: "folder-git-2",
+    view: 24.,
+    body: r#"<g stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 19a5 5 0 0 1-5-5v8M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5"/><circle cx="13" cy="12" r="2"/><circle cx="20" cy="19" r="2"/></g>"#,
+};
+
 fn hide_sidebar(theme: &tok::Theme) -> El {
     let caption = "Hide sidebar";
     el().key(caption)
@@ -883,6 +889,7 @@ fn thread_row(
         .join(", ");
     let mut heading = row()
         .w_full()
+        .h(20.)
         .center_y()
         .gap(6.)
         .children(project.and_then(|p| p.badge(s.workspace.feed, dark)));
@@ -907,39 +914,71 @@ fn thread_row(
         .w_full()
         .px(10.0)
         .py(8.0)
-        .gap(4.0)
         .child(heading)
-        .child(editor.unwrap_or_else(|| {
-            label(
-                &thread.title,
-                14.0,
-                if recedes { 400. } else { 500. },
-                if recedes {
-                    theme.text.alpha(0.75)
-                } else {
-                    theme.text
-                },
-            )
-            .truncate()
-        }));
-    if let Some(branch) = &thread.branch {
-        base = base.child(label(branch, 12.0, 400.0, theme.text_secondary).truncate());
+        .child(
+            editor
+                .unwrap_or_else(|| {
+                    row().h(20.).w_full().center_y().child(
+                        label(
+                            &thread.title,
+                            14.0,
+                            if recedes { 400. } else { 500. },
+                            if recedes {
+                                theme.text.alpha(0.75)
+                            } else {
+                                theme.text
+                            },
+                        )
+                        .truncate()
+                        .min_w(0.)
+                        .shrink(),
+                    )
+                })
+                .mt(4.),
+        );
+    if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
+        let mut meta = row().mt(2.).h(16.).w_full().center_y().gap(6.);
+        if let Some(path) = thread
+            .worktree
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            let description = format!("Worktree: {path} ({branch})");
+            meta = meta.child(
+                icon(&WORKTREE_ICON, 14.)
+                    .color(theme.text_secondary)
+                    .role("img")
+                    .label(&description)
+                    .help(description),
+            );
+        }
+        base = base.child(
+            meta.child(
+                label(branch, 12., 400., theme.text_secondary)
+                    .min_w(0.)
+                    .grow(1.)
+                    .truncate_middle(),
+            ),
+        );
     }
     if selected {
         base = base.fill(theme.separator);
     }
     let base = s.workspace.row_clock.track_row(thread, base);
-    if editing {
-        return base;
-    }
-    let base = thread_actions::context(base, &id, thread_actions::Origin::Sidebar);
-    if s.pending {
-        base.disabled(true)
+    let card = if editing {
+        base
     } else {
-        base.hover(theme.separator)
-            .focusable(true)
-            .on_press(move |s: &mut Desktop| s.select_sidebar_thread(&id))
-    }
+        let base = thread_actions::context(base, &id, thread_actions::Origin::Sidebar);
+        if s.pending {
+            base.disabled(true)
+        } else {
+            base.hover(theme.separator)
+                .focusable(true)
+                .on_press(move |s: &mut Desktop| s.select_sidebar_thread(&id))
+        }
+    };
+    col().w_full().pt(2.).pb(3.).child(card)
 }
 
 static NEW_THREAD_ICON: rune::Icon = rune::Icon {
