@@ -28,6 +28,7 @@ import {
   WS_METHODS,
   CommandId,
   ProjectId,
+  ThreadId,
   type Project,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ShellSnapshot,
@@ -380,3 +381,14 @@ export function changeProject(session: Session, edit: ProjectEdit) {
     { signal: session.signal },
   );
 }
+
+export const readThreadSettingsSnapshot = Effect.fn("nativeDesktop.threadSettingsSnapshot")(
+  function* (session: Session, thread: string) {
+    const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
+    return yield* api.threadBoundedSnapshot({
+      headers: headersFor(session),
+      params: { threadId: ThreadId.make(thread) },
+      query: { dedupeBodies: "1", compactTurnItems: "1", deferWork: "1" },
+    });
+  },
+);

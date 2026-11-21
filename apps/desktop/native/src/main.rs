@@ -11,6 +11,7 @@ mod approval;
 mod attachments;
 mod composer;
 mod image_decode;
+mod models;
 mod navigation;
 mod new_thread;
 mod permissions;
@@ -117,6 +118,15 @@ enum Reply {
         version: String,
         error: Option<String>,
     },
+    ThreadModels {
+        watch: u64,
+        operation: String,
+        instance: String,
+        #[serde(default)]
+        options: Vec<models::Choice>,
+        error: Option<String>,
+    },
+    ModelSaved,
     ThreadPermissions {
         watch: u64,
         operation: String,
@@ -248,6 +258,17 @@ enum Request<'a> {
         run: String,
         operation: String,
     },
+    ThreadModels {
+        watch: u64,
+        operation: String,
+    },
+    SetThreadModel {
+        watch: u64,
+        thread: String,
+        instance: String,
+        model: String,
+        operation: String,
+    },
     ThreadPermissions {
         watch: u64,
         operation: String,
@@ -294,6 +315,7 @@ struct Desktop {
     history: navigation::History,
     new_threads: new_thread::NewThreads,
     permission_menu: Option<permissions::Menu>,
+    models: models::Picker,
     palette: Option<workspace::palette::Palette>,
     request_id: u64,
     pending: bool,
@@ -319,6 +341,7 @@ impl Desktop {
             history: Default::default(),
             new_threads: Default::default(),
             permission_menu: None,
+            models: Default::default(),
             palette: None,
             request_id: 0,
             pending: false,
@@ -348,6 +371,7 @@ impl Desktop {
             return;
         }
         self.permission_menu = None;
+        self.models.close();
         if matches!(request, Request::Thread { .. }) {
             self.close_conversation_inspectors();
         }
@@ -496,6 +520,11 @@ impl Desktop {
                     }
                 }
             }
+            Reply::ModelSaved => {
+                if self.workspace.paused {
+                    self.send(Request::Refresh);
+                }
+            }
             Reply::MessageSent { thread, operation } => {
                 if self.workspace.finish_message(&thread, &operation)
                     && self
@@ -616,6 +645,7 @@ impl Desktop {
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::WorkspacePaused { .. }
+            | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
@@ -856,7 +886,7 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
-            if s.permission_shortcut(ev, tx) {
+            if s.model_shortcut(ev, tx) || s.permission_shortcut(ev, tx) {
                 return true;
             }
             if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
@@ -956,6 +986,17 @@ fn start() -> io::Result<()> {
                 continue;
             }
             handle.update(move |s, tx| {
+                if let Reply::ThreadModels {
+                    watch,
+                    operation,
+                    instance,
+                    options,
+                    error,
+                } = reply.reply
+                {
+                    s.receive_models(watch, &operation, &instance, options, error);
+                    return;
+                }
                 if let Reply::ThreadPermissions {
                     watch,
                     operation,
@@ -991,6 +1032,7 @@ fn start() -> io::Result<()> {
                 );
                 s.receive(reply);
                 s.close_stale_permissions();
+                s.close_stale_models();
                 if update_palette && let Some(palette) = &s.palette {
                     palette.reveal_selection(tx);
                 }

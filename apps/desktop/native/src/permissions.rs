@@ -77,6 +77,7 @@ impl Desktop {
         if self.pending || !self.can_operate || self.palette.is_some() {
             return;
         }
+        self.models.close();
         let mut menu = if let Some(project) = self.new_threads.active.clone() {
             let Some((options, focused)) = self.new_threads.picker_options() else {
                 return;

@@ -284,6 +284,7 @@ impl Desktop {
         }
         self.workspace.project_scope.close();
         self.permission_menu = None;
+        self.models.close();
         self.palette = Some(Palette::new());
         self.filter_palette(false);
         tx.focus("palette-query", true);

@@ -1,4 +1,3 @@
-import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
   type ChatAttachment,
   type ModelSelection,
@@ -12,7 +11,7 @@ import * as Effect from "effect/Effect";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { committedAttachments, prepareAttachments, retryAttachments } from "./attachments.ts";
 import { PermissionUnavailable, readThreadPermissions } from "./permissions.ts";
-import { headersFor, type Session } from "./projects.ts";
+import { readThreadSettingsSnapshot, type Session } from "./projects.ts";
 
 type PreparedMessage = {
   operation: string;
@@ -20,18 +19,6 @@ type PreparedMessage = {
   attempted: boolean;
 };
 const pendingMessages = new WeakMap<Session, Map<string, PreparedMessage>>();
-
-const threadPermissionSnapshot = Effect.fn("nativeDesktop.threadPermissionSnapshot")(function* (
-  session: Session,
-  thread: string,
-) {
-  const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
-  return yield* api.threadBoundedSnapshot({
-    headers: headersFor(session),
-    params: { threadId: ThreadId.make(thread) },
-    query: { dedupeBodies: "1", compactTurnItems: "1", deferWork: "1" },
-  });
-});
 
 export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(function* (
   session: Session,
@@ -78,7 +65,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
   if (input.permission) {
     const { instance, mode } = input.permission;
     const options = yield* readThreadPermissions(rpc, instance);
-    const snapshot = yield* threadPermissionSnapshot(session, input.thread);
+    const snapshot = yield* readThreadSettingsSnapshot(session, input.thread);
     const thread = snapshot.projection.thread;
     const option = options.find((o) => o.mode === mode);
     if (
@@ -100,7 +87,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
         runtimeMode: option.mode,
       });
       // Existing servers persist the shared thread mode separately from dispatch, as in the web composer.
-      const current = (yield* threadPermissionSnapshot(session, input.thread)).projection.thread;
+      const current = (yield* readThreadSettingsSnapshot(session, input.thread)).projection.thread;
       if (
         current.runtimeMode !== mode ||
         current.modelSelection.instanceId !== instance ||

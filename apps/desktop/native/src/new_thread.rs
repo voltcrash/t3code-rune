@@ -143,6 +143,23 @@ impl NewThreads {
         draft.runtime_override = Some(mode.into());
         true
     }
+    pub(super) fn toggle_models(&mut self, tx: &mut rune::Tx) {
+        let draft = self.current();
+        if draft.uncertain {
+            return;
+        }
+        draft.picker.step(rune_kit::ComboboxEvent::Toggle {
+            current: draft.model.as_deref(),
+        });
+        tx.focus(
+            if draft.picker.is_open() {
+                "search"
+            } else {
+                "launch-model-trigger"
+            },
+            true,
+        );
+    }
     fn current(&mut self) -> &mut LaunchDraft {
         self.drafts
             .get_mut(self.active.as_deref().expect("open thread draft"))
@@ -256,35 +273,12 @@ pub(super) fn view(
     .disabled(locked)
     .label("Model")
     .current(draft.model.as_deref())
-    .trigger(
-        row()
-            .label("Model")
-            .role("button")
-            .focusable(!locked)
-            .disabled(locked)
-            .min_w(0.)
-            .max_w((width - 158.).clamp(40., 280.))
-            .h(28.)
-            .px(4.)
-            .center_y()
-            .gap(3.)
-            .radius(5.)
-            .hover(theme.text.alpha(0.07))
-            .child(
-                super::workspace::label(
-                    draft.choice().map_or("Choose a model", |c| c.name.as_str()),
-                    13.,
-                    500.,
-                    theme.text_secondary,
-                )
-                .min_w(0.)
-                .shrink()
-                .truncate(),
-            )
-            .children(compact.then(|| {
-                rune::icon(&rune_kit::glyphs::CHEVRON_DOWN, 12.).color(theme.text_secondary)
-            })),
-    )
+    .trigger(crate::models::trigger(
+        draft.choice().map_or("Choose a model", |c| c.name.as_str()),
+        theme,
+        !locked,
+        width,
+    ))
     .placeholder("Choose a model")
     .search_placeholder("Search models")
     .on_choose(|s, id, _| {

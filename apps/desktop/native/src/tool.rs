@@ -44,6 +44,7 @@ impl Desktop {
 
     pub(crate) fn close_conversation_inspectors(&mut self) {
         self.permission_menu = None;
+        self.models.close();
         self.close_terminal();
         self.close_image();
         self.close_command();
