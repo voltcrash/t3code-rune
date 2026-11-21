@@ -58,7 +58,9 @@ and the same checkout-local desktop data.
 `vp run dist:desktop:rune` builds the native desktop app for the host architecture using Rust
 and the repository’s pinned standalone Node distribution. Artifacts go to `release/`.
 
-- On macOS, install the Xcode Command Line Tools, extract the zip, and open **T3 Code.app**.
+- On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
+  **T3 Code.app**, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
+  disk image and drag **T3 Code** to **Applications**.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and `appimagetool`. Run the resulting `.AppImage` from a graphical session.
 - On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
