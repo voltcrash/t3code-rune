@@ -1414,7 +1414,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .child(el().w(1.0).h_full().fill(theme.separator));
     }
     palette::overlay(s, cx, theme, &mut overlays);
-    let mut workspace = if diff_open {
+    let workspace = if diff_open {
         let leading = if split_panel { 0. } else { inset.leading };
         let panel = file_diff::view(
             s,
@@ -1433,9 +1433,6 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     } else {
         root.child(main)
     };
-    if s.palette.is_some() {
-        workspace = workspace.blur(3.0);
-    }
     images::overlay(s, theme, &mut overlays);
     rune_kit::root(workspace, overlays)
 }
