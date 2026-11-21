@@ -3,6 +3,7 @@ Unicode true
 !include LogicLib.nsh
 !include x64.nsh
 !include Win/WinError.nsh
+!addplugindir /x86-unicode "${PLUGIN_DIR}"
 !define /ifndef ERROR_DIR_NOT_EMPTY 145
 
 Name "${PRODUCT}"
@@ -106,6 +107,58 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+Function LaunchInstalledApp
+  StrCpy $0 0
+  StrCpy $1 ""
+  System::Call 'kernel32::GetCommandLineW()p.r2'
+  System::Call 'shell32::CommandLineToArgvW(p r2, *i .r3)p.r4'
+  ${If} $4 != 0
+    StrCpy $5 $4
+    ${DoWhile} $3 > 1
+      IntOp $5 $5 + ${NSIS_PTR_SIZE}
+      IntOp $3 $3 - 1
+      System::Call '*$5(p .r6)'
+      System::Call 'kernel32::CompareStringOrdinal(p r6, i -1, w "--force-run", i -1, i 0)i.r7'
+      ${If} $7 == 2
+        StrCpy $0 1
+      ${Else}
+        System::Call 'kernel32::CompareStringOrdinal(p r6, i -1, w "--updated", i -1, i 0)i.r7'
+        ${If} $7 == 2
+          StrCpy $1 "--updated"
+        ${EndIf}
+      ${EndIf}
+    ${Loop}
+    System::Call 'kernel32::LocalFree(p r4)'
+  ${EndIf}
+  ${If} ${Silent}
+  ${AndIf} $0 == 0
+    Return
+  ${EndIf}
+
+  HideWindow
+  StrCpy $2 "$INSTDIR\app\${PRODUCT}.exe"
+  ; GetCurrentProcessToken is a pseudo-handle. Only a confirmed unelevated caller may launch directly.
+  System::Call 'advapi32::GetTokenInformation(p -4, i 20, *i .r3, i 4, *i .r4)i.r0'
+  ${If} $0 != 0
+  ${AndIf} $3 == 0
+    ClearErrors
+    Exec '"$2" $1'
+    ${IfNot} ${Errors}
+      Return
+    ${EndIf}
+  ${Else}
+    StrLen $0 $2
+    ${If} $0 < 260
+      ExecInExplorer::Exec "$2" "/cmdargs" "$1"
+      Pop $0
+      ${If} $0 == 1
+        Return
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  MessageBox MB_OK "${PRODUCT} was installed. Open it from the Start menu." /SD IDOK
+FunctionEnd
+
 Section "Install"
   SetRegView 64
   SetShellVarContext current
@@ -177,6 +230,7 @@ failed:
   SetErrorLevel 2
   Abort
 done:
+  Call LaunchInstalledApp
 SectionEnd
 
 Function un.RemovePayloadDirectory
