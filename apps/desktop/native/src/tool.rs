@@ -52,6 +52,7 @@ impl Desktop {
         let Some(pane) = &mut self.workspace.conversation else {
             return;
         };
+        pane.plan_actions = None;
         let Some(watch) = pane.watch else { return };
         let tools = std::mem::take(&mut pane.tools);
         if !tools.is_empty() {

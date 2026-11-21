@@ -1,4 +1,5 @@
 import {
+  buildProposedPlanMarkdownFilename,
   proposedPlanBodyStart,
   proposedPlanCanCollapse,
   proposedPlanPreviewEnd,
@@ -60,7 +61,7 @@ type Row = {
   body: string;
   attachments: Array<{ name: string; image?: string }>;
   caption?: string;
-  plan?: { start: number; collapsible: boolean; preview_end?: number };
+  plan?: { filename: string; start: number; collapsible: boolean; preview_end?: number };
   language?: string;
   exit_code?: number | undefined;
   failed?: boolean | undefined;
@@ -84,6 +85,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
       attachments: [],
       ...(title ? { caption: title } : {}),
       plan: {
+        filename: buildProposedPlanMarkdownFilename(body),
         start: Buffer.byteLength(body.slice(0, start)),
         collapsible,
         ...(previewEnd !== undefined

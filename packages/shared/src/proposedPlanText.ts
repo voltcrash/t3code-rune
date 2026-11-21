@@ -44,3 +44,21 @@ export function proposedPlanPreviewEnd(markdown: string, maxLines: number): numb
   }
   return undefined;
 }
+
+function sanitizePlanFileSegment(input: string): string {
+  const sanitized = input
+    .toLowerCase()
+    .replace(/[`'".,!?()[\]{}]+/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return sanitized.length > 0 ? sanitized : "plan";
+}
+
+export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {
+  const title = proposedPlanTitle(planMarkdown);
+  return `${sanitizePlanFileSegment(title ?? "plan")}.md`;
+}
+
+export function normalizePlanMarkdownForExport(planMarkdown: string): string {
+  return `${planMarkdown.trimEnd()}\n`;
+}

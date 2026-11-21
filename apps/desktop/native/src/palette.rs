@@ -634,6 +634,7 @@ mod tests {
             title: format!("match {id}"),
             search_title: String::new(),
             branch: None,
+            worktree: None,
             status: Default::default(),
             status_at: None,
             recedes: false,

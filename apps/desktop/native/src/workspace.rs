@@ -56,6 +56,7 @@ pub(super) struct Thread {
     #[serde(skip)]
     search_title: String,
     branch: Option<String>,
+    worktree: Option<String>,
     status: sidebar_status::RowStatus,
     status_at: Option<i64>,
     #[serde(default)]
@@ -175,6 +176,7 @@ pub(super) struct Conversation {
     folds: turn_folds::Layout,
     project_root: Option<String>,
     expanded_activities: HashSet<String>,
+    plan_actions: Option<plan::Actions>,
     command: Option<command::Expanded>,
     tools: HashMap<String, tool::Open>,
     images: images::Images,
@@ -208,6 +210,7 @@ impl Conversation {
         self.revision += 1;
     }
     pub fn begin_watch(&mut self, id: u64) {
+        self.plan_actions = None;
         self.images = Default::default();
         self.watch = Some(id);
         self.set_status(LiveStatus::Reconnecting);
@@ -682,6 +685,7 @@ impl Desktop {
                 .and_then(|i| self.workspace.project(&self.workspace.threads[*i].project))
                 .map(|p| p.path.clone()),
             expanded_activities: HashSet::new(),
+            plan_actions: None,
             tools: HashMap::new(),
             images: Default::default(),
             command: None,
@@ -1443,6 +1447,7 @@ fn timeline(
             content.child(label("No messages", 14.0, 400.0, theme.text_secondary).key("empty"));
     }
     let colors = *theme;
+    plan::overlay(s, theme, &kit, overlays);
     let message_kit = kit.clone();
     let list = col()
         .key("message-rows")
@@ -1869,6 +1874,7 @@ mod tests {
             title: title.into(),
             search_title: String::new(),
             branch: None,
+            worktree: None,
             status: sidebar_status::RowStatus::Ready,
             status_at: None,
             recedes: false,

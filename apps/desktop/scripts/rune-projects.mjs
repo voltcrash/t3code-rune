@@ -5,6 +5,9 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePathLayer from "@effect/platform-node/NodePath";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -37,6 +40,7 @@ import {
   changeProject,
   pairWithEnvironment,
   readWorkspace,
+  writePlanToWorkspace,
 } from "../src/native/projects.ts";
 
 const packaged = process.argv[2] === "--packaged";
@@ -694,6 +698,57 @@ async function prepareLanding(project, reply) {
   }
 }
 
+async function downloadPlan(request, reply) {
+  try {
+    await Effect.runPromise(
+      writeFileStringAtomically({ filePath: request.path, contents: request.contents }).pipe(
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodePathLayer.layer),
+      ),
+      { signal: lifetime.signal },
+    );
+    reply({ type: "downloaded" });
+  } catch {
+    reply({
+      type: "downloaded",
+      error: "Couldn’t write the Markdown file. Choose another location and try again.",
+    });
+  }
+}
+
+async function savePlan(request, reply) {
+  const record = watching;
+  const result = { type: "plansaved", watch: request.watch };
+  const row = record?.state.rows[record.state.indices.get(request.key)];
+  if (
+    !session?.canWriteFiles ||
+    !record ||
+    record.id !== request.watch ||
+    record.owner !== session ||
+    row?.role !== "plan"
+  ) {
+    reply({ ...result, error: "This plan or workspace is no longer available for saving." });
+    return;
+  }
+  try {
+    const owner = record.owner;
+    await Effect.runPromise(
+      writePlanToWorkspace(owner, record.thread, request.root, request.path, row.body).pipe(
+        Effect.scoped,
+        Effect.timeout("20 seconds"),
+        Effect.provide(owner.http),
+      ),
+      { signal: record.controller.signal },
+    );
+    reply(result);
+  } catch {
+    reply({
+      ...result,
+      error: "Couldn’t save this plan. Check the workspace and relative path, then try again.",
+    });
+  }
+}
+
 async function handleWorkspaceRequest(request, reply) {
   if (lifetime.signal.aborted) return;
   let reading;
@@ -729,6 +784,7 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         local: localSession?.sameFilesystem ?? false,
         can_operate: session.canOperate,
+        can_write_files: session.canWriteFiles,
         can_pin: session.canPin,
         terminal_read: session.canReadTerminal || session.canOperateTerminal,
         terminal_write: session.canOperateTerminal,
@@ -1004,6 +1060,7 @@ async function handleWorkspaceRequest(request, reply) {
 
 try {
   let workspaceRequests = Promise.resolve();
+  let downloads = Promise.resolve();
   for await (const line of input) {
     if (lifetime.signal.aborted) break;
     let request;
@@ -1048,13 +1105,17 @@ try {
       void inspectImage(request);
     } else if (request?.type === "inspectfile" || request?.type === "inspecttool") {
       inspectDetail(request);
+    } else if (request?.type === "saveplan") {
+      void savePlan(request, reply);
+    } else if (request?.type === "downloadplan") {
+      downloads = downloads.then(() => downloadPlan(request, reply));
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
-  await workspaceRequests;
+  await Promise.all([workspaceRequests, downloads]);
 } finally {
   close();
   await server?.stopped;
