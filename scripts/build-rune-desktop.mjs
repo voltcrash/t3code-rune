@@ -31,6 +31,12 @@ import { resolveTaggedSourceVersion } from "./lib/tagged-source-version.ts";
 import { stageMacBinary, stageMacNode } from "./lib/rune-mac.mjs";
 import { publishRuneArtifacts } from "./lib/rune-artifacts.mjs";
 import { buildRuneDeb } from "./lib/rune-deb.mjs";
+import {
+  buildRuneMacZip,
+  readMacSigning,
+  signRuneMacApp,
+  signRuneDmg,
+} from "./lib/rune-mac-sign.mjs";
 import { buildRuneDmg } from "./lib/rune-dmg.mjs";
 import {
   buildRuneInstaller,
@@ -52,6 +58,7 @@ const { values } = NodeUtil.parseArgs({
     "output-dir": { type: "string" },
     platform: { type: "string" },
     "skip-build": { type: "boolean" },
+    signed: { type: "boolean" },
     target: { type: "string" },
     "windows-node-dir": { type: "string" },
   },
@@ -62,6 +69,7 @@ function booleanOption(name, env) {
 const skipBuild = booleanOption("skip-build", "T3CODE_DESKTOP_SKIP_BUILD");
 const keepStage = booleanOption("keep-stage", "T3CODE_DESKTOP_KEEP_STAGE");
 const verbose = booleanOption("verbose", "T3CODE_DESKTOP_VERBOSE");
+const signed = booleanOption("signed", "T3CODE_DESKTOP_SIGNED");
 const windowsNodeDir = values["windows-node-dir"];
 if (windowsNodeDir !== undefined && (!windowsNodeDir.trim() || host !== "linux")) {
   throw new Error(
@@ -181,6 +189,8 @@ async function buildRunePackage() {
   ) {
     throw new Error("Specify a release version such as 1.2.3 or 1.2.3-nightly.20261121.42.");
   }
+  if (signed && !mac) throw new Error("Rune Developer ID signing requires a macOS build.");
+  const signing = signed ? readMacSigning() : undefined;
   const product = resolveDesktopProductName(version);
   const icons = resolveDesktopBuildIconAssets(version);
   const brand = resolveDesktopWebAssetBrand(version);
@@ -328,13 +338,13 @@ async function buildRunePackage() {
         NSHighResolutionCapable: true,
       }),
     );
-    run("codesign", ["--force", "--sign", "-", app]);
-    run("codesign", ["--verify", "--strict", app]);
+    await signRuneMacApp({ app, resources, node: bundledNode, repoRoot, signing });
     const artifact = NodePath.join(published, file);
     if (target === "dmg") {
       await buildRuneDmg({ app, artifact, desktop, tmp, version });
+      if (signing) await signRuneDmg(artifact, signing);
     } else {
-      run("ditto", ["-c", "-k", "--keepParent", app, artifact]);
+      await buildRuneMacZip({ app, artifact, tmp, signing });
     }
   } else if (win) {
     await stampWindowsExecutable(

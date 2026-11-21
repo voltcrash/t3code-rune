@@ -67,6 +67,9 @@ pass `--skip-build` to the Rune packager. Set `APP_VERSION` for the bundle if us
   disk image and drag **T3 Code** to **Applications**. Pass `--arch x64` for Intel Macs or
   `--arch universal` for an installer that runs on both Intel and Apple Silicon. Install the
   corresponding Rust targets with `rustup target add x86_64-apple-darwin aarch64-apple-darwin`.
+  Pass `--signed` to use an installed Developer ID Application identity. If several are installed,
+  set `CSC_NAME` to its full name or fingerprint. Set `APPLE_API_KEY` to the path to the App Store
+  Connect private key, along with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, to notarize and staple.
 - On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and the repository’s pinned Node distribution. For an AppImage, also install `appimagetool`
   and run the resulting file from a graphical session. To build an installable Debian package,

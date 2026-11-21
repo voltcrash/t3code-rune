@@ -425,6 +425,7 @@ const notarytool = Effect.fn("notarytool")(function* (
 
 const requireAccepted = Effect.fn("requireAccepted")(function* (
   submission: typeof NotarySubmission.Type,
+  product = "t3",
 ) {
   if (submission.status !== "Accepted") {
     return yield* new CliArchiveNotarizationRejectedError({
@@ -432,7 +433,16 @@ const requireAccepted = Effect.fn("requireAccepted")(function* (
       status: submission.status ?? "without a status",
     });
   }
-  yield* Effect.log(`[cli-archive] Notarized t3 (${submission.id}).`);
+  yield* Effect.log(`[cli-archive] Notarized ${product} (${submission.id}).`);
+});
+
+export const notarizeMacArtifact = Effect.fn("notarizeMacArtifact")(function* (
+  file: string,
+  credentials: ReadonlyArray<string>,
+) {
+  const submission = yield* notarytool(["submit", file, "--wait"], credentials);
+  const path = yield* Path.Path;
+  yield* requireAccepted(submission, path.basename(file));
 });
 
 /** Apple Silicon requires signed binaries; notarization's hardened runtime also requires every native addon signed. */
