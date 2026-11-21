@@ -35,12 +35,21 @@ enum Reply {
         mode: appearance::Mode,
         error: Option<String>,
     },
+    PlanSaved {
+        watch: u64,
+        error: Option<String>,
+    },
+    Downloaded {
+        error: Option<String>,
+    },
     Connected {
         label: String,
         #[serde(default)]
         stage: stage::Stage,
         local: bool,
         can_operate: bool,
+        #[serde(default)]
+        can_write_files: bool,
         #[serde(default)]
         can_pin: bool,
         #[serde(default)]
@@ -302,6 +311,16 @@ enum Request<'a> {
         operation: String,
         open: bool,
     },
+    DownloadPlan {
+        path: std::path::PathBuf,
+        contents: String,
+    },
+    SavePlan {
+        watch: u64,
+        key: String,
+        root: String,
+        path: String,
+    },
     InspectFile {
         watch: u64,
         key: Option<String>,
@@ -372,6 +391,7 @@ struct Desktop {
     stage: stage::Stage,
     local: bool,
     can_operate: bool,
+    can_write_files: bool,
     can_pin: bool,
     terminal_read: bool,
     terminal_write: bool,
@@ -405,6 +425,7 @@ impl Desktop {
             stage: Default::default(),
             local: false,
             can_operate: false,
+            can_write_files: false,
             can_pin: false,
             terminal_read: false,
             terminal_write: false,
@@ -516,6 +537,16 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::PlanSaved { watch, error } = message.reply {
+            self.finish_plan_save(watch, error);
+            return;
+        }
+        if let Reply::Downloaded { error } = message.reply {
+            if let Some(error) = error {
+                self.error = Some(error);
+            }
+            return;
+        }
         if let Reply::SidebarLayout { width, open, error } = message.reply {
             if let Some(error) = error {
                 self.error = Some(error);
@@ -723,6 +754,7 @@ impl Desktop {
                 stage,
                 local,
                 can_operate,
+                can_write_files,
                 can_pin,
                 terminal_read,
                 terminal_write,
@@ -732,6 +764,7 @@ impl Desktop {
                 self.stage = stage;
                 self.local = local;
                 self.can_operate = can_operate;
+                self.can_write_files = can_write_files;
                 self.can_pin = can_operate && can_pin;
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
@@ -831,6 +864,8 @@ impl Desktop {
                 }
             }
             Reply::Live { .. }
+            | Reply::PlanSaved { .. }
+            | Reply::Downloaded { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
@@ -1366,6 +1401,7 @@ mod tests {
                 stage: stage::Stage::Dev,
                 local: true,
                 can_operate: true,
+                can_write_files: true,
                 can_pin: true,
                 terminal_read: true,
                 terminal_write: true,

@@ -17,6 +17,7 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import { threadRaisedHandWhileSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchSubject } from "@t3tools/client-runtime/state/thread-search";
+import { normalizePlanMarkdownForExport } from "@t3tools/shared/proposedPlanText";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
@@ -28,6 +29,7 @@ import {
   AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
   AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
   WS_METHODS,
@@ -80,6 +82,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
       AuthOrchestrationReadScope,
       AuthOrchestrationOperateScope,
       AuthFilesystemReadScope,
+      AuthFilesystemWriteScope,
       AuthTerminalReadScope,
       AuthTerminalOperateScope,
     ],
@@ -101,6 +104,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     token: session.access_token,
     canReadTerminal: scopes.includes(AuthTerminalReadScope),
     canOperateTerminal: scopes.includes(AuthTerminalOperateScope),
+    canWriteFiles: scopes.includes(AuthFilesystemWriteScope),
     canBrowse: scopes.includes(AuthFilesystemReadScope),
     canOperate: scopes.includes(AuthOrchestrationOperateScope),
   };
@@ -181,6 +185,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     project: thread.projectId,
     title: thread.title,
     branch: thread.branch,
+    ...(thread.worktreePath ? { worktree: thread.worktreePath } : {}),
     status,
     status_at: timestamp ? Date.parse(timestamp) : null,
     recedes: shouldRecedeSidebarThread({
@@ -395,6 +400,17 @@ export function changeProject(session: Session, edit: ProjectEdit) {
   );
 }
 
+export const readProjectRoot = Effect.fn("nativeDesktop.readProjectRoot")(function* (
+  session: Session,
+  projectId: string,
+) {
+  const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "projects");
+  const { projects } = yield* api.snapshot({
+    headers: { authorization: `Bearer ${session.token}` },
+  });
+  return projects.find((p) => p.id === projectId && p.deletedAt === null)?.workspaceRoot;
+});
+
 export const readThreadSettingsSnapshot = Effect.fn("nativeDesktop.threadSettingsSnapshot")(
   function* (session: Session, thread: string) {
     const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
@@ -405,3 +421,29 @@ export const readThreadSettingsSnapshot = Effect.fn("nativeDesktop.threadSetting
     });
   },
 );
+
+class PlanWorkspaceChanged extends Schema.TaggedError<PlanWorkspaceChanged>()(
+  "PlanWorkspaceChanged",
+  {},
+) {}
+
+export const writePlanToWorkspace = Effect.fn("nativeDesktop.writePlanToWorkspace")(function* (
+  session: Session,
+  threadId: string,
+  expectedRoot: string,
+  relativePath: string,
+  markdown: string,
+) {
+  const {
+    projection: { thread },
+  } = yield* readThreadSettingsSnapshot(session, threadId);
+  const root = thread.worktreePath ?? (yield* readProjectRoot(session, thread.projectId));
+  if (!root || root !== expectedRoot || thread.archivedAt || thread.deletedAt)
+    return yield* new PlanWorkspaceChanged();
+  const rpc = yield* openEnvironmentRpc(session);
+  return yield* rpc[WS_METHODS.projectsWriteFile]({
+    cwd: root,
+    relativePath,
+    contents: normalizePlanMarkdownForExport(markdown),
+  });
+});

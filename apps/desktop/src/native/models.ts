@@ -1,7 +1,6 @@
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
 import { boundedSnapshotProjection } from "@t3tools/shared/orchestrationV2BoundedSnapshot";
 import { PermissionUnavailable, permissionsForProvider } from "./permissions.ts";
-import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
   isProviderInstancePickerReady,
   providerInstanceEntriesFor,
@@ -19,7 +18,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
-import { readThreadSettingsSnapshot, type Session } from "./projects.ts";
+import { readProjectRoot, readThreadSettingsSnapshot, type Session } from "./projects.ts";
 
 export class ModelUnavailable extends Schema.TaggedError<ModelUnavailable>()("ModelUnavailable", {
   message: Schema.String,
@@ -64,11 +63,7 @@ const readModelCatalog = Effect.fn("nativeDesktop.readModelCatalog")(function* (
       p.workspaceSnapshots?.some((w) => w.models !== undefined),
   );
   if (!scoped) return { config, root: undefined };
-  const projects = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "projects");
-  const { projects: records } = yield* projects.snapshot({
-    headers: { authorization: `Bearer ${session.token}` },
-  });
-  const root = records.find((p) => p.id === projectId && p.deletedAt === null)?.workspaceRoot;
+  const root = yield* readProjectRoot(session, projectId);
   return { config, root };
 });
 
