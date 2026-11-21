@@ -52,6 +52,7 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess } from "effect/process";
 import {
   BuildPlatform,
+  DESKTOP_APP_ID,
   BuildArch,
   StageWorkspaceConfig,
   type DesktopBuildIconAssets,
@@ -83,7 +84,6 @@ import {
 } from "./desktop-packaging.ts";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const WorkspaceConfig = Schema.Struct({
