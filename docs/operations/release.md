@@ -60,32 +60,22 @@ the version.
 
 ## Pull request macOS previews
 
-Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with T3 Connect enabled
-to the rolling `desktop-preview` prerelease, and works for fork PRs. The label is a one-shot request
-for the commit it is applied to: the trusted workflow removes it once the build is in hand, and later
-pushes do not build until a maintainer applies it again. Every signed preview is therefore a
-per-commit maintainer decision, which matters because the result carries the Developer ID signature.
-Vouching a contributor lets their labeled commits be signed; it is not a standing grant. The build is
-split so the Developer ID certificate never shares a job with PR code:
+Labeling a PR `preview:mac` publishes a Rune desktop DMG for Apple Silicon on the rolling
+`desktop-preview` prerelease, including for fork PRs. The release credentials enable Developer ID
+signing and notarization. The label requests a build of the current head commit. The trusted workflow
+consumes it once the build is ready. To publish a later commit, apply the label again.
 
-- `.github/workflows/desktop-macos-preview.yml` runs on `pull_request` with no secrets and builds
-  only the JS bundle from the PR (the same `js-bundle` artifact `release.yml` produces).
-- `.github/workflows/desktop-macos-preview-publish.yml` runs on `workflow_run` from `main`. It
-  refuses unless the PR is open, still labeled, its head is the built commit, and the author is a
-  bot, a collaborator, or listed in `.github/VOUCHED.td` (read from the default branch, so a PR cannot vouch
-  for itself). It then packages and signs the bundle through `release-desktop.yml` checked out at
-  `main`, so packaging, native helpers, and the Electron/desktop dependencies come from `main`, not
-  the PR. Only the version and the public T3 Connect identifiers in `.env.example` are read from the
-  PR commit, as data, so the signed app's passkey entitlement matches the bundle. A PR that changes
-  packaging must use the `channel=preview` release train above instead.
+- `.github/workflows/desktop-macos-preview.yml` builds the PR’s launcher, worker, server and web
+  client on a macOS runner with a read-only token.
+- `.github/workflows/desktop-macos-preview-publish.yml` runs from the default branch. It checks that
+  the PR is open, labeled and still at the built commit, then checks the author’s vouch status. A bot,
+  collaborator or vouched contributor is eligible. The signing runner packages the validated launcher
+  and JavaScript as data. The packaging code, Node, runtime dependencies and resource monitor come
+  from the trusted checkout. Use the `channel=preview` release train to preview packaging changes.
 
-Before handing the bundle to the signing runner, the trusted workflow validates its ZIP entries
-and accepts only regular files under `server/dist` and `desktop/dist-electron`, plus the directory
-entries that lead to those roots. The artifact cannot
-overwrite packaging code or installed dependencies. The bundle is copied into the app, never executed,
-on the signing runner. The
-`pull_request_target` cleanup job in the publish workflow removes the download when the PR closes, or
-when the label is removed by hand before a build consumed it, and never checks out PR code.
+The ZIP validator accepts the server distribution and the two Rune desktop files at their build
+paths. It also recognizes the format used by older Electron preview runs. Closing the PR or removing
+its unconsumed label removes the download.
 
 ## Required release credentials
 

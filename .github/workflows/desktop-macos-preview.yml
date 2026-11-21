@@ -1,7 +1,7 @@
 name: Desktop macOS Preview
 
 # Untrusted half of the macOS preview. This runs PR code (including fork PRs)
-# with a read-only token and no secrets, and only produces the JS bundle. The
+# with a read-only token and no secrets, and builds the launcher and JS bundle. The
 # trusted half, desktop-macos-preview-publish.yml, runs on workflow_run from
 # main, verifies the PR author is vouched, then packages, signs, notarizes, and
 # publishes the bundle without ever executing it.
@@ -28,10 +28,10 @@ concurrency:
 
 jobs:
   build:
-    name: Build preview JS bundle
+    name: Build native macOS preview
     if: github.event.label.name == 'preview:mac'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: blacksmith-12vcpu-macos-26
+    timeout-minutes: 60
     steps:
       # This repository is public, so Git needs no credentials. checkout's
       # credential cleanup runs submodule foreach even with submodules disabled,
@@ -73,36 +73,34 @@ jobs:
           # Public T3 Connect identifiers (Clerk publishable key, relay URL).
           cp .env.example .env
 
-      # PR heads from before build:desktop:bundle use the full build, which
-      # compiles the Linux browser secret helper and needs libsecret.
-      - name: Check bundle-only build support
-        id: bundle_build
-        run: |
-          script="$(node -p "['build:desktop:electron:bundle', 'build:desktop:bundle', 'build:desktop'].find(name => require('./package.json').scripts[name])")"
-          echo "script=$script" >> "$GITHUB_OUTPUT"
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
 
-      - if: steps.bundle_build.outputs.script == 'build:desktop'
-        uses: ./.github/actions/setup-apt-mirrors
-
-      - name: Install browser secret helper build libraries
-        if: steps.bundle_build.outputs.script == 'build:desktop'
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
-      # desktop-macos-preview-publish.yml packages this bundle as the preview
-      # channel. The Linux browser secret helper is not part of a macOS app.
-      - name: Build JS bundle
+      - name: Build native launcher and JavaScript bundle
         env:
           T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && 'preview' || 'dev' }}
-        run: vp run ${{ steps.bundle_build.outputs.script }}
+        run: |
+          set -euo pipefail
+          vp run build:desktop:bundle
+          T3CODE_RUNE_PRODUCT_NAME="$(node --input-type=module -e '
+            import { resolveDesktopProductName } from "./scripts/desktop-packaging.ts";
+            import manifest from "./apps/desktop/package.json" with { type: "json" };
+            console.log(resolveDesktopProductName(manifest.version));
+          ')"
+          export T3CODE_RUNE_PRODUCT_NAME
+          cargo build --locked --release --bin t3-code --manifest-path apps/desktop/native/Cargo.toml --target aarch64-apple-darwin --target-dir apps/desktop/native/target
+          cp apps/desktop/native/target/aarch64-apple-darwin/release/t3-code apps/desktop/dist/rune-bundle/t3-code
 
-      # Same layout as release.yml's js-bundle so release-desktop.yml can
-      # package it unchanged.
-      - name: Upload JS bundle
+      - name: Upload native preview bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: js-bundle
           path: |
             apps/server/dist
-            apps/desktop/dist-electron
+            apps/desktop/dist/rune-bundle/t3-code
+            apps/desktop/dist/rune-bundle/rune-projects.mjs
           if-no-files-found: error
           retention-days: 1

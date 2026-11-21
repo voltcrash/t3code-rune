@@ -15,6 +15,37 @@ export async function stageMacBinary(slices, dest) {
   else NodeChildProcess.execFileSync("lipo", ["-create", ...slices, "-output", dest]);
 }
 
+export async function stagePrebuiltMacLauncher(source, dest, arch) {
+  const machines = arch === "universal" ? ["arm64", "x86_64"] : [arch === "x64" ? "x86_64" : arch];
+  const architectures = NodeChildProcess.execFileSync("lipo", ["-archs", source], {
+    encoding: "utf8",
+  })
+    .trim()
+    .split(/\s+/);
+  if (
+    architectures.length !== machines.length ||
+    !machines.every((cpu) => architectures.includes(cpu))
+  ) {
+    throw new Error(`The prebuilt macOS launcher must match the requested ${arch} architecture.`);
+  }
+  for (const cpu of machines) {
+    const header = NodeChildProcess.execFileSync("otool", ["-arch", cpu, "-hv", source], {
+      encoding: "utf8",
+    });
+    const build = NodeChildProcess.execFileSync("vtool", ["-arch", cpu, "-show-build", source], {
+      encoding: "utf8",
+    });
+    if (
+      !/^MH_MAGIC_64\s+\S+\s+\S+\s+\S+\s+EXECUTE\s/m.test(header) ||
+      !/^\s*(?:platform MACOS|cmd LC_VERSION_MIN_MACOSX)$/m.test(build)
+    ) {
+      throw new Error(`The prebuilt ${cpu} launcher must be a macOS executable.`);
+    }
+  }
+  await NodeFSP.copyFile(source, dest);
+  await NodeFSP.chmod(dest, 0o755);
+}
+
 async function downloadNode(tmp, arch, version) {
   const sum = checksums[version]?.[arch];
   if (!sum)
