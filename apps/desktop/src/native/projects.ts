@@ -43,6 +43,7 @@ import {
 import { parseOAuthScope } from "@t3tools/shared/oauthScope";
 import { isHostPath, normalizeProjectPathForDispatch } from "@t3tools/shared/path";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import { permissionLabel } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import * as NodePath from "@effect/platform-node/NodePath";
 import * as Path from "effect/Path";
@@ -182,6 +183,11 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
       isSelected: false,
     }),
     model: thread.modelSelection.model,
+    permission: {
+      instance: thread.modelSelection.instanceId,
+      mode: thread.runtimeMode,
+      label: permissionLabel(thread.runtimeMode),
+    },
     settled: thread.settledOverride === "settled",
     recent_at: threadRecentUse(threadSearchSubject(shell, null)),
     order_key: thread.activeOrderKey ?? null,

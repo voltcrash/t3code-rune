@@ -1,8 +1,3 @@
-import {
-  runtimeModeMessages,
-  managedRuntimeModeDenial,
-} from "@t3tools/client-runtime/contract-labels";
-import { mFallback } from "gt-i18n";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import {
   isProviderInstancePickerReady,
@@ -34,6 +29,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 import { prepareAttachments, retryAttachments } from "./attachments.ts";
+import { permissionLabel, permissionOptions } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, projectSummary, type Session } from "./projects.ts";
 
@@ -91,10 +87,7 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
     now: yield* Clock.currentTimeMillis,
   });
   const entries = providerInstanceEntriesFor(config.providers, config.settings, projectId);
-  const permissions: Record<
-    string,
-    Array<{ mode: RuntimeMode; label: string; description: string; denied?: string }>
-  > = Object.create(null);
+  const permissions: Record<string, ReturnType<typeof permissionOptions>> = Object.create(null);
   const choices = entries.filter(isProviderInstancePickerReady).flatMap((entry) => {
     const supported = entry.snapshot.supportedRuntimeModes;
     const modes = RuntimeMode.literals.filter(
@@ -105,15 +98,7 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
       : modes[0];
     const runtime = mode && clampManagedRuntimeMode(config.managedPolicy, mode, modes);
     if (!runtime) return [];
-    permissions[entry.instanceId] = modes.map((mode) => {
-      const denied = managedRuntimeModeDenial(config.managedPolicy, mode);
-      return {
-        mode,
-        label: mFallback(runtimeModeMessages[mode].label),
-        description: mFallback(runtimeModeMessages[mode].description),
-        ...(denied ? { denied } : {}),
-      };
-    });
+    permissions[entry.instanceId] = permissionOptions(modes, config.managedPolicy);
     const unavailable = new Set(
       entry.snapshot.subProviders?.filter((s) => s.unavailableReason).map((s) => s.name),
     );
@@ -326,6 +311,11 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
       title: thread.title,
       branch: thread.branch,
       model: thread.modelSelection.model,
+      permission: {
+        instance: thread.modelSelection.instanceId,
+        mode: thread.runtimeMode,
+        label: permissionLabel(thread.runtimeMode),
+      },
       status:
         run?.status === "preparing"
           ? "preparing"

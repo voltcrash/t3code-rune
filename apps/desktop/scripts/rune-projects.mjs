@@ -1,6 +1,8 @@
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { openTerminal } from "./rune-terminal.mjs";
+import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
+import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -393,6 +395,46 @@ async function openThread(owner, request, reply) {
   }
 }
 
+async function loadPermissions(request, reply) {
+  const record = watching;
+  const target = { type: "threadpermissions", watch: request.watch, operation: request.operation };
+  if (!record || record.id !== request.watch || !record.owner.canOperate)
+    return reply({ ...target, instance: "", error: "Reopen this thread to load its permissions." });
+  record.permissionRead?.abort();
+  const controller = new AbortController();
+  record.permissionRead = controller;
+  const signal = AbortSignal.any([
+    record.controller.signal,
+    record.owner.signal,
+    controller.signal,
+  ]);
+  const instance = record.state.projection.thread.modelSelection.instanceId;
+  try {
+    const options = await Effect.runPromise(
+      openEnvironmentRpc(record.owner).pipe(
+        Effect.flatMap((rpc) => readThreadPermissions(rpc, instance)),
+        Effect.scoped,
+        Effect.timeout("12 seconds"),
+        Effect.provide(record.owner.http),
+      ),
+      { signal },
+    );
+    if (!signal.aborted) reply({ ...target, instance, options });
+  } catch (error) {
+    if (!signal.aborted)
+      reply({
+        ...target,
+        instance,
+        error:
+          error instanceof PermissionUnavailable
+            ? error.message
+            : "Couldn’t load permissions. Reopen the picker to retry.",
+      });
+  } finally {
+    if (record.permissionRead === controller) record.permissionRead = undefined;
+  }
+}
+
 async function interruptRun(owner, request, reply) {
   const result = {
     type: "stopresult",
@@ -473,7 +515,11 @@ function localServer() {
 }
 
 function requestError(error, type, editing) {
-  if (error instanceof AttachmentUnavailable || error instanceof NewThreadUnavailable)
+  if (
+    error instanceof AttachmentUnavailable ||
+    error instanceof NewThreadUnavailable ||
+    error instanceof PermissionUnavailable
+  )
     return error.message;
   if (type === "preparescratch")
     return "Couldn’t open the scratch workspace on this environment. Try again.";
@@ -735,6 +781,8 @@ try {
           } else record.terminal.input(request);
         }
       }
+    } else if (request?.type === "threadpermissions") {
+      void loadPermissions(request, reply);
     } else if (request?.type === "inspectcommand") {
       void inspectCommand(request);
     } else if (request?.type === "imagehandled") {

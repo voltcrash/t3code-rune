@@ -13,6 +13,7 @@ mod composer;
 mod image_decode;
 mod navigation;
 mod new_thread;
+mod permissions;
 mod questions;
 mod stage;
 mod terminal;
@@ -114,6 +115,14 @@ enum Reply {
     RequestResult {
         thread: String,
         version: String,
+        error: Option<String>,
+    },
+    ThreadPermissions {
+        watch: u64,
+        operation: String,
+        instance: String,
+        #[serde(default)]
+        options: Vec<permissions::OptionRow>,
         error: Option<String>,
     },
     MessageSent {
@@ -239,7 +248,12 @@ enum Request<'a> {
         run: String,
         operation: String,
     },
+    ThreadPermissions {
+        watch: u64,
+        operation: String,
+    },
     SendMessage {
+        permission: Option<permissions::Selection>,
         thread: String,
         text: String,
         files: Vec<String>,
@@ -279,6 +293,7 @@ struct Desktop {
     workspace: Workspace,
     history: navigation::History,
     new_threads: new_thread::NewThreads,
+    permission_menu: Option<permissions::Menu>,
     palette: Option<workspace::palette::Palette>,
     request_id: u64,
     pending: bool,
@@ -303,6 +318,7 @@ impl Desktop {
             workspace: Workspace::new(),
             history: Default::default(),
             new_threads: Default::default(),
+            permission_menu: None,
             palette: None,
             request_id: 0,
             pending: false,
@@ -331,6 +347,7 @@ impl Desktop {
         if self.pending || self.output.is_none() {
             return;
         }
+        self.permission_menu = None;
         if matches!(request, Request::Thread { .. }) {
             self.close_conversation_inspectors();
         }
@@ -599,6 +616,7 @@ impl Desktop {
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::WorkspacePaused { .. }
+            | Reply::ThreadPermissions { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
@@ -838,7 +856,7 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
-            if s.launch_permission_key(ev, tx) {
+            if s.permission_shortcut(ev, tx) {
                 return true;
             }
             if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
@@ -938,6 +956,17 @@ fn start() -> io::Result<()> {
                 continue;
             }
             handle.update(move |s, tx| {
+                if let Reply::ThreadPermissions {
+                    watch,
+                    operation,
+                    instance,
+                    options,
+                    error,
+                } = reply.reply
+                {
+                    s.receive_permissions(watch, &operation, &instance, options, error, tx);
+                    return;
+                }
                 if let Reply::TerminalCopy {
                     watch,
                     operation,
@@ -961,6 +990,7 @@ fn start() -> io::Result<()> {
                         }
                 );
                 s.receive(reply);
+                s.close_stale_permissions();
                 if update_palette && let Some(palette) = &s.palette {
                     palette.reveal_selection(tx);
                 }

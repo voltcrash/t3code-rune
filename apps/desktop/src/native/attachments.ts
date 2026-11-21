@@ -165,6 +165,17 @@ export const retryAttachments = Effect.fn("nativeDesktop.retryAttachments")(func
   );
   if (available.every(Boolean)) return cached;
 
+  const committed = yield* committedAttachments(session, thread, operation, onMissingThread);
+  if (committed) return committed;
+  return yield* prepareAttachments(session, rpc, paths, thread, operation);
+});
+
+export const committedAttachments = Effect.fn("nativeDesktop.committedAttachments")(function* (
+  session: Session,
+  thread: string,
+  operation: string,
+  onMissingThread?: () => void,
+) {
   // A lost receipt can outlive the pending upload. Replay with the thread's committed attachment IDs.
   const api = yield* makeEnvironmentHttpApiGroupClient(session.httpBaseUrl, "orchestration");
   const target = { headers: headersFor(session), params: { threadId: ThreadId.make(thread) } };
@@ -191,5 +202,5 @@ export const retryAttachments = Effect.fn("nativeDesktop.retryAttachments")(func
     }
     cursor = page.hasMoreHistory ? page.nextCursor : null;
   }
-  return yield* prepareAttachments(session, rpc, paths, thread, operation);
+  return null;
 });

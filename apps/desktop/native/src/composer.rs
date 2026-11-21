@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub(super) struct Draft {
     editor: TextEdit,
     files: Vec<String>,
+    pub(super) permission: Option<crate::permissions::Selection>,
     operation: Option<String>,
 }
 
@@ -16,11 +17,15 @@ impl Default for Draft {
             editor: TextEdit::new(""),
             operation: None,
             files: vec![],
+            permission: None,
         }
     }
 }
 
 impl Draft {
+    pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
+        self.permission = Some(choice);
+    }
     pub(super) fn preserve_answer(&mut self, value: &str) {
         let combined = if self.editor.text.is_empty() {
             value.to_owned()
@@ -47,6 +52,7 @@ impl Draft {
             .clone();
         Some(Request::SendMessage {
             thread: thread.into(),
+            permission: self.permission.clone(),
             text: self.editor.text.clone(),
             files: self.files.clone(),
             operation,
@@ -162,7 +168,14 @@ impl Desktop {
     }
 }
 
-pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark: bool) -> El {
+pub(super) fn view(
+    s: &Desktop,
+    thread: &crate::Thread,
+    theme: &tok::Theme,
+    dark: bool,
+    overlays: &mut Vec<El>,
+) -> El {
+    let id = thread.id.as_str();
     let draft = &s.workspace.drafts[id];
     let input_id = id.to_owned();
     let edit_id = id.to_owned();
@@ -204,8 +217,24 @@ pub(super) fn view(s: &Desktop, id: &str, model: &str, theme: &tok::Theme, dark:
     if !asking {
         controls = controls.child(target.button(theme, s.pending));
     }
+    if !asking && let Some(permission) = &thread.permission {
+        let selected = draft
+            .permission
+            .as_ref()
+            .or(Some(permission))
+            .filter(|p| p.instance == permission.instance);
+        controls = controls.child(crate::permissions::control(
+            s,
+            selected.map(|p| (p.mode.as_str(), p.label.as_str())),
+            theme,
+            &rune_kit::Kit::neutral(dark),
+            overlays,
+            s.pending || s.workspace.terminal_watch().is_none(),
+            true,
+        ));
+    }
     controls = controls.child(spacer()).child(
-        text(model)
+        text(&thread.model)
             .font(TextStyle::new(13.0, 500.0))
             .color(theme.text_secondary)
             .truncate(),
@@ -366,6 +395,11 @@ mod tests {
         };
         ws.finish_message("thread", "unrelated");
         let draft = ws.drafts.get_mut("thread").unwrap();
+        draft.select_permission(crate::permissions::Selection {
+            instance: "devReplay".into(),
+            mode: "approval-required".into(),
+            label: "Supervised".into(),
+        });
         let Request::SendMessage {
             operation: retry,
             text,
