@@ -553,7 +553,7 @@ export class MissingDesktopBuildInputError extends Schema.TaggedError<MissingDes
   {
     artifact: DesktopBuildInputArtifact,
     artifactPath: Schema.String,
-    buildCommand: Schema.Literal("vp run build:desktop:bundle"),
+    buildCommand: Schema.Literal("vp run build:desktop:electron:bundle"),
   },
 ) {
   override get message(): string {
@@ -1461,7 +1461,7 @@ const buildDesktopBundlesUnlocked = Effect.fn("buildDesktopBundlesUnlocked")(fun
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop:bundle"]);
+  const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop:electron:bundle"]);
   yield* Effect.acquireUseRelease(
     Effect.forEach(releasePackageFiles, (relativePath) =>
       Effect.gen(function* () {
@@ -1486,7 +1486,7 @@ const buildDesktopBundlesUnlocked = Effect.fn("buildDesktopBundlesUnlocked")(fun
             env: { APP_VERSION: appVersion },
             extendEnv: true,
           }),
-          { label: "vp run build:desktop:bundle", verbose },
+          { label: "vp run build:desktop:electron:bundle", verbose },
         ).pipe(Effect.scoped);
       }),
     (originals, exit) =>
@@ -3023,7 +3023,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     if (!(yield* fs.exists(input.artifactPath))) {
       return yield* new MissingDesktopBuildInputError({
         ...input,
-        buildCommand: "vp run build:desktop:bundle",
+        buildCommand: "vp run build:desktop:electron:bundle",
       });
     }
   }
@@ -3076,7 +3076,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     return yield* new MissingDesktopBuildInputError({
       artifact: "bundled-server-client",
       artifactPath: bundledClientEntry,
-      buildCommand: "vp run build:desktop:bundle",
+      buildCommand: "vp run build:desktop:electron:bundle",
     });
   }
 
@@ -3514,7 +3514,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   skipBuild: Flag.Boolean("skip-build").pipe(
     Flag.withDescription(
-      "Skip `vp run build:desktop:bundle` and use existing dist artifacts (env: T3CODE_DESKTOP_SKIP_BUILD).",
+      "Skip `vp run build:desktop:electron:bundle` and use existing dist artifacts (env: T3CODE_DESKTOP_SKIP_BUILD).",
     ),
     Flag.optional,
   ),

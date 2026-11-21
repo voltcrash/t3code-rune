@@ -274,7 +274,7 @@ jobs:
 
       # The artifact root is `apps/` (upload-artifact keeps the least common
       # ancestor of its paths), so extracting into `apps` restores
-      # apps/server/dist and apps/desktop/dist-electron at their build paths.
+      # the server and selected desktop bundle at their build paths.
       - name: Download JS bundle
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

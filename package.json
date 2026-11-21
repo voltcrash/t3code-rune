@@ -27,6 +27,7 @@
     "build:marketing": "vp run --filter @t3tools/marketing build",
     "build:desktop": "vp run --filter @t3tools/desktop build",
     "build:desktop:bundle": "vp run --filter @t3tools/desktop build:bundle",
+    "build:desktop:electron:bundle": "vp run --filter @t3tools/desktop build:electron:bundle",
     "build:resource-monitor": "cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml",
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck",
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",
