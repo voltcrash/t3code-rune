@@ -25,3 +25,24 @@ it.each([true, false])(
     expect(await NodeFSP.readFile(deb, "utf8")).toBe("previous deb");
   },
 );
+
+it("refuses to replace any part of an update feed", async () => {
+  await using output = await NodeFSP.mkdtempDisposable(
+    NodePath.join(NodeOS.tmpdir(), "rune-update-"),
+  );
+  const staged = NodePath.join(output.path, "stage");
+  await NodeFSP.mkdir(staged);
+  await NodeFSP.writeFile(NodePath.join(staged, "build.zip"), "new archive");
+  await NodeFSP.writeFile(NodePath.join(staged, "latest-mac.yml"), "new manifest");
+  const manifest = NodePath.join(output.path, "latest-mac.yml");
+  await NodeFSP.writeFile(manifest, "prior manifest");
+  await expect(
+    publishRuneArtifacts(staged, output.path, ["build.zip", "latest-mac.yml"], {
+      requireFresh: true,
+    }),
+  ).rejects.toThrow(/fresh output directory/);
+  expect(await NodeFSP.readFile(manifest, "utf8")).toBe("prior manifest");
+  await expect(NodeFSP.access(NodePath.join(output.path, "build.zip"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+});

@@ -1,12 +1,19 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
-export async function publishRuneArtifacts(staged, output, names) {
+export async function publishRuneArtifacts(staged, output, names, { requireFresh = false } = {}) {
   const previous = new Set();
-  if (names.length > 1) {
+  if (requireFresh || names.length > 1) {
     for (const name of names) {
       try {
-        await NodeFSP.cp(NodePath.join(output, name), NodePath.join(staged, name + ".previous"), {
+        const destination = NodePath.join(output, name);
+        if (requireFresh) {
+          await NodeFSP.lstat(destination);
+          throw new Error(
+            `Update asset already exists: ${destination}. Choose a fresh output directory.`,
+          );
+        }
+        await NodeFSP.cp(destination, NodePath.join(staged, name + ".previous"), {
           mode: NodeFSP.constants.COPYFILE_FICLONE,
           verbatimSymlinks: true,
         });

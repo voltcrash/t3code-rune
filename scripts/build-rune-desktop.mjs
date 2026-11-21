@@ -19,8 +19,10 @@ import rootPackage from "../package.json" with { type: "json" };
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 import { bundleLinuxLibatomic, stageRuntimeExternals } from "./build-cli-archive.ts";
 import {
+  DESKTOP_APP_ID,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
+  resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
   resolveResourceMonitorRustTargets,
   withDesktopBuildLock,
@@ -64,6 +66,7 @@ const { values } = NodeUtil.parseArgs({
     "keep-stage": { type: "boolean" },
     verbose: { type: "boolean" },
     "output-dir": { type: "string" },
+    "update-feed": { type: "boolean" },
     platform: { type: "string" },
     "skip-build": { type: "boolean" },
     "prebuilt-mac-launcher": { type: "boolean" },
@@ -88,6 +91,7 @@ Usage: node scripts/build-rune-desktop.mjs [options]
   --build-version <version>     Version to embed in the app and artifact names
   --output-dir <dir>            Directory for completed artifacts (default: release)
   --signed                      Sign the macOS or Windows distribution
+  --update-feed                 Build a macOS stable or nightly update with its ZIP and block maps
   --skip-build                  Use the matching prebuilt server, client and desktop worker
   --prebuilt-mac-launcher       Also use the macOS preview launcher in the prebuilt bundle
   --keep-stage                  Keep staged packaging files
@@ -160,6 +164,10 @@ const output = NodePath.resolve(
 const mac = platform === "mac";
 const win = platform === "win";
 const formats = target.split(",");
+const updateFeed = values["update-feed"] ?? false;
+if (updateFeed && (!mac || !formats.includes("zip"))) {
+  throw new Error("--update-feed requires a macOS zip or dmg,zip target.");
+}
 const buildDeb = formats.includes("deb");
 const cpu = arch === "arm64" ? "aarch64" : "x86_64";
 const run = (command, args, options) =>
@@ -235,6 +243,10 @@ async function buildRunePackage() {
     throw new Error("Specify a release version such as 1.2.3 or 1.2.3-nightly.20261121.42.");
   }
   if (signed && !mac && !win) throw new Error("Rune signing supports macOS and Windows builds.");
+  const channel = resolveDesktopUpdateChannel(version);
+  if (updateFeed && channel !== "nightly" && !/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error("--update-feed requires a stable or nightly release version.");
+  }
   const signing = signed && mac ? readMacSigning() : undefined;
   const windowsSigning = signed && win ? readWindowsSigning() : undefined;
   const product = resolveDesktopProductName(version);
@@ -390,6 +402,7 @@ async function buildRunePackage() {
   );
 
   const artifactName = (format) => {
+    if (updateFeed) return `T3-Code-${version}-${arch}.${format}`;
     const artifactArch = format === "deb" && arch === "x64" ? "amd64" : arch;
     const extension = format === "nsis" ? "exe" : format;
     return `T3-Code-Rune-${version}-${platform}-${artifactArch}.${extension}`;
@@ -400,7 +413,7 @@ async function buildRunePackage() {
       NodePath.join(app, "Contents/Info.plist"),
       plist.build({
         CFBundlePackageType: "APPL",
-        CFBundleIdentifier: "com.t3tools.t3code.rune",
+        CFBundleIdentifier: updateFeed ? DESKTOP_APP_ID : "com.t3tools.t3code.rune",
         CFBundleName: product,
         CFBundleDisplayName: product,
         CFBundleExecutable: "t3-code",
@@ -517,7 +530,21 @@ async function buildRunePackage() {
     }
   }
   const names = formats.map(artifactName);
-  const publish = Effect.promise(() => publishRuneArtifacts(published, output, names));
+  if (updateFeed) {
+    const { writeMacUpdateFiles } = await import("./lib/rune-mac-update.mjs");
+    names.push(
+      ...(await writeMacUpdateFiles(published, {
+        version,
+        channel,
+        arch,
+        zip: artifactName("zip"),
+        dmg: formats.includes("dmg") ? artifactName("dmg") : undefined,
+      })),
+    );
+  }
+  const publish = Effect.promise(() =>
+    publishRuneArtifacts(published, output, names, { requireFresh: updateFeed }),
+  );
   // Separate checkouts can publish to the same output directory.
   const [checkoutDir, outputDir] = await Promise.all(
     [repoRoot, output].map((path) => NodeFSP.stat(path, { bigint: true })),

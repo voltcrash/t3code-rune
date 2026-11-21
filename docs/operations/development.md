@@ -327,7 +327,11 @@ vp run dist:desktop:linux --arch arm64
 
 `dist:desktop:dmg` builds a native disk image and a ZIP of the same app. It defaults to the host
 architecture. Use `--arch x64`, `--arch arm64`, or `--arch universal` to select the target and
-`--keep-stage` to retain packaging files for inspection.
+`--keep-stage` to retain packaging files for inspection. For a stable or nightly macOS update,
+add `--update-feed` to use the installed app’s bundle ID and produce the channel manifest and
+block maps alongside the archives. Use a fresh output directory per release. Intel and ARM64
+outputs can share it for the release manifest merge. Use `--signed` with the release identity
+for installed clients.
 
 `dist:desktop:win` builds the native per-user installer. Install NSIS 3.08 or later and put
 `makensis` on PATH. Use the Node distribution for the target architecture. For a Linux cross-build,
