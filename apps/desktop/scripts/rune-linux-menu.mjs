@@ -61,6 +61,9 @@ function menuItems() {
       item("minimize", msg("Minimize", { $context: "Window menu item" }), "Control", "m"),
       item("maximize", msg("Zoom", { $context: "Window menu item, resizes the window" })),
     ]),
+    submenu(msg("Help", { $context: "menu bar title" }), [
+      item("check-updates", msg("Check for Updates...")),
+    ]),
   );
   return items;
 }

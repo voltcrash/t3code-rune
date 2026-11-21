@@ -26,6 +26,7 @@ mod questions;
 mod sidebar_layout;
 mod stage;
 mod terminal;
+mod updates;
 mod window_zoom;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
@@ -36,6 +37,10 @@ enum Reply {
     #[cfg(target_os = "linux")]
     MenuAction {
         action: linux_menu::Action,
+    },
+    ReleaseCheck {
+        #[serde(flatten)]
+        result: updates::Result,
     },
     WindowZoom {
         factor: f64,
@@ -285,6 +290,9 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    CheckUpdates,
+    DownloadUpdate,
+    ShowUpdate,
     #[cfg(target_os = "linux")]
     X11Menu {
         window: u32,
@@ -483,6 +491,7 @@ struct Desktop {
     saving_smoothing: bool,
     typography_advanced: bool,
     settings_open: bool,
+    update: updates::Panel,
     appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
     answer_advance: Option<questions::Advance>,
@@ -526,6 +535,7 @@ impl Desktop {
             saving_smoothing: false,
             typography_advanced: false,
             settings_open: false,
+            update: Default::default(),
             appearance_error: None,
             link: TextEdit::new("").secure(),
             environment: None,
@@ -720,6 +730,10 @@ impl Desktop {
                 self.sidebar_layout.width = width;
                 self.sidebar_layout.open = open.unwrap_or(true);
             }
+            return;
+        }
+        if let Reply::ReleaseCheck { result } = message.reply {
+            self.update.receive(result);
             return;
         }
         if let Reply::WindowZoom { factor } = message.reply {
@@ -1059,6 +1073,7 @@ impl Desktop {
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
             | Reply::Typography { .. }
+            | Reply::ReleaseCheck { .. }
             | Reply::WindowZoom { .. }
             | Reply::Appearance { .. }
             | Reply::RefreshFavicons { .. }
@@ -1096,6 +1111,7 @@ impl Desktop {
                     error: lost.then(|| {
                         "The local environment stopped. Reconnect to start it again.".to_owned()
                     }),
+                    update: std::mem::take(&mut self.update),
                     zoom: self.zoom,
                     ..Self::new()
                 };
@@ -1251,6 +1267,7 @@ fn connection(s: &Desktop, cx: &mut Cx<Desktop>, theme: tok::Theme) -> El {
     }
     let mut overlays = Vec::new();
     appearance::overlay(s, cx, &theme, &mut overlays);
+    updates::overlay(s, &theme, s.dark(cx), &mut overlays);
     rune_kit::root(root, overlays)
 }
 
@@ -1445,6 +1462,9 @@ fn start() -> io::Result<()> {
             if linux_menu::shortcut(s, ev, tx) {
                 return true;
             }
+            if s.update.open {
+                return false;
+            }
             if s.zoom_key(ev, tx) {
                 return true;
             }
@@ -1565,6 +1585,9 @@ fn start() -> io::Result<()> {
     let app = window_zoom::view_menu(app);
     let app = app
         .tab_visits_controls(true)
+        .menu_item(
+            rune::MenuItem::new("Check for Updates…", Desktop::check_updates).id("check-updates"),
+        )
         .menu_item(
             rune::MenuItem::new("Settings…", Desktop::open_settings)
                 .id("settings")

@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
+import { runeUpdates } from "./rune-updates.mjs";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
@@ -57,9 +58,10 @@ import {
 
 const packaged = process.argv[2] === "--packaged";
 const sourceBuild = process.argv[2] === "--source-build";
+const currentVersion = import.meta.t3codeVersion ?? desktopPackage.version;
 const buildStage = resolveDesktopAppStageLabel({
   isDevelopment: !packaged && !sourceBuild,
-  appVersion: import.meta.t3codeVersion ?? desktopPackage.version,
+  appVersion: currentVersion,
 }).toLowerCase();
 
 let session;
@@ -621,6 +623,13 @@ const homes = packaged
       },
     })
   : { server: sourceHome, preferences: sourceHome };
+const releaseUpdate = runeUpdates({
+  current: currentVersion,
+  resources: packaged ? import.meta.dirname : undefined,
+  cache: NodePath.join(homes.preferences, "update-cache"),
+  signal: lifetime.signal,
+  publish: write,
+});
 const clientSettingsPath = NodePath.join(homes.server, "userdata", "client-settings.json");
 let typographySettings = DEFAULT_CLIENT_SETTINGS;
 function publishTypography(error) {
@@ -1244,6 +1253,14 @@ try {
           )
           .catch(() => {});
       }
+      continue;
+    }
+    if (
+      request?.type === "checkupdates" ||
+      request?.type === "downloadupdate" ||
+      request?.type === "showupdate"
+    ) {
+      void releaseUpdate(request.type);
       continue;
     }
     if (request?.type === "setwindowzoom") {

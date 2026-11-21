@@ -22,6 +22,7 @@ import {
   DESKTOP_APP_ID,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
+  resolveGitHubPublishConfig,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
   resolveResourceMonitorRustTargets,
@@ -344,6 +345,19 @@ async function buildRunePackage() {
   await NodeFSP.mkdir(bin, { recursive: true });
   await NodeFSP.mkdir(helpers, { recursive: true });
   await NodeFSP.mkdir(server, { recursive: true });
+  const publishConfig = updateFeed
+    ? await Effect.runPromise(resolveGitHubPublishConfig(channel))
+    : undefined;
+  const writeReleaseSource = (format) =>
+    NodeFSP.writeFile(
+      NodePath.join(resources, "rune-release.json"),
+      JSON.stringify({
+        repository: publishConfig ? `${publishConfig.owner}/${publishConfig.repo}` : null,
+        arch,
+        format,
+      }),
+    );
+  if (updateFeed) await writeReleaseSource(mac ? "zip" : win ? "exe" : "deb");
   if (wslRuntime !== undefined) {
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -566,6 +580,7 @@ async function buildRunePackage() {
       });
     }
     if (unpacked || formats.includes("AppImage")) {
+      if (linuxUpdate) await writeReleaseSource("AppImage");
       if (buildDeb) await NodeFSP.rm(NodePath.join(app, "DEBIAN"), { recursive: true });
       await Effect.runPromise(
         bundleLinuxLibatomic({ repoRoot, contentDir: resources, executablePath: bundledNode }).pipe(

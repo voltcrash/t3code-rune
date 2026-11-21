@@ -23,6 +23,7 @@ enum Action {
     ToggleFiles,
     OpenFile,
     Settings,
+    CheckUpdates,
     Refresh,
     Project(usize),
     Thread(usize),
@@ -40,6 +41,7 @@ impl Action {
             Self::Scratch => "scratch".into(),
             Self::AddProject => "add-project".into(),
             Self::Projects => "projects".into(),
+            Self::CheckUpdates => "check-updates".into(),
             Self::Settings => "settings".into(),
             Self::Back => "go-back".into(),
             Self::Forward => "go-forward".into(),
@@ -59,6 +61,7 @@ impl Action {
             Self::Scratch => "New thread without a project",
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
+            Self::CheckUpdates => "Check for Updates…",
             Self::Settings => "Settings",
             Self::GoToFile => "Go to file",
             Self::ToggleFiles => "Toggle right panel",
@@ -107,7 +110,7 @@ impl Action {
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
-            Self::Refresh => &REFRESH,
+            Self::Refresh | Self::CheckUpdates => &REFRESH,
             Self::ToggleTerminal => &crate::terminal::ICON,
         }
     }
@@ -228,6 +231,7 @@ impl Palette {
                 }
                 command(Action::Projects);
                 command(Action::Settings);
+                command(Action::CheckUpdates);
                 command(Action::ToggleSidebar);
                 if available.files {
                     command(Action::GoToFile);
@@ -531,6 +535,7 @@ impl Desktop {
             }
             Action::Projects => self.show_projects(),
             Action::Settings => self.open_settings(tx),
+            Action::CheckUpdates => self.check_updates(tx),
             Action::PickProject | Action::Project(_) | Action::GoToFile | Action::OpenFile => {
                 unreachable!()
             }

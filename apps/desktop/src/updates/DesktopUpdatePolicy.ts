@@ -15,7 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
-import * as DesktopObservability from "../app/DesktopObservability.ts";
+import { makeComponentLogger } from "../app/DesktopComponentLogger.ts";
 
 export interface UpdatePolicy {
   readonly mode: ManagedUpdatesMode;
@@ -47,7 +47,7 @@ function resolveUpdatePolicy(document: ManagedPolicyDocument | undefined): Updat
   };
 }
 
-const { logInfo, logError } = DesktopObservability.makeComponentLogger("desktop-update-policy");
+const { logInfo, logError } = makeComponentLogger("desktop-update-policy");
 
 const make = Effect.gen(function* () {
   return yield* (yield* DesktopManagedPolicy.DesktopManagedPolicy).read.pipe(
