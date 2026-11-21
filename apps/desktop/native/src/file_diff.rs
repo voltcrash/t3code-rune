@@ -169,6 +169,7 @@ impl Desktop {
         {
             return;
         }
+        self.close_file_preview();
         let operation = Uuid::new_v4().to_string();
         self.workspace.diff = Panel {
             selection: Some(Selection {

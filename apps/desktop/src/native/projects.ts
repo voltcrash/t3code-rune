@@ -422,10 +422,60 @@ export const readThreadSettingsSnapshot = Effect.fn("nativeDesktop.threadSetting
   },
 );
 
-class PlanWorkspaceChanged extends Schema.TaggedError<PlanWorkspaceChanged>()(
-  "PlanWorkspaceChanged",
+class ThreadWorkspaceChanged extends Schema.TaggedError<ThreadWorkspaceChanged>()(
+  "ThreadWorkspaceChanged",
   {},
 ) {}
+
+const threadWorkspaceRoot = Effect.fn("nativeDesktop.threadWorkspaceRoot")(function* (
+  session: Session,
+  threadId: string,
+  expectedRoot: string,
+) {
+  const {
+    projection: { thread },
+  } = yield* readThreadSettingsSnapshot(session, threadId);
+  const root = thread.worktreePath ?? (yield* readProjectRoot(session, thread.projectId));
+  if (!root || root !== expectedRoot || thread.archivedAt || thread.deletedAt)
+    return yield* new ThreadWorkspaceChanged();
+  return root;
+});
+
+type WorkspaceFileInput =
+  | { readonly action: "search"; readonly query: string }
+  | { readonly action: "read"; readonly path: string };
+
+export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(function* (
+  session: Session,
+  threadId: string,
+  expectedRoot: string,
+  input: WorkspaceFileInput,
+  activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined,
+) {
+  const cwd =
+    input.action === "search" && activeRpc
+      ? expectedRoot
+      : yield* threadWorkspaceRoot(session, threadId, expectedRoot);
+  const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
+  const result =
+    input.action === "search"
+      ? yield* rpc[WS_METHODS.projectsSearchEntries]({
+          cwd,
+          query: input.query,
+          kind: "file",
+          limit: 200,
+        }).pipe(
+          Effect.map(({ entries }) => ({
+            type: "filematches",
+            paths: entries.filter((e) => e.kind === "file").map((e) => e.path),
+          })),
+        )
+      : yield* rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: input.path }).pipe(
+          Effect.map(({ contents, truncated }) => ({ type: "filesource", contents, truncated })),
+        );
+  if (!activeRpc) yield* threadWorkspaceRoot(session, threadId, expectedRoot);
+  return result;
+});
 
 export const writePlanToWorkspace = Effect.fn("nativeDesktop.writePlanToWorkspace")(function* (
   session: Session,
@@ -434,12 +484,7 @@ export const writePlanToWorkspace = Effect.fn("nativeDesktop.writePlanToWorkspac
   relativePath: string,
   markdown: string,
 ) {
-  const {
-    projection: { thread },
-  } = yield* readThreadSettingsSnapshot(session, threadId);
-  const root = thread.worktreePath ?? (yield* readProjectRoot(session, thread.projectId));
-  if (!root || root !== expectedRoot || thread.archivedAt || thread.deletedAt)
-    return yield* new PlanWorkspaceChanged();
+  const root = yield* threadWorkspaceRoot(session, threadId, expectedRoot);
   const rpc = yield* openEnvironmentRpc(session);
   return yield* rpc[WS_METHODS.projectsWriteFile]({
     cwd: root,

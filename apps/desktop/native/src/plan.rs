@@ -176,15 +176,6 @@ fn options_button(s: &Desktop, key: &str, theme: &tok::Theme) -> El {
 }
 
 impl Desktop {
-    fn plan_root(&self) -> Option<&str> {
-        let thread = self.workspace.visible_thread()?;
-        thread.worktree.as_deref().or_else(|| {
-            self.workspace
-                .project(&thread.project)
-                .map(|p| p.path.as_str())
-        })
-    }
-
     fn dismiss_plan_actions(&mut self) {
         if let Some(pane) = &mut self.workspace.conversation
             && !matches!(pane.plan_actions, Some(Actions::Save { saving: true, .. }))
@@ -226,7 +217,7 @@ impl Desktop {
         if !self.can_write_files {
             return;
         }
-        let Some(root) = self.plan_root().map(str::to_owned) else {
+        let Some(root) = self.thread_workspace_root().map(str::to_owned) else {
             return;
         };
         let Some(row) = self.take_plan() else { return };
@@ -321,7 +312,7 @@ pub(super) fn overlay(s: &Desktop, theme: &tok::Theme, kit: &Kit, overlays: &mut
                 .item(MenuItem::new("Download as markdown").on_select_tx(Desktop::download_plan))
                 .item(
                     MenuItem::new("Save to workspace")
-                        .disabled(!s.can_write_files || s.plan_root().is_none())
+                        .disabled(!s.can_write_files || s.thread_workspace_root().is_none())
                         .on_select_tx(Desktop::open_save_plan),
                 )
                 .build(kit, overlays);

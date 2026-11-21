@@ -43,12 +43,27 @@ enum Reply {
     Downloaded {
         error: Option<String>,
     },
+    FileMatches {
+        operation: u64,
+        #[serde(default)]
+        paths: Vec<String>,
+        error: Option<String>,
+    },
+    FileSource {
+        operation: u64,
+        contents: Option<String>,
+        #[serde(default)]
+        truncated: bool,
+        error: Option<String>,
+    },
     Connected {
         label: String,
         #[serde(default)]
         stage: stage::Stage,
         local: bool,
         can_operate: bool,
+        #[serde(default)]
+        can_read_files: bool,
         #[serde(default)]
         can_write_files: bool,
         #[serde(default)]
@@ -220,6 +235,13 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    WorkspaceFiles {
+        #[serde(flatten)]
+        location: workspace::workspace_files::Location,
+        operation: u64,
+        #[serde(flatten)]
+        input: workspace::workspace_files::Input,
+    },
     SetSidebarWidth {
         width: Option<u32>,
     },
@@ -393,6 +415,7 @@ struct Desktop {
     local: bool,
     can_operate: bool,
     can_write_files: bool,
+    can_read_files: bool,
     can_pin: bool,
     terminal_read: bool,
     terminal_write: bool,
@@ -427,6 +450,7 @@ impl Desktop {
             local: false,
             can_operate: false,
             can_write_files: false,
+            can_read_files: false,
             can_pin: false,
             terminal_read: false,
             terminal_write: false,
@@ -538,6 +562,25 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::FileMatches {
+            operation,
+            paths,
+            error,
+        } = message.reply
+        {
+            self.receive_file_matches(operation, paths, error);
+            return;
+        }
+        if let Reply::FileSource {
+            operation,
+            contents,
+            truncated,
+            error,
+        } = message.reply
+        {
+            self.receive_file_source(operation, contents, truncated, error);
+            return;
+        }
         if let Reply::PlanSaved { watch, error } = message.reply {
             self.finish_plan_save(watch, error);
             return;
@@ -661,6 +704,7 @@ impl Desktop {
             let was_open = self.workspace.conversation.is_some();
             self.workspace.apply_live(watch, &thread, sequence, update);
             self.close_stale_terminal();
+            self.reconcile_file_location();
             if was_open && self.workspace.conversation.is_none() {
                 self.history.close_thread(&thread);
                 self.history.retain(&self.workspace, &self.new_threads);
@@ -756,6 +800,7 @@ impl Desktop {
                 local,
                 can_operate,
                 can_write_files,
+                can_read_files,
                 can_pin,
                 terminal_read,
                 terminal_write,
@@ -766,6 +811,7 @@ impl Desktop {
                 self.local = local;
                 self.can_operate = can_operate;
                 self.can_write_files = can_write_files;
+                self.can_read_files = can_read_files;
                 self.can_pin = can_operate && can_pin;
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
@@ -854,6 +900,7 @@ impl Desktop {
                 self.workspace.close_unavailable_thread(&thread);
                 self.history.close_thread(&thread);
                 self.close_stale_terminal();
+                self.reconcile_file_location();
                 self.history.retain(&self.workspace, &self.new_threads);
                 if self.palette.is_some() {
                     self.filter_palette(true);
@@ -867,6 +914,8 @@ impl Desktop {
             Reply::Live { .. }
             | Reply::PlanSaved { .. }
             | Reply::Downloaded { .. }
+            | Reply::FileMatches { .. }
+            | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
             | Reply::WorkspaceLive { .. }
@@ -908,6 +957,7 @@ impl Desktop {
             }
         }
         self.close_stale_terminal();
+        self.reconcile_file_location();
         self.advance_after_settle();
         self.refresh_after_edit();
     }
@@ -1140,6 +1190,18 @@ fn start() -> io::Result<()> {
             if ev.key == rune::Key::Escape && s.close_image() {
                 return true;
             }
+            if !ev.mods.alt
+                && !ev.mods.shift
+                && ev.is_command('p')
+                && tx.focused() != Some("thread-terminal-grid")
+                && s.file_location().is_some()
+                && !s.pending
+            {
+                if !tx.key_repeat() {
+                    s.toggle_file_picker(tx);
+                }
+                return true;
+            }
             if s.palette.is_some() {
                 return false;
             }
@@ -1163,6 +1225,10 @@ fn start() -> io::Result<()> {
                 if !tx.key_repeat() {
                     s.toggle_terminal(tx);
                 }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.workspace.file_preview.is_some() {
+                s.close_file_preview();
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
@@ -1417,6 +1483,7 @@ mod tests {
                 local: true,
                 can_operate: true,
                 can_write_files: true,
+                can_read_files: true,
                 can_pin: true,
                 terminal_read: true,
                 terminal_write: true,
