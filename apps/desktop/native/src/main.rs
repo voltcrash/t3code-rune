@@ -130,10 +130,15 @@ enum Reply {
         instances: Vec<sidebar_providers::Instance>,
         art: std::collections::HashMap<String, sidebar_providers::Art>,
     },
+    UsageTotals {
+        watch: u64,
+        #[serde(flatten)]
+        reply: Box<usage::summary::Reply>,
+    },
     Usage {
         watch: u64,
         #[serde(flatten)]
-        view: usage::Snapshot,
+        view: Box<usage::Snapshot>,
     },
     WorkspaceEditors {
         watch: u64,
@@ -157,6 +162,7 @@ enum Reply {
         attachment_labels: attachments::Labels,
         update_labels: Option<Box<updates::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
+        usage_preferences: Option<usage::summary::Preferences>,
         details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
@@ -897,9 +903,15 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::UsageTotals { watch, reply } = message.reply {
+            if self.workspace.feed == Some(watch) && self.workspace.usage.open {
+                self.workspace.usage.summary.receive(*reply);
+            }
+            return;
+        }
         if let Reply::Usage { watch, view } = message.reply {
             if self.workspace.feed == Some(watch) && self.workspace.usage.open {
-                self.workspace.usage.receive(view);
+                self.workspace.usage.receive(*view);
             }
             return;
         }
@@ -1245,6 +1257,7 @@ impl Desktop {
                 attachment_labels,
                 update_labels,
                 usage_labels,
+                usage_preferences,
                 details,
                 stage,
                 local,
@@ -1273,6 +1286,7 @@ impl Desktop {
                 self.workspace.attachment_labels = attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
+                self.workspace.usage.summary.restore(usage_preferences);
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -1291,13 +1305,9 @@ impl Desktop {
                     self.workspace.set_clock_offset(offset);
                 }
                 self.workspace.sequence = sequence;
-                self.workspace
-                    .providers
-                    .set_environment(environment_id, watch);
-                self.workspace.feed = Some(watch);
+                self.workspace.set_feed(environment_id, watch);
                 if self.workspace.usage.open {
-                    self.workspace.usage.view = None;
-                    self.usage_action(usage::Action::Open);
+                    self.start_usage();
                 }
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;
@@ -1401,6 +1411,7 @@ impl Desktop {
             | Reply::GitInitialized { .. }
             | Reply::WorkspaceProviders { .. }
             | Reply::Usage { .. }
+            | Reply::UsageTotals { .. }
             | Reply::WorkspaceEditors { .. }
             | Reply::EditorError { .. }
             | Reply::EditorOpened { .. }
@@ -1873,6 +1884,45 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
+            if s.workspace.usage.open
+                && s.pairing_offers.is_empty()
+                && !s.update.open
+                && !ev.mods.alt
+            {
+                use usage::summary::Metric;
+                let metric = match &ev.key {
+                    rune::Key::Text(c) if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
+                        match c.as_str() {
+                            "c" => Some(Metric::Cost),
+                            "t" => Some(Metric::Tokens),
+                            "l" => Some(Metric::Limits),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(metric) = metric {
+                    if !tx.key_repeat() {
+                        s.select_usage_metric(metric);
+                    }
+                    return true;
+                }
+                if ev.mods.shift
+                    && let Some((_, days)) = [('1', 1), ('2', 7), ('3', 30), ('4', 90)]
+                        .into_iter()
+                        .find(|(key, _)| {
+                            rune::Chord::new(rune::ChordKey::Char(*key))
+                                .with(rune::ChordMod::Primary)
+                                .with(rune::ChordMod::Shift)
+                                .matches_tx(ev, tx)
+                        })
+                {
+                    if !tx.key_repeat() {
+                        s.select_usage_period(days);
+                    }
+                    return true;
+                }
+            }
             if !s.pairing_offers.is_empty()
                 || s.update.open
                 || s.workspace.usage.open
@@ -2328,6 +2378,7 @@ mod tests {
                 attachment_labels: Default::default(),
                 update_labels: None,
                 usage_labels: None,
+                usage_preferences: None,
                 label: "This computer".into(),
                 details: None,
                 stage: stage::Stage::Dev,

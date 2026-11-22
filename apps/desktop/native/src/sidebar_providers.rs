@@ -103,7 +103,6 @@ impl Art {
 
 #[derive(Default)]
 pub(super) struct Catalog {
-    environment: Option<String>,
     configured_feed: Option<u64>,
     viewport_revision: u64,
     instances: HashMap<String, Instance>,
@@ -213,13 +212,8 @@ impl Catalog {
         false
     }
 
-    pub(super) fn set_environment(&mut self, id: String, watch: u64) {
-        if self.environment.as_ref() != Some(&id) {
-            *self = Self {
-                environment: Some(id),
-                ..Self::default()
-            };
-        } else if self.configured_feed != Some(watch) {
+    pub(super) fn set_watch(&mut self, watch: u64) {
+        if self.configured_feed != Some(watch) {
             self.configured_feed = None;
             for state in self.registry.values_mut() {
                 if !matches!(state, RegistryIcon::Ready { .. }) {
@@ -251,6 +245,34 @@ impl Catalog {
         self.art.extend(art);
     }
 
+    pub(crate) fn driver_mark(
+        &self,
+        driver: &str,
+        previous: bool,
+        dark: bool,
+        colors: Colors,
+        size: f32,
+    ) -> Option<El> {
+        let tile = el().size(size, size).center();
+        Some(if let Some(mark) = builtin(driver) {
+            let glyph = icon(mark, size);
+            if driver == "claudeAgent" {
+                glyph.color(if previous {
+                    rune::color::hex("#898989").unwrap()
+                } else {
+                    rune::color::hex("#d97757").unwrap()
+                })
+            } else {
+                glyph.color(colors.rest).group_color(colors.hovered)
+            }
+        } else if driver == "antigravity" {
+            tile.pixels_fit(antigravity(previous), rune::SurfaceFit::Fit)
+        } else {
+            let image = self.art.get(driver)?.pixels(dark, previous)?;
+            tile.pixels_fit(image, rune::SurfaceFit::Fit)
+        })
+    }
+
     fn icon(
         &self,
         instance: &Instance,
@@ -268,25 +290,9 @@ impl Catalog {
             .and_then(|url| self.registry.get(url));
         let logo = if let Some(mask) = remote.and_then(|image| image.mask(theme.text_secondary)) {
             tile.pixels_fit(&mask, rune::SurfaceFit::Fit)
-        } else if let Some(mark) = builtin(&instance.driver) {
-            let glyph = icon(mark, size);
-            if instance.driver == "claudeAgent" {
-                glyph.color(if previous {
-                    rune::color::hex("#898989").unwrap()
-                } else {
-                    rune::color::hex("#d97757").unwrap()
-                })
-            } else {
-                glyph.color(colors.rest).group_color(colors.hovered)
-            }
-        } else if instance.driver == "antigravity" {
-            tile.pixels_fit(antigravity(previous), rune::SurfaceFit::Fit)
-        } else if let Some(image) = self
-            .art
-            .get(&instance.driver)
-            .and_then(|art| art.pixels(dark, previous))
+        } else if let Some(mark) = self.driver_mark(&instance.driver, previous, dark, colors, size)
         {
-            tile.pixels_fit(image, rune::SurfaceFit::Fit)
+            mark
         } else if compatible {
             tile.radius(4.)
                 .fill(theme.card)
@@ -435,7 +441,7 @@ mod tests {
             .unwrap()
         };
         app.workspace.feed = Some(1);
-        app.workspace.providers.set_environment("local".into(), 1);
+        app.workspace.set_feed("local".into(), 1);
         app.workspace
             .update_providers(1, instances(), Default::default());
         let mut rt = Runtime::new(app, view, (240., 240.), Env::default());
@@ -460,7 +466,7 @@ mod tests {
         );
         rt.update(|s, _| {
             s.workspace.feed = Some(2);
-            s.workspace.providers.set_environment("local".into(), 2);
+            s.workspace.set_feed("local".into(), 2);
         });
         settle(&mut rt);
         assert!(
