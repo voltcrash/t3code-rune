@@ -1314,6 +1314,24 @@ fn sidebar(
             |s| s.send(Request::Refresh),
         ));
     }
+    let footer_action = |caption, glyph: &'static rune::Icon, run: fn(&mut Desktop)| {
+        if width >= 232. {
+            return action(caption, theme, !s.pending, run);
+        }
+        el().key(caption)
+            .role("button")
+            .label(caption)
+            .help(caption)
+            .size(28., 28.)
+            .center()
+            .radius(6.)
+            .hover(theme.separator)
+            .no_window_drag()
+            .focusable(true)
+            .disabled(s.pending)
+            .child(icon(glyph, 16.).color(theme.text_secondary))
+            .on_press(run)
+    };
     let content = sidebar.child(
         row()
             .w_full()
@@ -1321,14 +1339,13 @@ fn sidebar(
             .pt(4.)
             .center_y()
             .child(crate::appearance::trigger(theme))
-            .child(action(
+            .child(footer_action(
                 "Projects",
-                theme,
-                !s.pending,
+                &rune_kit::glyphs::FOLDER,
                 Desktop::show_projects,
             ))
             .child(spacer())
-            .child(action("Disconnect", theme, !s.pending, |s| {
+            .child(footer_action("Disconnect", &DISCONNECT_ICON, |s| {
                 s.send(Request::Disconnect)
             }))
             .children(crate::updates::sidebar(s, theme)),
@@ -1471,6 +1488,11 @@ fn empty_home(s: &Desktop, theme: &tok::Theme, narrow: bool) -> El {
         .child(buttons)
 }
 
+static DISCONNECT_ICON: rune::Icon = rune::Icon {
+    name: "disconnect",
+    view: 24.,
+    body: r#"<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
 static ADD_ICON: rune::Icon = rune::Icon {
     name: "add-project",
     view: 24.0,
