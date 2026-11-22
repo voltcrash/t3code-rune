@@ -114,9 +114,7 @@ if (
   (values["mock-update-server-port"] !== undefined && values["mock-updates"] !== false) ||
   (values.distribution && booleanOption("mock-updates", "T3CODE_DESKTOP_MOCK_UPDATES"))
 ) {
-  throw new Error(
-    "Use node scripts/build-desktop-artifact.ts --mock-updates to exercise the Electron updater.",
-  );
+  throw new Error("Use --update-feed to build Rune update artifacts.");
 }
 const skipBuild = booleanOption("skip-build", "T3CODE_DESKTOP_SKIP_BUILD");
 const keepStage = booleanOption("keep-stage", "T3CODE_DESKTOP_KEEP_STAGE");

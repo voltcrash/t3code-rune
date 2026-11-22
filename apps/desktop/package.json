@@ -3,7 +3,6 @@
   "version": "0.1.11",
   "private": true,
   "type": "module",
-  "main": "dist-electron/boot.cjs",
   "scripts": {
     "start": "node scripts/launch-rune.mjs --built",
     "test": "vp test run --passWithNoTests",
@@ -39,8 +38,6 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
-    "acorn": "8.16.0",
-    "electron-builder": "26.16.1",
     "gt": "2.27.0",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.0.0",

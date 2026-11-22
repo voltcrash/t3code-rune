@@ -343,7 +343,7 @@ jobs:
           echo "T3CODE_JSIGN=$dir/jsign" >> "$GITHUB_ENV"
 
       # The desktop build applies the same branding to apps/server/dist/client
-      # (resolveDesktopWebAssetBrand in scripts/build-desktop-artifact.ts); the
+      # (resolveDesktopWebAssetBrand in scripts/desktop-packaging.ts); the
       # CLI archive below ships that client and is now built first.
       - name: Apply web client branding
         if: inputs.cli_archive
@@ -981,11 +981,13 @@ jobs:
           fi
           esbuild=scripts/node_modules/.bin/esbuild
           banner="import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);"
-          # build-desktop-artifact.ts's own import.meta.main guard must not run
-          # its CLI inside the verify bundle.
-          "$esbuild" scripts/verify-windows-desktop-artifact.ts --bundle --platform=node --format=esm \
-            --target=node24 --define:import.meta.main=false --banner:js="$banner" \
-            --outfile=verify/verify-windows-desktop-artifact.mjs
+          if [[ -f scripts/verify-rune-windows.mjs ]]; then
+            cp scripts/verify-rune-windows.mjs verify/
+          else
+            "$esbuild" scripts/verify-windows-desktop-artifact.ts --bundle --platform=node --format=esm \
+              --target=node24 --define:import.meta.main=false --banner:js="$banner" \
+              --outfile=verify/verify-windows-desktop-artifact.mjs
+          fi
           "$esbuild" scripts/smoke-cli-archive.ts --bundle --platform=node --format=esm \
             --target=node24 --banner:js="$banner" --outfile=verify/smoke-cli-archive.mjs
 

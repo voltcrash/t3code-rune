@@ -153,51 +153,16 @@ export class WslRuntimeArchiveMissingError extends Schema.TaggedError<WslRuntime
   }
 }
 
-const WindowsPackagedPayloadValidationReason = Schema.Literals([
-  "packaged-app-missing",
-  "sidecar-missing",
-  "sidecar-invalid",
-  "unpacked-native-missing",
-  "resource-monitor-missing",
-  "wsl-runtime-missing",
-  "wsl-runtime-invalid",
-  "file-limit-exceeded",
-]);
-
 export class WindowsPackagedPayloadValidationError extends Schema.TaggedError<WindowsPackagedPayloadValidationError>()(
   "WindowsPackagedPayloadValidationError",
   {
-    reason: WindowsPackagedPayloadValidationReason,
     packagedAppDir: Schema.String,
     missingFiles: Schema.optionalKey(Schema.Array(Schema.String)),
-    fileCount: Schema.optionalKey(Schema.Int),
-    fileLimit: Schema.optionalKey(Schema.Int),
-    cause: Schema.optionalKey(Schema.Defect()),
+    cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    if (this.reason === "file-limit-exceeded") {
-      return `Windows packaged payload contains ${String(this.fileCount)} files; expected at most ${String(this.fileLimit)}.`;
-    }
-    if (this.reason === "unpacked-native-missing") {
-      return `Windows server sidecar is missing ${String(this.missingFiles?.length ?? 0)} unpacked native files.`;
-    }
-    if (this.reason === "resource-monitor-missing") {
-      return "Windows packaged payload is missing the resource monitor executable.";
-    }
-    if (this.reason === "wsl-runtime-missing") {
-      return "Windows packaged payload is missing the WSL runtime archive or SHA-256 sidecar.";
-    }
-    if (this.reason === "wsl-runtime-invalid") {
-      return "Windows packaged payload contains an invalid WSL runtime archive.";
-    }
-    if (this.reason === "sidecar-invalid") {
-      return "Windows packaged payload contains an invalid server.asar sidecar.";
-    }
-    if (this.reason === "sidecar-missing") {
-      return "Windows packaged payload is missing resources/server.asar.";
-    }
-    return `Windows packaged application directory was not found at ${this.packagedAppDir}.`;
+    return `Invalid WSL runtime archive in ${this.packagedAppDir}.`;
   }
 }
 
@@ -728,7 +693,6 @@ export const validatePackagedWslRuntime = Effect.fn("desktopArtifact.validatePac
     const wslArchiveHashPath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_HASH_NAME);
     const invalidWslRuntime = (cause: unknown) =>
       new WindowsPackagedPayloadValidationError({
-        reason: "wsl-runtime-invalid",
         packagedAppDir,
         cause,
       });
@@ -786,7 +750,6 @@ export const validatePackagedWslRuntime = Effect.fn("desktopArtifact.validatePac
     }
     if (missingMembers.length > 0) {
       return yield* new WindowsPackagedPayloadValidationError({
-        reason: "wsl-runtime-invalid",
         packagedAppDir,
         missingFiles: missingMembers,
         cause: new Error("WSL runtime archive is not a Linux CLI release archive"),

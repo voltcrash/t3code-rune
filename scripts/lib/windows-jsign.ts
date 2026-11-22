@@ -1,8 +1,3 @@
-// Azure Trusted Signing from a non-Windows host, for electron-builder's
-// `win.signtoolOptions.sign` hook and the CLI archive. jsign reads AZURE_TENANT_ID,
-// AZURE_CLIENT_ID and AZURE_CLIENT_SECRET itself when no --storepass is given.
-
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -130,11 +125,3 @@ export const signWithJsign = Effect.fn("signWithJsign")(function* (
     }),
   );
 });
-
-export default function sign(configuration: { readonly path: string }): Promise<void> {
-  return signWithJsign(configuration.path).pipe(
-    Effect.scoped,
-    Effect.provide(NodeServices.layer),
-    Effect.runPromise,
-  );
-}
