@@ -92,10 +92,64 @@ fn describes_paths(text: &str, paths: &[PathBuf]) -> bool {
 const FILE_LIMIT: usize = 100;
 const TOO_MANY: &str = "You can attach up to 100 files per message.";
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) enum Target {
     Thread(String),
     Project(String),
+}
+
+pub(super) struct PendingPaste {
+    target: Target,
+    request: u64,
+    batch: u64,
+    reads: usize,
+    submit: bool,
+}
+
+impl Desktop {
+    fn begin_plain_paste(&mut self, target: &Target) -> u64 {
+        if let Some(paste) = &mut self.clipboard_paste
+            && paste.request == self.request_id
+            && paste.target == *target
+        {
+            paste.reads += 1;
+            return paste.batch;
+        }
+        let batch = self.next_request_id();
+        self.clipboard_paste = Some(PendingPaste {
+            target: target.clone(),
+            request: self.request_id,
+            batch,
+            reads: 1,
+            submit: false,
+        });
+        batch
+    }
+
+    fn finish_plain_paste(&mut self, batch: u64, active: bool) -> Option<bool> {
+        let paste = self.clipboard_paste.as_mut().filter(|p| p.batch == batch)?;
+        if !active || self.request_id != paste.request {
+            self.clipboard_paste = None;
+            return None;
+        }
+        paste.reads -= 1;
+        if paste.reads > 0 {
+            return Some(false);
+        }
+        self.clipboard_paste.take().map(|p| p.submit)
+    }
+
+    pub(super) fn submit_after_paste(&mut self) -> bool {
+        if self
+            .clipboard_paste
+            .as_ref()
+            .is_some_and(|p| p.request == self.request_id && p.target.active(self))
+        {
+            self.clipboard_paste.as_mut().unwrap().submit = true;
+            return true;
+        }
+        false
+    }
 }
 
 impl Target {
@@ -129,19 +183,25 @@ impl Target {
                 }
                 let target = plain.clone();
                 let focus = tx.focused().map(str::to_owned);
-                let request = app.request_id;
+                let batch = app.begin_plain_paste(&target);
                 tx.read_clipboard(move |app: &mut Desktop, content, tx| {
-                    if app.pending
-                        || app.request_id != request
-                        || tx.focused() != focus.as_deref()
-                        || !target.active(app)
-                    {
+                    let active =
+                        !app.pending && tx.focused() == focus.as_deref() && target.active(app);
+                    let Some(submit) = app.finish_plain_paste(batch, active) else {
                         return;
-                    }
+                    };
                     if content.text().is_empty() {
-                        target.paste(app, content);
+                        if !target.paste(app, content) {
+                            return;
+                        }
                     } else {
                         tx.paste_text(content.text());
+                    }
+                    if submit {
+                        tx.send_key(rune::KeyEvent {
+                            key: rune::Key::Enter,
+                            mods: Default::default(),
+                        });
                     }
                 });
                 true
@@ -377,6 +437,30 @@ const REMOVE: Icon = Icon {
 mod tests {
     use super::*;
     use rune::ClipboardContent;
+
+    #[test]
+    fn submit_waits_for_all_clipboard_reads_from_the_current_composer() {
+        let mut app = Desktop::new();
+        app.new_threads
+            .configure("project".into(), vec![], Default::default(), false, "main");
+        let project = Target::Project("project".into());
+        let first = app.begin_plain_paste(&project);
+        assert_eq!(first, app.begin_plain_paste(&project));
+        assert!(app.submit_after_paste());
+        assert_eq!(app.finish_plain_paste(first, true), Some(false));
+        assert_eq!(app.finish_plain_paste(first, true), Some(true));
+        assert!(!app.submit_after_paste());
+
+        let old = app.begin_plain_paste(&project);
+        assert!(app.submit_after_paste());
+        app.request_id = app.next_request_id();
+        assert!(!app.submit_after_paste());
+        let new = app.begin_plain_paste(&project);
+        assert_eq!(app.finish_plain_paste(old, true), None);
+        assert!(app.submit_after_paste());
+        assert_eq!(app.finish_plain_paste(new, false), None);
+        assert!(!app.submit_after_paste());
+    }
 
     #[test]
     fn paste_keeps_text_editable_and_stages_images_only_in_the_active_writable_draft() {

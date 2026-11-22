@@ -202,7 +202,7 @@ impl Desktop {
     }
 
     fn send_message(&mut self) {
-        if self.pending || !self.can_operate {
+        if self.pending || !self.can_operate || self.submit_after_paste() {
             return;
         }
         let Some(pane) = &self.workspace.conversation else {

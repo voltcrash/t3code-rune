@@ -308,7 +308,7 @@ impl Desktop {
         }
     }
     fn launch(&mut self) {
-        if self.pending || !self.can_operate {
+        if self.pending || !self.can_operate || self.submit_after_paste() {
             return;
         }
         let Some(project) = self.new_threads.active.clone() else {
