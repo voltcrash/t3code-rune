@@ -11,6 +11,7 @@ use tempfile::TempPath;
 pub(crate) struct Labels {
     preview: String,
     remove: String,
+    pub(crate) close: String,
 }
 
 impl Default for Labels {
@@ -18,6 +19,7 @@ impl Default for Labels {
         Self {
             preview: "Preview {name}".into(),
             remove: "Remove {name}".into(),
+            close: "Close image preview".into(),
         }
     }
 }
@@ -235,11 +237,18 @@ impl Target {
         files: &[Selection],
         theme: &tok::Theme,
         locked: bool,
-        workspace: &crate::Workspace,
+        app: &Desktop,
+        dialog: &mut Option<El>,
     ) -> Option<El> {
         if files.is_empty() {
             return None;
         }
+        let workspace = &app.workspace;
+        *dialog = workspace
+            .draft_image
+            .borrow()
+            .as_ref()
+            .and_then(|p| p.dialog(files, app, theme));
         // A keyed group keeps scrolled tiles under one accessible parent.
         let mut tiles = row()
             .key("composer-image-grid")
@@ -273,7 +282,7 @@ impl Target {
                     target.edit(app, |files| files.retain(|f| f.path != remove_path))
                 });
             if let Some(thumb) = &file.thumbnail {
-                tiles = tiles.child(thumb.tile(path, name, theme, workspace, remove));
+                tiles = tiles.child(thumb.tile(path, name, theme, app, remove));
             } else {
                 documents += 1;
                 rows = rows.child(
@@ -299,7 +308,7 @@ impl Target {
             .key("composer-files")
             .drawn_rect_into(&workspace.attachment_viewport)
             .w_full()
-            .max_h(136.)
+            .max_h(if documents == files.len() { 112. } else { 136. })
             .gap(4.)
             .scroll(rune::ScrollSpec {
                 stick_bottom: false,

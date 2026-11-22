@@ -239,6 +239,7 @@ pub(super) fn view(
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
     lane: crate::workspace::thread_details::Lane,
+    draft_preview: &mut Option<El>,
 ) -> El {
     let dark = s.dark(cx);
     let id = thread.id.as_str();
@@ -349,7 +350,7 @@ pub(super) fn view(
     let list = if asking {
         None
     } else {
-        target.list(&draft.files, theme, s.pending, &s.workspace)
+        target.list(&draft.files, theme, s.pending, s, draft_preview)
     };
     target.drop_area(
         surface(

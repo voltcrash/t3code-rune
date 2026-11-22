@@ -646,7 +646,7 @@ struct Desktop {
     update: updates::Panel,
     appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
-    image_jobs: Option<std::sync::mpsc::Sender<image_decode::Request>>,
+    image_jobs: Option<image_decode::LocalQueue>,
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
     pairing_offers: std::collections::VecDeque<pairing_link::Offer>,
@@ -1796,7 +1796,7 @@ fn start() -> io::Result<()> {
     let output = child.stdin.take();
     let input = BufReader::new(child.stdout.take().unwrap());
     let (images, image_requests) = std::sync::mpsc::channel();
-    let composer_images = images.clone();
+    let (composer_images, composer_requests) = std::sync::mpsc::sync_channel(16);
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
@@ -2013,6 +2013,7 @@ fn start() -> io::Result<()> {
         });
     }
     image_decode::start(handle.clone(), image_requests);
+    image_decode::start_local(handle.clone(), composer_requests);
     let source_build = mode == Some("--source-build");
     let reader = std::thread::spawn(move || {
         let mut received_response = false;
@@ -2035,7 +2036,7 @@ fn start() -> io::Result<()> {
             } = reply.reply
             {
                 if images
-                    .send(image_decode::Request::Remote(image_decode::Job {
+                    .send(image_decode::Job {
                         watch,
                         key,
                         operation,
@@ -2049,7 +2050,7 @@ fn start() -> io::Result<()> {
                         } else {
                             image_decode::Kind::Thumbnail
                         },
-                    }))
+                    })
                     .is_err()
                 {
                     break;

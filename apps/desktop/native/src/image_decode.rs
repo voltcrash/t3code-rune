@@ -102,23 +102,52 @@ pub(crate) struct Job {
 
 pub(crate) type Raster = Arc<OnceLock<Option<rune::Image>>>;
 
-pub(crate) enum Request {
-    Remote(Job),
-    Local {
-        path: PathBuf,
-        edge: u32,
-        result: Weak<OnceLock<Option<rune::Image>>>,
-    },
+pub(crate) struct LocalJob {
+    path: PathBuf,
+    edge: u32,
+    result: Weak<OnceLock<Option<rune::Image>>>,
 }
 
-pub(crate) fn local(sender: &mpsc::Sender<Request>, path: &Path, edge: u32) -> Raster {
-    let result = Raster::default();
-    let _ = sender.send(Request::Local {
-        path: path.to_owned(),
-        edge,
-        result: Arc::downgrade(&result),
+pub(crate) type LocalQueue = mpsc::SyncSender<LocalJob>;
+
+pub(crate) fn queue_local(
+    slot: &std::cell::OnceCell<Raster>,
+    queue: &LocalQueue,
+    path: &Path,
+    edge: u32,
+) {
+    if slot.get().is_none() {
+        let result = Raster::default();
+        if queue
+            .try_send(LocalJob {
+                path: path.to_owned(),
+                edge,
+                result: Arc::downgrade(&result),
+            })
+            .is_ok()
+        {
+            let _ = slot.set(result);
+        }
+    }
+}
+
+pub(crate) fn start_local(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receiver<LocalJob>) {
+    std::thread::spawn(move || {
+        let cache = ImageCache::new(Arc::new(|| {}));
+        for job in recv {
+            let image = (job.result.strong_count() > 0)
+                .then(|| local_thumbnail(&job.path, job.edge))
+                .flatten()
+                .map(|pixels| cache.rgba(pixels.width(), pixels.height(), pixels.into_raw()))
+                .filter(|image| image.wait().is_ok());
+            // Rebuild even for a discarded draft so visible tiles can retry a full queue.
+            handle.update(move |_, _| {
+                if let Some(slot) = job.result.upgrade() {
+                    let _ = slot.set(image);
+                }
+            });
+        }
     });
-    result
 }
 
 fn local_thumbnail(path: &Path, size: u32) -> Option<image::RgbaImage> {
@@ -139,28 +168,11 @@ fn local_thumbnail(path: &Path, size: u32) -> Option<image::RgbaImage> {
     thumbnail(&bytes, size)
 }
 
-pub(crate) fn start(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receiver<Request>) {
+pub(crate) fn start(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receiver<Job>) {
     std::thread::spawn(move || {
         use base64::Engine;
         let cache = ImageCache::new(Arc::new(|| {}));
-        for request in recv {
-            let job = match request {
-                Request::Local { path, edge, result } => {
-                    if result.strong_count() == 0 {
-                        continue;
-                    }
-                    let image = local_thumbnail(&path, edge)
-                        .map(|pixels| {
-                            cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())
-                        })
-                        .filter(|image| image.wait().is_ok());
-                    handle.update_if(move |_, _| {
-                        result.upgrade().is_some_and(|slot| slot.set(image).is_ok())
-                    });
-                    continue;
-                }
-                Request::Remote(job) => job,
-            };
+        for job in recv {
             let mut mask = None;
             let cache_pixels = |pixels: image::RgbaImage| {
                 cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())

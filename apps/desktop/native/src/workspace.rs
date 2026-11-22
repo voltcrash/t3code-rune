@@ -283,7 +283,7 @@ pub(super) struct Workspace {
     pub(crate) file_preview: Option<workspace_files::Preview>,
     pub(crate) attachment_labels: crate::attachments::Labels,
     pub(crate) attachment_viewport: rune::Live<[f32; 4]>,
-    pub(crate) draft_image: Option<crate::attachments::Preview>,
+    pub(crate) draft_image: std::cell::RefCell<Option<crate::attachments::Preview>>,
     pub(crate) explorer: Option<workspace_tree::Explorer>,
     pub questions: Forms,
     pub(super) scratch_available: bool,
@@ -345,7 +345,7 @@ impl Workspace {
             file_preview: None,
             attachment_labels: Default::default(),
             attachment_viewport: rune::Live::new([0.; 4]),
-            draft_image: None,
+            draft_image: Default::default(),
             explorer: None,
             scratch_available: false,
             projects: Vec::new(),
@@ -713,7 +713,7 @@ impl Desktop {
                 .as_ref()
                 .is_none_or(|pane| pane.id != id);
         if opened {
-            self.workspace.draft_image = None;
+            self.workspace.draft_image.get_mut().take();
             self.cancel_settle_navigation();
         }
         self.history.visit(Page::Thread(id.into()));
@@ -1739,6 +1739,7 @@ struct Topbar {
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
     let dark = s.dark(cx);
+    let mut draft_preview = None;
     let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
     let narrow = viewport[0] < 640.;
     let composing = s.new_threads.active.as_deref();
@@ -1901,7 +1902,15 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         if let Some(id) = composing
             && let Some(project) = s.workspace.project(id)
         {
-            super::new_thread::view(s, project, theme, cx, layout.lane, &mut overlays)
+            super::new_thread::view(
+                s,
+                project,
+                theme,
+                cx,
+                layout.lane,
+                &mut overlays,
+                &mut draft_preview,
+            )
         } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
@@ -1946,6 +1955,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             cx,
             &mut overlays,
             layout.lane,
+            &mut draft_preview,
         ));
     }
     if let Some(drawer) = crate::terminal::view(s, theme, dark, viewport[1]) {
@@ -2015,7 +2025,12 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         workspace
     };
     thread_details::scripts::overlay(s, theme, &kit, viewport[1], &mut overlays);
-    images::overlay(s, theme, &mut overlays);
+    if let Some(dialog) = draft_preview.filter(|_| !panel_open || split_panel) {
+        overlays.push(dialog);
+    } else {
+        s.workspace.draft_image.borrow_mut().take();
+        images::overlay(s, theme, &mut overlays);
+    }
     crate::appearance::overlay(s, cx, theme, &mut overlays);
     crate::updates::overlay(s, theme, dark, &mut overlays);
     crate::pairing_link::overlay(s, theme, dark, &mut overlays);

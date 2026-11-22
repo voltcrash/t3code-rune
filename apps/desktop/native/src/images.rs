@@ -156,7 +156,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_image(&mut self) -> bool {
-        if self.workspace.draft_image.take().is_some() {
+        if self.workspace.draft_image.get_mut().take().is_some() {
             return true;
         }
         if let Some(pane) = self.workspace.conversation.as_mut()
@@ -258,15 +258,6 @@ pub(super) fn thumbnail(
 }
 
 pub(super) fn overlay(app: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
-    if let Some(preview) = app
-        .workspace
-        .draft_image
-        .as_ref()
-        .and_then(|p| p.dialog(theme))
-    {
-        overlays.push(preview);
-        return;
-    }
     let Some(pane) = app.workspace.conversation.as_ref() else {
         return;
     };
@@ -297,11 +288,23 @@ pub(super) fn overlay(app: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>)
             s.expand_image(watch, key.clone(), name.clone())
         }));
     }
-    overlays.push(dialog(name, image, controls, theme));
+    overlays.push(dialog(
+        name,
+        image,
+        controls,
+        &app.workspace.attachment_labels.close,
+        theme,
+    ));
 }
 
-pub(crate) fn dialog(name: &str, image: &Image, controls: El, theme: &tok::Theme) -> El {
-    let close = action("Close image preview", theme, true, |s| {
+pub(crate) fn dialog(
+    name: &str,
+    image: &Image,
+    controls: El,
+    close_label: &str,
+    theme: &tok::Theme,
+) -> El {
+    let close = action(close_label, theme, true, |s| {
         s.close_image();
     });
     col()

@@ -73,5 +73,6 @@
   "7240fae7f40fdaff": "Import from t3.json",
   "0421f870f82997bc": "Import",
   "601807baf4e25b94": "Preview {name}",
-  "2ffc366d6a7f88db": "Remove {name}"
+  "2ffc366d6a7f88db": "Remove {name}",
+  "62d0c453f5803180": "Close image preview"
 }
