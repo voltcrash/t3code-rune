@@ -289,15 +289,6 @@ jobs:
           name: js-bundle
           path: apps
 
-      - name: Identify validated PR launcher
-        id: pr_launcher
-        if: inputs.untrusted_bundle
-        shell: bash
-        run: |
-          if [[ -f apps/desktop/dist/rune-bundle/t3-code ]]; then
-            echo "native=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install Windows preview packaging tools
         if: inputs.target == 'nsis,zip'
         shell: bash
@@ -429,7 +420,7 @@ jobs:
         run: node apps/server/scripts/cli.ts build-exe --verbose ${{ inputs.platform == 'win' && format('--target win-{0}', inputs.arch) || '' }}
 
       - name: Import macOS signing certificate
-        if: inputs.platform == 'mac' && (inputs.cli_archive || inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true')
+        if: inputs.platform == 'mac' && (inputs.cli_archive || inputs.target == 'dmg,zip' || inputs.untrusted_bundle)
         shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -653,7 +644,7 @@ jobs:
           vp run dist:desktop:rune "${args[@]}"
 
       - name: Build Rune macOS artifacts
-        if: inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true'
+        if: inputs.target == 'dmg,zip' || inputs.untrusted_bundle
         shell: bash
         env:
           pnpm_config_cache_dir: ${{ steps.stage_pnpm.outputs.dir }}/cache
@@ -666,7 +657,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(--platform mac --target "${{ inputs.target }}" --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose)
-          if [[ "${{ steps.pr_launcher.outputs.native }}" == true ]]; then
+          if [[ "${{ inputs.untrusted_bundle }}" == true ]]; then
             args+=(--prebuilt-mac-launcher)
           fi
           if [[ "${{ inputs.release_channel }}" != preview && "${{ inputs.untrusted_bundle }}" != true ]]; then
@@ -688,7 +679,7 @@ jobs:
           vp run dist:desktop:rune "${args[@]}"
 
       - name: Build desktop artifact
-        if: inputs.target != 'AppImage,deb' && inputs.target != 'dmg,zip' && steps.pr_launcher.outputs.native != 'true'
+        if: inputs.target != 'AppImage,deb' && inputs.target != 'dmg,zip' && !inputs.untrusted_bundle
         shell: bash
         env:
           # pnpm only goes to the registry for packages or versions the cache lacks.

@@ -21,10 +21,20 @@ class StagePreviewBundleTests(unittest.TestCase):
         self.archive = self.root / "bundle.zip"
         self.destination = self.root / "staged"
 
-    def bundle(self, extra=(), missing=None):
+    entries = {
+        "server/dist/bin.mjs": b"server",
+        "server/dist/claude-history-worker.mjs": b"history worker",
+        "server/dist/client/index.html": b"index",
+        "server/dist/client/asset-manifest.json": b"{}",
+        "desktop/dist/rune-bundle/t3-code": b"mach-o",
+        "desktop/dist/rune-bundle/rune-projects.mjs": b"worker",
+    }
+
+    def bundle(self, extra=(), missing=()):
         with zipfile.ZipFile(self.archive, "w") as bundle:
-            for name in sorted((staging.SERVER_ENTRY_POINTS | {staging.ELECTRON_MAIN}) - {missing}):
-                bundle.writestr(name, b"bundle data, never executed")
+            for name, data in self.entries.items():
+                if name not in missing:
+                    bundle.writestr(name, data)
             for name, content in extra:
                 bundle.writestr(name, content)
 
@@ -32,45 +42,25 @@ class StagePreviewBundleTests(unittest.TestCase):
         staging.stage_bundle(self.archive, self.destination)
 
     def test_preserves_valid_bundle_layout_and_bytes(self):
-        self.bundle([("server/", b""), ("server/dist/", b""),
-                     ("desktop/dist/", b""), ("desktop/dist/rune-bundle/", b""),
-                     ("desktop/dist/rune-bundle/rune-projects.mjs", b"worker"),
-                     ("server/dist/client/asset-manifest.json", b"{}"),
-                     ("desktop/dist-electron/chunks/helper.cjs", b"chunk")])
+        self.bundle([("server/", b""), ("server/dist/", b""), ("desktop/dist/", b""),
+                     ("desktop/dist/rune-bundle/", b""), ("server/dist/chunks/helper.mjs", b"chunk")])
         self.stage()
-        for name in staging.SERVER_ENTRY_POINTS | {staging.ELECTRON_MAIN}:
-            self.assertEqual((self.destination / name).read_bytes(), b"bundle data, never executed")
-        self.assertEqual((self.destination / "desktop/dist-electron/chunks/helper.cjs").read_bytes(), b"chunk")
-        self.assertEqual((self.destination / "desktop/dist/rune-bundle/rune-projects.mjs").read_bytes(), b"worker")
+        for name, data in self.entries.items():
+            self.assertEqual((self.destination / name).read_bytes(), data)
+        self.assertEqual((self.destination / "server/dist/chunks/helper.mjs").read_bytes(), b"chunk")
 
-    def test_stages_native_preview_with_its_launcher_and_no_electron(self):
-        launcher = "desktop/dist/rune-bundle/t3-code"
-        native_files = {
-            launcher: b"mach-o",
-            "desktop/dist/rune-bundle/rune-projects.mjs": b"worker",
-            "server/dist/claude-history-worker.mjs": b"server worker",
-            "server/dist/client/asset-manifest.json": b"{}",
-        }
-        for missing in native_files:
-            with self.subTest(missing=missing):
-                remaining = [(name, data) for name, data in native_files.items() if name != missing]
-                self.bundle(remaining, missing=staging.ELECTRON_MAIN)
-                with self.assertRaises(ValueError):
-                    self.stage()
-                self.assertFalse(self.destination.exists())
-        self.bundle(native_files.items())
+    def test_rejects_an_old_electron_preview(self):
+        self.bundle([("desktop/dist-electron/main.cjs", b"previous desktop")],
+                    missing={"desktop/dist/rune-bundle/t3-code", "desktop/dist/rune-bundle/rune-projects.mjs"})
         with self.assertRaises(ValueError):
             self.stage()
         self.assertFalse(self.destination.exists())
-        self.bundle(native_files.items(), missing=staging.ELECTRON_MAIN)
-        self.stage()
-        self.assertEqual((self.destination / launcher).read_bytes(), b"mach-o")
-        self.assertFalse((self.destination / "desktop/dist-electron").exists())
 
     def test_rejects_builder_overwrite_and_unsafe_paths_before_writing(self):
         for name in [
             "desktop/node_modules/electron-builder/cli.js",
             "desktop/package.json",
+            "desktop/dist-electron/main.cjs",
             "desktop/dist/rune-bundle/package.json",
             "server/dist/../../desktop/package.json",
             "../package.json",
@@ -99,14 +89,12 @@ class StagePreviewBundleTests(unittest.TestCase):
                 self.assertFalse(self.destination.exists())
 
     def test_requires_entry_points(self):
-        self.bundle(missing="desktop/dist-electron/main.cjs")
-        with self.assertRaises(ValueError):
-            self.stage()
-        self.assertFalse(self.destination.exists())
-        self.bundle([("desktop/dist/rune-bundle/rune-projects.mjs", b"worker")])
-        with self.assertRaises(ValueError):
-            self.stage()
-        self.assertFalse(self.destination.exists())
+        for missing in self.entries:
+            with self.subTest(missing=missing):
+                self.bundle(missing={missing})
+                with self.assertRaises(ValueError):
+                    self.stage()
+                self.assertFalse(self.destination.exists())
 
     def test_bounds_archive_size_expanded_size_and_entry_count(self):
         for limit in ["MAX_ARCHIVE_BYTES", "MAX_EXPANDED_BYTES", "MAX_ENTRIES"]:
