@@ -403,6 +403,10 @@
       "types": "./src/devProxy.ts",
       "import": "./src/devProxy.ts"
     },
+    "./usageChart": {
+      "types": "./src/usageChart.ts",
+      "import": "./src/usageChart.ts"
+    },
     "./usageMerge": {
       "types": "./src/usageMerge.ts",
       "import": "./src/usageMerge.ts"

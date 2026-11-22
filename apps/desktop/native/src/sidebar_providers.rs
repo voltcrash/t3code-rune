@@ -251,6 +251,39 @@ impl Catalog {
         self.art.extend(art);
     }
 
+    pub(crate) fn driver_mark(
+        &self,
+        driver: &str,
+        previous: bool,
+        dark: bool,
+        colors: Colors,
+        size: f32,
+    ) -> Option<El> {
+        let tile = el().size(size, size).center();
+        Some(if let Some(mark) = builtin(driver) {
+            let glyph = icon(mark, size);
+            if driver == "claudeAgent" {
+                glyph.color(if previous {
+                    rune::color::hex("#898989").unwrap()
+                } else {
+                    rune::color::hex("#d97757").unwrap()
+                })
+            } else {
+                glyph.color(colors.rest).group_color(colors.hovered)
+            }
+        } else if driver == "antigravity" {
+            tile.pixels_fit(antigravity(previous), rune::SurfaceFit::Fit)
+        } else if let Some(image) = self
+            .art
+            .get(driver)
+            .and_then(|art| art.pixels(dark, previous))
+        {
+            tile.pixels_fit(image, rune::SurfaceFit::Fit)
+        } else {
+            return None;
+        })
+    }
+
     fn icon(
         &self,
         instance: &Instance,
@@ -268,25 +301,9 @@ impl Catalog {
             .and_then(|url| self.registry.get(url));
         let logo = if let Some(mask) = remote.and_then(|image| image.mask(theme.text_secondary)) {
             tile.pixels_fit(&mask, rune::SurfaceFit::Fit)
-        } else if let Some(mark) = builtin(&instance.driver) {
-            let glyph = icon(mark, size);
-            if instance.driver == "claudeAgent" {
-                glyph.color(if previous {
-                    rune::color::hex("#898989").unwrap()
-                } else {
-                    rune::color::hex("#d97757").unwrap()
-                })
-            } else {
-                glyph.color(colors.rest).group_color(colors.hovered)
-            }
-        } else if instance.driver == "antigravity" {
-            tile.pixels_fit(antigravity(previous), rune::SurfaceFit::Fit)
-        } else if let Some(image) = self
-            .art
-            .get(&instance.driver)
-            .and_then(|art| art.pixels(dark, previous))
+        } else if let Some(mark) = self.driver_mark(&instance.driver, previous, dark, colors, size)
         {
-            tile.pixels_fit(image, rune::SurfaceFit::Fit)
+            mark
         } else if compatible {
             tile.radius(4.)
                 .fill(theme.card)

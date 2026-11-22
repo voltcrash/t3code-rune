@@ -27,6 +27,10 @@ let activeLocale = DEFAULT_LOCALE;
 let activeCatalog: Catalog = {};
 let requestedLocale = DEFAULT_LOCALE;
 
+export function currentLanguage() {
+  return activeLocale;
+}
+
 function translateMessage(
   message: string | null | undefined,
   variables: GTTranslationOptions = {},

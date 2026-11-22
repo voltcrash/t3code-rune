@@ -1,3 +1,4 @@
+pub(crate) mod summary;
 use crate::{Desktop, Request, workspace};
 use rune::{Cx, El, Icon, ScrollSpec, col, el, icon, row, spacer, tok};
 use serde::{Deserialize, Serialize};
@@ -14,11 +15,39 @@ pub(super) enum Action<'a> {
     Open,
     Close,
     Refresh,
+    Summary { selection: u64, days: u32 },
+    RefreshSummary,
+    Preferences { preferences: summary::Preferences },
     Manage { url: &'a str },
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Labels {
+    cost: String,
+    tokens: String,
+    periods: [String; 4],
+    totals: String,
+    cost_by_type: String,
+    tokens_by_type: String,
+    processed: String,
+    estimated: String,
+    savings: String,
+    daily_cost: String,
+    hourly_cost: String,
+    daily_tokens: String,
+    hourly_tokens: String,
+    share: String,
+    day: String,
+    hour: String,
+    cached: String,
+    input: String,
+    output: String,
+    breakdown: String,
+    model: String,
+    unpriced: String,
+    no_usage: String,
+    more: String,
     usage: String,
     limits: String,
     refresh: String,
@@ -77,6 +106,7 @@ pub(super) struct Snapshot {
 pub(super) struct Panel {
     pub(super) open: bool,
     revealed_email: Option<String>,
+    pub(crate) summary: summary::Summary,
     pub(super) labels: Option<Labels>,
     pub(super) view: Option<Snapshot>,
 }
@@ -98,13 +128,19 @@ impl Desktop {
         }
     }
 
+    pub(super) fn start_usage(&mut self) {
+        self.workspace.usage.view = None;
+        let request = self.workspace.usage.summary.request();
+        self.usage_action(request);
+    }
+
     pub(super) fn open_usage(&mut self) {
         if self.workspace.usage.labels.is_none() || self.workspace.feed.is_none() {
             return;
         }
         self.dismiss_palette();
         self.workspace.usage.open = true;
-        self.usage_action(Action::Open);
+        self.start_usage();
     }
 
     pub(super) fn close_usage(&mut self) {
@@ -238,56 +274,63 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .scroll(ScrollSpec {
             stick_bottom: false,
         });
-    if let Some(error) = snapshot.and_then(|s| s.error.as_ref()) {
-        body = body.child(workspace::label(error, 13., 500., theme.text).wrap());
-    }
-    if let Some(view) = snapshot.and_then(|s| s.result.as_ref()) {
-        if view.groups.is_empty() && view.notices.is_empty() && view.links.is_empty() {
-            body =
-                body.child(workspace::label(&labels.empty, 14., 400., theme.text_secondary).wrap());
+    if panel.summary.metric != summary::Metric::Limits {
+        if width < 860. {
+            body = body.child(summary::periods(s, labels, theme));
         }
-        for group in &view.groups {
-            body = body.child(workspace::label(&group.name, 16., 600., theme.text));
-            for window in &group.windows {
-                body = body.child(window_row(
-                    window,
-                    theme,
-                    labels,
-                    panel.revealed_email.as_deref(),
-                ));
-            }
-        }
-        for notice in &view.notices {
-            body = body.child(workspace::label(notice, 14., 400., theme.text_secondary).wrap());
-        }
-        for link in &view.links {
-            let url = link.url.clone();
-            body = body.child(
-                row()
-                    .w_full()
-                    .center_y()
-                    .child(
-                        workspace::label(&link.label, 14., 500., theme.text)
-                            .min_w(0.)
-                            .grow(1.)
-                            .truncate(),
-                    )
-                    .child(workspace::action(&labels.manage, theme, true, move |s| {
-                        s.usage_action(Action::Manage { url: &url })
-                    })),
-            );
-            if let Some(message) = &link.message {
-                body =
-                    body.child(workspace::label(message, 13., 400., theme.text_secondary).wrap());
-            }
-        }
+        body = summary::body(body, s, s.dark(cx), labels, theme, width >= 1024.);
     } else {
-        body = body.child(workspace::label(
-            &labels.loading,
-            14.,
-            400.,
-            theme.text_secondary,
-        ));
+        if let Some(error) = snapshot.and_then(|s| s.error.as_ref()) {
+            body = body.child(workspace::label(error, 13., 500., theme.text).wrap());
+        }
+        if let Some(view) = snapshot.and_then(|s| s.result.as_ref()) {
+            if view.groups.is_empty() && view.notices.is_empty() && view.links.is_empty() {
+                body = body
+                    .child(workspace::label(&labels.empty, 14., 400., theme.text_secondary).wrap());
+            }
+            for group in &view.groups {
+                body = body.child(workspace::label(&group.name, 16., 600., theme.text));
+                for window in &group.windows {
+                    body = body.child(window_row(
+                        window,
+                        theme,
+                        labels,
+                        panel.revealed_email.as_deref(),
+                    ));
+                }
+            }
+            for notice in &view.notices {
+                body = body.child(workspace::label(notice, 14., 400., theme.text_secondary).wrap());
+            }
+            for link in &view.links {
+                let url = link.url.clone();
+                body = body.child(
+                    row()
+                        .w_full()
+                        .center_y()
+                        .child(
+                            workspace::label(&link.label, 14., 500., theme.text)
+                                .min_w(0.)
+                                .grow(1.)
+                                .truncate(),
+                        )
+                        .child(workspace::action(&labels.manage, theme, true, move |s| {
+                            s.usage_action(Action::Manage { url: &url })
+                        })),
+                );
+                if let Some(message) = &link.message {
+                    body = body
+                        .child(workspace::label(message, 13., 400., theme.text_secondary).wrap());
+                }
+            }
+        } else {
+            body = body.child(workspace::label(
+                &labels.loading,
+                14.,
+                400.,
+                theme.text_secondary,
+            ));
+        }
     }
     let kit = s.contrast.kit(s.dark(cx));
     let close = rune_kit::IconButton::new(kit.glyph.close)
@@ -297,7 +340,11 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .key("usage-close")
         .autofocus()
         .on_press(Desktop::close_usage);
-    let can_refresh = snapshot.is_some_and(|v| v.result.is_some() && !v.refreshing);
+    let can_refresh = if panel.summary.metric == summary::Metric::Limits {
+        snapshot.is_some_and(|v| v.result.is_some() && !v.refreshing)
+    } else {
+        panel.summary.ready()
+    };
     let refresh = rune_kit::IconButton::new(&workspace::palette::REFRESH)
         .variant(rune_kit::IconButtonVariant::Ghost)
         .label(&labels.refresh)
@@ -305,8 +352,16 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .key("usage-refresh")
         .size(26., 26.)
         .disabled(!can_refresh)
-        .on_press(|s: &mut Desktop| s.usage_action(Action::Refresh));
-    let header = row()
+        .on_press(|s: &mut Desktop| {
+            s.usage_action(
+                if s.workspace.usage.summary.metric == summary::Metric::Limits {
+                    Action::Refresh
+                } else {
+                    Action::RefreshSummary
+                },
+            )
+        });
+    let mut header = row()
         .w_full()
         .h(46.)
         .px(16.)
@@ -324,8 +379,12 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             .min_w(0.)
             .truncate(),
         )
-        .child(spacer())
-        .child(workspace::label(&labels.limits, 13., 500., theme.text))
+        .child(spacer());
+    if panel.summary.metric != summary::Metric::Limits && width >= 860. {
+        header = header.child(summary::periods(s, labels, theme));
+    }
+    let header = header
+        .child(summary::controls(s, labels, theme))
         .child(refresh)
         .child(close.size(26., 26.));
     let panel = col()

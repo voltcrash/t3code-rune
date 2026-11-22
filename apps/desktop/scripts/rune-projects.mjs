@@ -1,3 +1,4 @@
+import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, watchUsage } from "../src/native/usage.ts";
 import { openExternalUrl } from "./rune-external.mjs";
 import {
@@ -152,6 +153,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     publish: (catalog) => write({ type: "workspaceeditors", watch, catalog }),
   });
   const usage = watchUsage(owner, signal, (view) => write({ type: "usage", watch, ...view }));
+  const usageTotals = watchUsageTotals(owner, signal, (view) =>
+    write({ type: "usagetotals", watch, ...view }),
+  );
   let registryIcons = new Set();
   const configureProviders = watchSidebarProviders((instances, art) => {
     registryIcons = new Set(
@@ -176,6 +180,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     () => activeVisit,
     (config, rpc) => {
       usage.configure(config, rpc);
+      usageTotals.configure(config?.settings, rpc);
       editors.configure(config, rpc);
       configureProviders(config);
     },
@@ -185,6 +190,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     controller,
     editors,
     usage,
+    usageTotals,
     hasRegistryIcon: (url) => registryIcons.has(url),
     ...feed,
   };
@@ -832,6 +838,21 @@ function savePreference(name, value) {
   }
 }
 
+function validUsagePreferences(value) {
+  return (
+    ["cost", "tokens", "limits"].includes(value?.metric) && [1, 7, 30, 90].includes(value.days)
+  );
+}
+function usagePreferences() {
+  try {
+    const saved = JSON.parse(readPreference("desktop-usage") ?? "null");
+    if (validUsagePreferences(saved)) return saved;
+  } catch {
+    process.stderr.write("Couldn’t read usage preferences.\n");
+  }
+  return { metric: "limits", days: 30 };
+}
+
 function validAppearance(mode) {
   return mode === "system" || mode === "light" || mode === "dark";
 }
@@ -1119,6 +1140,7 @@ async function handleWorkspaceRequest(request, reply) {
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
         usage_labels: usageLabels(),
+        usage_preferences: usagePreferences(),
         update_labels: {
           check: m(msg("Check for updates")),
           checking: m(msg("Checking for updates…")),
@@ -1539,9 +1561,25 @@ try {
       if (feed?.watch !== request.watch || !feed) return;
       switch (request.action) {
         case "open":
+          feed.usageTotals.close();
           feed.usage.select(true);
           break;
+        case "summary":
+          if (Number.isSafeInteger(request.selection) && [1, 7, 30, 90].includes(request.days)) {
+            feed.usage.select(false);
+            feed.usageTotals.select(request.selection, request.days);
+          }
+          break;
+        case "preferences":
+          if (validUsagePreferences(request.preferences)) {
+            savePreference("desktop-usage", JSON.stringify(request.preferences));
+          }
+          break;
+        case "refreshsummary":
+          feed.usageTotals.refresh();
+          break;
         case "close":
+          feed.usageTotals.close();
           feed.usage.select(false);
           break;
         case "refresh":
