@@ -28,6 +28,7 @@ mod project_icon;
 mod provider_status;
 mod questions;
 mod sidebar_layout;
+mod sidebar_providers;
 mod stage;
 mod terminal;
 mod updates;
@@ -122,6 +123,11 @@ enum Reply {
     GitInitialized {
         watch: u64,
         error: Option<String>,
+    },
+    WorkspaceProviders {
+        watch: u64,
+        instances: Vec<sidebar_providers::Instance>,
+        art: std::collections::HashMap<String, sidebar_providers::Art>,
     },
     WorkspaceEditors {
         watch: u64,
@@ -814,6 +820,17 @@ impl Desktop {
             self.git_initialized(watch, message.id, error);
             return;
         }
+        if let Reply::WorkspaceProviders {
+            watch,
+            instances,
+            art,
+        } = message.reply
+        {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.update_providers(instances, art);
+            }
+            return;
+        }
         if let Reply::WorkspaceEditors { watch, catalog } = message.reply {
             self.update_editors(watch, catalog);
             return;
@@ -1165,6 +1182,7 @@ impl Desktop {
                     self.workspace.set_clock_offset(offset);
                 }
                 self.workspace.sequence = sequence;
+                self.workspace.providers = Default::default();
                 self.workspace.feed = Some(watch);
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;
@@ -1266,6 +1284,7 @@ impl Desktop {
             | Reply::ThreadEdited { .. }
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }
+            | Reply::WorkspaceProviders { .. }
             | Reply::WorkspaceEditors { .. }
             | Reply::EditorError { .. }
             | Reply::EditorOpened { .. }

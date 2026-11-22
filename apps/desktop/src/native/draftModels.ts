@@ -145,7 +145,7 @@ export function watchDraftModels(
   signal: AbortSignal,
   projectById: (id: string) => ProjectRow | undefined,
   environment: string,
-  onEditorConfig: (config: ServerConfig | undefined, rpc: Rpc | undefined) => void,
+  onWorkspaceConfig: (config: ServerConfig | undefined, rpc: Rpc | undefined) => void,
 ) {
   let rpc: Rpc | undefined;
   let selected:
@@ -195,10 +195,10 @@ export function watchDraftModels(
     controller?.abort();
     controller = undefined;
     current = Option.none();
-    onEditorConfig(undefined, undefined);
+    onWorkspaceConfig(undefined, undefined);
     published = undefined;
     publishBanner();
-    if ((!selected && !bannerTarget) || !rpc) return;
+    if (!rpc) return;
     controller = new AbortController();
     const lifetime = AbortSignal.any([signal, controller.signal]);
     const connected = rpc;
@@ -215,7 +215,7 @@ export function watchDraftModels(
             const previous = Option.getOrUndefined(current)?.config;
             current = applyServerConfigProjection(current, event);
             const config = Option.getOrUndefined(current)?.config;
-            if (previous !== config) onEditorConfig(config, connected);
+            if (previous !== config) onWorkspaceConfig(config, connected);
             if (
               previous?.providers !== config?.providers ||
               previous?.settings !== config?.settings ||
@@ -231,7 +231,7 @@ export function watchDraftModels(
           Effect.sync(() => {
             if (!lifetime.aborted) {
               current = Option.none();
-              onEditorConfig(undefined, undefined);
+              onWorkspaceConfig(undefined, undefined);
               publishBanner();
             }
           }),
@@ -252,7 +252,7 @@ export function watchDraftModels(
     select(project: string | null, emit: (catalog: ReturnType<typeof draftModelReply>) => void) {
       const wasSelected = selected !== undefined;
       selected = project === null ? undefined : { project, emit };
-      if (wasSelected === Boolean(selected) && (selected || bannerTarget) && controller) {
+      if (wasSelected === Boolean(selected) && controller) {
         published = undefined;
         publish();
       } else subscribe();
@@ -263,7 +263,7 @@ export function watchDraftModels(
     ) {
       bannerTarget = target ? { ...target, emit } : undefined;
       banner = undefined;
-      if ((selected || bannerTarget) && controller) publishBanner();
+      if (controller) publishBanner();
       else subscribe();
     },
     refreshProvider(key: string) {
