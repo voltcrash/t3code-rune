@@ -134,7 +134,7 @@ impl Source {
 }
 
 impl Desktop {
-    pub(super) fn thread_workspace_root(&self) -> Option<&str> {
+    pub(crate) fn thread_workspace_root(&self) -> Option<&str> {
         let thread = self.workspace.visible_thread()?;
         thread.worktree.as_deref().or_else(|| {
             self.workspace

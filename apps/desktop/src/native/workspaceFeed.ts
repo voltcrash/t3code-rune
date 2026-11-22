@@ -1,3 +1,4 @@
+import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { watchProjectFileActions } from "./projectFile.ts";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
@@ -414,6 +415,34 @@ export function watchWorkspace(
     pinCommitted(key: string, committed: number) {
       lastPin = { key, sequence: committed };
     },
+    searchComposerFiles: Effect.fn("nativeDesktop.searchComposerFiles")(function* (
+      draft: boolean,
+      id: string,
+      root: string,
+      query: string,
+    ) {
+      const checkout = () => {
+        const thread = draft ? undefined : threads.get(id);
+        const project = projects.get(draft ? id : (thread?.project ?? ""));
+        return project && !project.archived ? (thread?.worktree ?? project.path) : undefined;
+      };
+      const rpc = activeRpc;
+      if (!session.canBrowse || !session.canOperate || !rpc || checkout() !== root) return [];
+      const { entries } = yield* rpc[WS_METHODS.projectsSearchEntries]({
+        cwd: root,
+        query: query
+          .trim()
+          .slice(0, 256)
+          .replace(/[\uD800-\uDBFF]$/, ""),
+        limit: 80,
+      });
+      if (activeRpc !== rpc || checkout() !== root) return [];
+      return entries.map(({ path, kind }) => ({
+        path,
+        kind,
+        link: serializeComposerFileLink(path),
+      }));
+    }),
     fileRoot(id: string) {
       const thread = threads.get(id);
       return thread && (thread.worktree ?? projects.get(thread.project)?.path);

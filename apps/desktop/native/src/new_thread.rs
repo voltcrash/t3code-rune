@@ -61,6 +61,18 @@ impl NewThreads {
             self.current().worktree = worktree;
         }
     }
+    pub(super) fn prompt(&self, id: &str) -> Option<&TextEdit> {
+        self.drafts
+            .get(id)
+            .filter(|draft| !draft.uncertain)
+            .map(|d| &d.prompt)
+    }
+    pub(super) fn edit_prompt(&mut self, id: &str) -> Option<&mut TextEdit> {
+        self.drafts
+            .get_mut(id)
+            .filter(|draft| !draft.uncertain)
+            .map(|d| &mut d.prompt)
+    }
     pub(super) fn has_draft(&self, project: &str) -> bool {
         self.drafts.contains_key(project)
     }
@@ -326,7 +338,7 @@ impl Desktop {
             runtime_override: draft.runtime_override.clone(),
             project,
             model: draft.model.clone().unwrap(),
-            text: draft.prompt.text.clone(),
+            text: crate::mentions::prompt(&draft.prompt),
             files: draft.files.clone(),
             operation: draft.operation.clone(),
             base: draft.worktree.then(|| draft.base.text.trim().to_owned()),
@@ -366,6 +378,7 @@ pub(super) fn view(
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
         .on_submit(|s: &mut Desktop, _| s.launch());
+    s.mentions.view(&target, cx, kit, overlays);
     let field = target.input(field);
     let options = draft
         .choices

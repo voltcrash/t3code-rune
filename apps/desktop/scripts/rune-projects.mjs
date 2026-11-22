@@ -141,6 +141,7 @@ function leaveThread(id = visibleThread) {
   activeVisit = undefined;
 }
 let workspaceFeed;
+let composerFileSearch;
 function stopWorkspaceFeed() {
   workspaceFeed?.controller.abort();
   workspaceFeed = undefined;
@@ -1248,6 +1249,11 @@ async function handleWorkspaceRequest(request, reply) {
       reply({
         type: "connected",
         label: session.label,
+        mention_labels: {
+          search: m(msg("Search files")),
+          searching: m(msg("Searching…")),
+          empty: m(msg("No files found.")),
+        },
         attachment_labels: {
           attachment: m(msg("Attachment")),
           copy: m(msg("Copy contents")),
@@ -1618,6 +1624,25 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "composerfiles") {
+      composerFileSearch?.abort();
+      const feed = workspaceFeed;
+      if (!feed || feed.watch !== request.watch || request.query == null) continue;
+      const controller = new AbortController();
+      composerFileSearch = controller;
+      const signal = AbortSignal.any([feed.controller.signal, controller.signal]);
+      const result = (entries) => {
+        if (!signal.aborted)
+          reply({ type: "composerfiles", operation: request.operation, entries });
+      };
+      void Effect.runPromise(
+        feed
+          .searchComposerFiles(request.draft, request.target, request.root, request.query)
+          .pipe(Effect.timeout("12 seconds")),
+        { signal },
+      ).then(result, () => result([]));
+      continue;
+    }
     if (request?.type === "openurl") {
       const link = readPairingAppLink(request.url);
       if (link) {

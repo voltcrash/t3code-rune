@@ -15,7 +15,7 @@ struct SendAttempt {
 }
 
 pub(super) struct Draft {
-    editor: TextEdit,
+    pub(super) editor: TextEdit,
     files: Vec<Attachment>,
     pub(super) model: Option<crate::models::Handoff>,
     pub(super) permission: Option<crate::permissions::Selection>,
@@ -62,13 +62,18 @@ impl Draft {
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
     }
+    pub(super) fn edit_mention(&mut self) -> &mut TextEdit {
+        self.operation = None;
+        &mut self.editor
+    }
     pub(super) fn preserve_answer(&mut self, value: &str) {
-        let combined = if self.editor.text.is_empty() {
-            value.to_owned()
-        } else {
-            format!("{}\n\n{value}", self.editor.text)
-        };
-        self.editor = TextEdit::new(&combined);
+        self.editor.set_caret(self.editor.text.len());
+        self.editor.undo_group(|edit| {
+            if !edit.text.is_empty() {
+                edit.insert("\n\n");
+            }
+            edit.insert(value);
+        });
         self.operation = None;
     }
     pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
@@ -105,7 +110,7 @@ impl Draft {
             thread: thread.into(),
             permission: self.permission.clone(),
             model: self.model.clone(),
-            text: self.editor.text.clone(),
+            text: crate::mentions::prompt(&self.editor),
             files: self.files.clone(),
             operation,
         })
@@ -267,6 +272,8 @@ pub(super) fn view(
                 }
             })
             .on_submit(|s: &mut Desktop, _| s.send_message());
+        s.mentions
+            .view(&target, cx, &s.contrast.kit(dark), overlays);
         target.input(field)
     };
     let pane = s
