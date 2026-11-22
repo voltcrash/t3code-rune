@@ -11,6 +11,32 @@ pub(super) enum Stage {
     Beta,
 }
 
+pub(super) fn sidebar_grain(width: f32, height: f32) -> El {
+    const SIZE: f32 = 256.;
+    static TILE: OnceLock<Pixels> = OnceLock::new();
+    let pixels = TILE.get_or_init(|| {
+        let (w, h, rgba) = rune::image::svg_rgba(
+            include_bytes!("../../../../assets/surface-grain.svg"),
+            SIZE as u32,
+        )
+        .expect("valid sidebar grain");
+        let pixels = Pixels::new();
+        pixels.set(w, h, rgba);
+        pixels
+    });
+    let mut layer = el().absolute(0., 0.).size(width, height);
+    for y in 0..(height / SIZE).ceil() as usize {
+        for x in 0..(width / SIZE).ceil() as usize {
+            layer = layer.child(
+                el().absolute(x as f32 * SIZE, y as f32 * SIZE)
+                    .size(SIZE, SIZE)
+                    .pixels(pixels),
+            );
+        }
+    }
+    layer
+}
+
 impl Stage {
     pub fn has_art(self) -> bool {
         !matches!(self, Self::Beta)

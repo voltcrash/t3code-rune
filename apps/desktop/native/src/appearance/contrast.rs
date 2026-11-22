@@ -38,7 +38,7 @@ impl Contrast {
         false
     }
 
-    fn foreground(self, color: Color, background: Color, target: Color) -> Color {
+    pub(crate) fn foreground(self, color: Color, background: Color, target: Color) -> Color {
         let level = self.value();
         let (other, blend) = if level < DEFAULT {
             (background, f32::from(DEFAULT - level) / 100.)
