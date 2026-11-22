@@ -5,6 +5,7 @@ import {
   CommandId,
   DEFAULT_CLIENT_SETTINGS,
   ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
   ThreadId,
 } from "@t3tools/contracts";
 import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contracts/settings";
@@ -36,6 +37,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { downloadAttachment } from "../src/native/downloadAttachment.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage, readRegistryIcon } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -1047,6 +1049,46 @@ async function prepareLanding(project, reply) {
   }
 }
 
+async function saveAttachment(request, reply) {
+  const record = watching;
+  const row = record?.state.rows[record.state.indices.get(request.key)];
+  const attachment = row?.attachments.find((a) => a.file?.id === request.attachment);
+  if (!attachment?.file || record.id !== request.watch || record.owner !== session) {
+    return reply({ type: "downloaded", error: m(msg("The attachment is unavailable.")) });
+  }
+  try {
+    await Effect.runPromise(
+      openEnvironmentRpc(record.owner).pipe(
+        Effect.flatMap((rpc) =>
+          rpc[WS_METHODS.assetsCreateUrl]({
+            resource: {
+              _tag: "attachment",
+              attachmentId: attachment.file.id,
+              disposition: "attachment",
+            },
+          }),
+        ),
+        Effect.flatMap(({ relativeUrl }) =>
+          downloadAttachment(
+            record.owner.httpBaseUrl,
+            relativeUrl,
+            attachment.file.bytes,
+            request.path,
+          ),
+        ),
+        Effect.scoped,
+        Effect.provide(record.owner.http),
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodePathLayer.layer),
+      ),
+      { signal: record.owner.signal },
+    );
+    reply({ type: "downloaded" });
+  } catch {
+    reply({ type: "downloaded", error: m(msg("Could not save file")) });
+  }
+}
+
 async function downloadPlan(request, reply) {
   try {
     await Effect.runPromise(
@@ -1144,6 +1186,9 @@ async function handleWorkspaceRequest(request, reply) {
         type: "connected",
         label: session.label,
         attachment_labels: {
+          download: m(msg("Download {label}", { label: "{label}" })),
+          pasted: m(msg("Pasted text")),
+          file: m(msg("File", { $context: "file type badge when the name has no extension" })),
           close: m(msg("Close image preview")),
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
@@ -1744,6 +1789,8 @@ try {
       void workspaceFiles(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
+    } else if (request?.type === "downloadattachment") {
+      downloads = downloads.then(() => saveAttachment(request, reply));
     } else if (request?.type === "downloadplan") {
       downloads = downloads.then(() => downloadPlan(request, reply));
     } else if (request?.type === "stoprun") {

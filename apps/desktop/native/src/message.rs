@@ -2,6 +2,115 @@ use super::{Conversation, Desktop, MessageRow, images, label};
 use rune::{Color, El, TextStyle, col, el, icon, row, text, tok};
 use rune_kit::{Kit, Markdown, MarkdownStyle, glyphs};
 
+const DOWNLOAD: rune::Icon = rune::Icon {
+    name: "download",
+    view: 24.,
+    body: r#"<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+fn file_card(
+    s: &Desktop,
+    message: &MessageRow,
+    name: &str,
+    file: &images::FileCard,
+    theme: &tok::Theme,
+    surface: Color,
+) -> El {
+    let labels = &s.workspace.attachment_labels;
+    let title = if file.pasted {
+        labels.pasted.as_str()
+    } else {
+        name
+    };
+    let metadata = if file.pasted {
+        file.size.clone()
+    } else {
+        format!(
+            "{} · {}",
+            file.extension.as_deref().unwrap_or(&labels.file),
+            file.size
+        )
+    };
+    let download = labels.download.replace("{label}", title);
+    let mut button = el()
+        .size(28., 28.)
+        .center()
+        .radius(6.)
+        .role("button")
+        .label(&download)
+        .help(&download)
+        .child(icon(&DOWNLOAD, 14.).color(theme.text_secondary));
+    if let Some(watch) = s.workspace.conversation.as_ref().and_then(|p| p.watch) {
+        let key = message.key.clone();
+        let id = file.id.clone();
+        let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
+        let safe: String = name.chars().filter(|c| !c.is_control()).collect();
+        let filename = if safe.is_empty() || safe == "." || safe == ".." {
+            labels.file.clone()
+        } else {
+            safe
+        };
+        button =
+            button
+                .focusable(true)
+                .hover(theme.hover)
+                .on_press_tx(move |_: &mut Desktop, tx| {
+                    let key = key.clone();
+                    let attachment = id.clone();
+                    tx.save_file(
+                        rune::FileDialogOptions {
+                            title: download.clone(),
+                            file_name: Some(filename.clone()),
+                            ..Default::default()
+                        },
+                        move |s: &mut Desktop, result, _| match result {
+                            Ok(Some(path)) => {
+                                s.write_request(
+                                    None,
+                                    crate::Request::DownloadAttachment {
+                                        watch,
+                                        key,
+                                        attachment,
+                                        path,
+                                    },
+                                );
+                            }
+                            Ok(None) => {}
+                            Err(e) => s.error = Some(e.to_string()),
+                        },
+                    );
+                });
+    } else {
+        button = button.disabled(true);
+    }
+    row()
+        .w_full()
+        .max_w(256.)
+        .min_w(0.)
+        .h(52.)
+        .px(8.)
+        .gap(8.)
+        .radius(16.)
+        .fill(surface)
+        .center_y()
+        .child(
+            el().size(36., 36.)
+                .center()
+                .radius(8.)
+                .fill(theme.bg.alpha(0.6))
+                .child(icon(rune_kit::file_icon(name), 18.).color(theme.text_secondary)),
+        )
+        .child(
+            col()
+                .min_w(0.)
+                .grow(1.)
+                .gap(2.)
+                .child(label(title, 14., 500., theme.text).truncate())
+                .child(label(&metadata, 12., 400., theme.text_secondary).truncate()),
+        )
+        .child(button)
+}
+
 fn copy_prompt(pane: &Conversation, message: &MessageRow, theme: &tok::Theme) -> El {
     let thread = pane.id.clone();
     let key = message.key.clone();
@@ -52,11 +161,19 @@ pub(super) fn prompt(
     for file in &message.attachments {
         if let Some(key) = &file.image {
             content = content.child(images::thumbnail(s, key, &file.name, theme, 192.).self_end());
+        } else if let Some(details) = &file.file {
+            content = content
+                .child(file_card(s, message, &file.name, details, theme, surface).self_end());
         } else {
             body = body.child(label(&file.name, 12., 500., theme.text_secondary));
         }
     }
-    if !message.body.is_empty() || message.attachments.iter().any(|a| a.image.is_none()) {
+    if !message.body.is_empty()
+        || message
+            .attachments
+            .iter()
+            .any(|a| a.image.is_none() && a.file.is_none())
+    {
         content = content.child(body);
     }
     if !message.body.is_empty() {
@@ -87,6 +204,8 @@ pub(super) fn reply(
     for file in &message.attachments {
         body = body.child(if let Some(key) = &file.image {
             images::thumbnail(s, key, &file.name, theme, 192.)
+        } else if let Some(details) = &file.file {
+            file_card(s, message, &file.name, details, theme, theme.card)
         } else {
             label(&file.name, 12., 500., theme.text_secondary)
         });

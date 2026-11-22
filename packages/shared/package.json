@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./formatBytes": {
+      "types": "./src/formatBytes.ts",
+      "import": "./src/formatBytes.ts"
+    },
     "./png": {
       "types": "./src/png.ts",
       "import": "./src/png.ts"

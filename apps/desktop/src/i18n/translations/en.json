@@ -168,5 +168,10 @@
   "68883cb3342998e5": "Reconnect to the environment and try again.",
   "9b0277205d8a9b04": "All providers",
   "31fd849033990734": "No providers",
-  "0d4d01729dabc81e": "{count, plural, one {{count} providers} other {{count} providers}}"
+  "0d4d01729dabc81e": "{count, plural, one {{count} providers} other {{count} providers}}",
+  "4952f87dc98191a7": "The attachment is unavailable.",
+  "dc429ef6ac7de65e": "Could not save file",
+  "d4864819331ed9fc": "Download {label}",
+  "87f63288c0f1ca07": "Pasted text",
+  "c336d59042368fd6": "File"
 }

@@ -8,7 +8,11 @@ use std::rc::Rc;
 use tempfile::TempPath;
 
 #[derive(serde::Deserialize)]
+#[serde(default)]
 pub(crate) struct Labels {
+    pub(crate) download: String,
+    pub(crate) pasted: String,
+    pub(crate) file: String,
     preview: String,
     remove: String,
     pub(crate) close: String,
@@ -17,6 +21,9 @@ pub(crate) struct Labels {
 impl Default for Labels {
     fn default() -> Self {
         Self {
+            download: "Download {label}".into(),
+            pasted: "Pasted text".into(),
+            file: "File".into(),
             preview: "Preview {name}".into(),
             remove: "Remove {name}".into(),
             close: "Close image preview".into(),

@@ -168,5 +168,10 @@
   "68883cb3342998e5": "Reconnectez-vous à l’environnement et réessayez.",
   "9b0277205d8a9b04": "Tous les fournisseurs",
   "31fd849033990734": "Aucun fournisseur",
-  "0d4d01729dabc81e": "{count, plural, one {{count} fournisseur} other {{count} fournisseurs}}"
+  "0d4d01729dabc81e": "{count, plural, one {{count} fournisseur} other {{count} fournisseurs}}",
+  "4952f87dc98191a7": "La pièce jointe est indisponible.",
+  "dc429ef6ac7de65e": "Impossible d’enregistrer le fichier",
+  "d4864819331ed9fc": "Télécharger {label}",
+  "87f63288c0f1ca07": "Texte collé",
+  "c336d59042368fd6": "Fichier"
 }

@@ -168,5 +168,10 @@
   "68883cb3342998e5": "Verbinde dich erneut mit der Umgebung und versuche es noch einmal.",
   "9b0277205d8a9b04": "Alle Anbieter",
   "31fd849033990734": "Keine Anbieter",
-  "0d4d01729dabc81e": "{count, plural, one {{count} Anbieter} other {{count} Anbieter}}"
+  "0d4d01729dabc81e": "{count, plural, one {{count} Anbieter} other {{count} Anbieter}}",
+  "4952f87dc98191a7": "Der Anhang ist nicht verfügbar.",
+  "dc429ef6ac7de65e": "Datei konnte nicht gespeichert werden",
+  "d4864819331ed9fc": "{label} herunterladen",
+  "87f63288c0f1ca07": "Eingefügter Text",
+  "c336d59042368fd6": "Datei"
 }

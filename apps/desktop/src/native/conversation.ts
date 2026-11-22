@@ -40,6 +40,8 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
+import { formatBytes } from "@t3tools/shared/formatBytes";
+import { imageMimeType } from "@t3tools/shared/image";
 import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
@@ -59,7 +61,11 @@ type Row = {
     | "user"
     | "assistant";
   body: string;
-  attachments: Array<{ name: string; image?: string }>;
+  attachments: Array<{
+    name: string;
+    image?: string;
+    file?: { id: string; bytes: number; size: string; extension?: string; pasted: boolean };
+  }>;
   caption?: string;
   plan?: { filename: string; start: number; collapsible: boolean; preview_end?: number };
   language?: string;
@@ -144,12 +150,24 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     key,
     role: item.type === "user_message" ? "user" : "assistant",
     body: item.text,
-    attachments: (item.attachments ?? []).map((a) => ({
-      name: a.name,
-      ...(a.type === "image"
-        ? { image: imageKey({ _tag: "attachment", attachmentId: a.id }) }
-        : {}),
-    })),
+    attachments: (item.attachments ?? []).map((a) => {
+      const name = a.name;
+      if (a.type === "image" || (a.type === "file" && imageMimeType(a) !== null)) {
+        return { name, image: imageKey({ _tag: "attachment", attachmentId: a.id }) };
+      }
+      if (a.type !== "file") return { name };
+      const extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toUpperCase();
+      return {
+        name,
+        file: {
+          id: a.id,
+          bytes: a.sizeBytes,
+          size: formatBytes(a.sizeBytes),
+          ...(extension ? { extension } : {}),
+          pasted: "source" in a && a.source?._tag === "pasted-text",
+        },
+      };
+    }),
   };
 }
 
@@ -335,7 +353,11 @@ function sameRow(a: Row, b: Row) {
     a.attachments.length === b.attachments.length &&
     a.attachments.every(
       (value, i) =>
-        value.name === b.attachments[i]?.name && value.image === b.attachments[i]?.image,
+        value.name === b.attachments[i]?.name &&
+        value.image === b.attachments[i]?.image &&
+        value.file?.id === b.attachments[i]?.file?.id &&
+        value.file?.bytes === b.attachments[i]?.file?.bytes &&
+        value.file?.pasted === b.attachments[i]?.file?.pasted,
     )
   );
 }
