@@ -78,6 +78,8 @@ pub(super) struct Thread {
     order_key: Option<String>,
     #[serde(default)]
     recent_at: f64,
+    #[serde(default)]
+    providers: Vec<String>,
     pub(super) model: String,
     pub(super) permission: Option<crate::permissions::Selection>,
     settled: bool,
@@ -284,6 +286,7 @@ pub(super) struct Workspace {
     pub(super) scratch_available: bool,
     projects: Vec<Project>,
     favicon_cache: project_favicon::Cache,
+    pub(super) providers: crate::sidebar_providers::Catalog,
     by_project: HashMap<String, usize>,
     threads: Vec<Thread>,
     by_thread: HashMap<String, usize>,
@@ -301,6 +304,15 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
+    pub(super) fn update_providers(
+        &mut self,
+        instances: Vec<crate::sidebar_providers::Instance>,
+        art: HashMap<String, crate::sidebar_providers::Art>,
+    ) {
+        self.providers.update(instances, art);
+        self.filter_revision += 1;
+    }
+
     pub(super) fn visible_thread(&self) -> Option<&Thread> {
         if self.show_projects {
             return None;
@@ -327,6 +339,7 @@ impl Workspace {
             scratch_available: false,
             projects: Vec::new(),
             favicon_cache: Default::default(),
+            providers: Default::default(),
             by_project: HashMap::new(),
             threads: Vec::new(),
             by_thread: HashMap::new(),
@@ -873,16 +886,14 @@ fn hide_sidebar(theme: &tok::Theme) -> El {
         .on_press(Desktop::toggle_sidebar)
 }
 
-fn multiline_thread_card(
-    thread: &Thread,
+fn card_heading(
     project_name: &str,
     badge: Option<El>,
     pin: Option<El>,
     status: El,
-    title: El,
     theme: &tok::Theme,
 ) -> El {
-    let heading = row()
+    row()
         .w_full()
         .h(20.)
         .center_y()
@@ -895,8 +906,17 @@ fn multiline_thread_card(
                 .shrink(),
         )
         .child(spacer())
-        .child(status);
-    let mut card = col().py(8.).child(heading).child(title.mt(4.));
+        .child(status)
+}
+
+fn multiline_thread_card(
+    thread: &Thread,
+    heading: El,
+    title: El,
+    providers: Option<El>,
+    theme: &tok::Theme,
+) -> El {
+    let card = col().py(8.).child(heading);
     if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
         let mut meta = row().mt(2.).h(16.).w_full().center_y().gap(6.);
         if let Some(path) = thread
@@ -914,16 +934,26 @@ fn multiline_thread_card(
                     .help(description),
             );
         }
-        card = card.child(
+        card.child(title.mt(4.)).child(
             meta.child(
                 label(branch, 12., 400., theme.text_secondary)
                     .min_w(0.)
                     .grow(1.)
                     .truncate_middle(),
-            ),
-        );
+            )
+            .children(providers),
+        )
+    } else {
+        card.child(
+            row()
+                .w_full()
+                .mt(4.)
+                .center_y()
+                .gap(4.)
+                .child(title.min_w(0.).grow(1.).shrink())
+                .children(providers),
+        )
     }
-    card
 }
 
 fn sidebar_border(s: &Desktop, dark: bool) -> rune::Color {
@@ -988,14 +1018,39 @@ fn thread_row(
             .h(36.)
             .center_y()
             .gap(10.)
-            .hover_group()
             .children(badge.map(|b| b.group_opacity(0.4, 1.)))
             .child(title.min_w(0.).grow(1.).shrink())
             .children(pin)
             .child(row().min_w(32.).justify_end().center_y().child(status))
     } else {
-        multiline_thread_card(thread, project_name, badge, pin, status, title, theme)
+        let branch = thread
+            .branch
+            .as_deref()
+            .is_some_and(|branch| !branch.is_empty());
+        let ink = if branch {
+            theme.text_secondary
+        } else {
+            theme.text
+        };
+        let colors = crate::sidebar_providers::Colors {
+            rest: if recedes && !branch {
+                theme.text_secondary.alpha(0.75)
+            } else {
+                ink
+            },
+            hovered: ink,
+        };
+        multiline_thread_card(
+            thread,
+            card_heading(project_name, badge, pin, status, theme),
+            title,
+            s.workspace
+                .providers
+                .stack(&thread.providers, dark, colors, theme),
+            theme,
+        )
     }
+    .hover_group()
     .key(&id)
     .label(accessible)
     .role("button")
@@ -2067,6 +2122,7 @@ mod tests {
             recent_at: sort_at as f64,
             order_key: None,
             model: String::new(),
+            providers: Vec::new(),
             permission: None,
             settled: false,
             pinned: false,

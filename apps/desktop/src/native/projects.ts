@@ -14,6 +14,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import {
   presentThreadShell,
+  resolveThreadProviderStack,
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
 import { threadRaisedHandWhileSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -216,6 +217,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
       isActive: false,
       isSelected: false,
     }),
+    providers: resolveThreadProviderStack(shell),
     model: thread.modelSelection.model,
     permission: {
       instance: thread.modelSelection.instanceId,

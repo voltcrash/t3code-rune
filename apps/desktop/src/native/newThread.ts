@@ -255,6 +255,7 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
       project: thread.projectId,
       title: thread.title,
       branch: thread.branch,
+      providers: [active ? run.providerInstanceId : thread.modelSelection.instanceId],
       model: thread.modelSelection.model,
       permission: {
         instance: thread.modelSelection.instanceId,

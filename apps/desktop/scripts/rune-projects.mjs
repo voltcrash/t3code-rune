@@ -8,6 +8,7 @@ import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contr
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
+import { watchSidebarProviders } from "../src/native/sidebarProviders.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import {
   hiddenThreadDetails,
@@ -148,6 +149,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     save: (id) => savePreference("desktop-editor", id),
     publish: (catalog) => write({ type: "workspaceeditors", watch, catalog }),
   });
+  const configureProviders = watchSidebarProviders((instances, art) =>
+    write({ type: "workspaceproviders", watch, instances, art }),
+  );
   const feed = watchWorkspace(
     owner,
     initial,
@@ -163,7 +167,10 @@ function startWorkspaceFeed(owner, initial, watch) {
     (offset) => write({ type: "workspaceclock", watch, offset }),
     (projects) => write({ type: "refreshfavicons", watch, projects }),
     () => activeVisit,
-    editors.configure,
+    (config, rpc) => {
+      editors.configure(config, rpc);
+      configureProviders(config);
+    },
   );
   workspaceFeed = { watch, controller, editors, ...feed };
   if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
@@ -1341,6 +1348,7 @@ async function handleWorkspaceRequest(request, reply) {
       startWorkspaceFeed(reading, workspace, request.id);
       reply({
         type: "workspace",
+        environment_id: reading.environmentId,
         editors: workspaceFeed.editors.catalog(),
         landing_project: workspaceFeed.initialLanding,
         watch: request.id,

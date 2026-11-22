@@ -895,6 +895,7 @@ mod tests {
             recent_at: 0.,
             order_key: None,
             model: String::new(),
+            providers: Vec::new(),
             permission: None,
             settled: false,
             pinned: false,

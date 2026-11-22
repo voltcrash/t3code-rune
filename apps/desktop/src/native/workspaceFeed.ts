@@ -81,7 +81,7 @@ export function watchWorkspace(
   onClock: (offset: number) => void,
   refreshFavicons: (projects?: string[]) => void,
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
-  onEditorConfig: Parameters<typeof watchDraftModels>[3],
+  onWorkspaceConfig: Parameters<typeof watchDraftModels>[3],
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
@@ -108,7 +108,7 @@ export function watchWorkspace(
         scratchRoot = config.scratchWorkspaceRoot;
         git.reconcile();
       }
-      onEditorConfig(config, rpc);
+      onWorkspaceConfig(config, rpc);
     },
   );
   const dirtyProjects = new Set<string>();
