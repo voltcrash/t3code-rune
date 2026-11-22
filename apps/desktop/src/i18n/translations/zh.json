@@ -157,5 +157,8 @@
   "64a9a7f137f4715b": "没有通往 {environment} 的 SSH 路由",
   "b99f09d2d9df18ad": "未找到已安装的编辑器",
   "392611fdc89f2809": "已在 {editor} 中打开",
-  "c77307f0c52b5031": "通过 SSH 打开，需要你的密钥已配置在 {environment} 上"
+  "c77307f0c52b5031": "通过 SSH 打开，需要你的密钥已配置在 {environment} 上",
+  "0282c27e763f6e1d": "Git 初始化失败",
+  "afef16b4bdfd825c": "初始化 Git",
+  "affd5a57623e949c": "正在初始化…"
 }

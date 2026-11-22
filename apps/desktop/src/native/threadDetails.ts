@@ -5,6 +5,8 @@ import { m } from "../i18n/catalog.ts";
 export function threadDetailsLabels() {
   return {
     panel: m(msg("Thread details")),
+    initializeGit: m(msg("Initialize Git")),
+    initializing: m(msg("Initializing...")),
     toggle: m(msg("Toggle thread details panel")),
     context: m(msg("Run context: {context}", { context: "{context}" })),
     checkout: m(msg("Current checkout")),

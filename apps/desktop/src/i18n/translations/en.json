@@ -157,5 +157,8 @@
   "64a9a7f137f4715b": "No SSH route to {environment}",
   "b99f09d2d9df18ad": "No installed editors found",
   "392611fdc89f2809": "Opened in {editor}",
-  "c77307f0c52b5031": "Opens over SSH. Needs your key on {environment}"
+  "c77307f0c52b5031": "Opens over SSH. Needs your key on {environment}",
+  "0282c27e763f6e1d": "Git initialization failed",
+  "afef16b4bdfd825c": "Initialize Git",
+  "affd5a57623e949c": "Initializing..."
 }

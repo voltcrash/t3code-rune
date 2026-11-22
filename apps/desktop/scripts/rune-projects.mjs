@@ -1081,6 +1081,8 @@ async function handleWorkspaceRequest(request, reply) {
           windows: session.platform === "windows",
           environment: clientSettings.threadDetailsItems.environment !== false,
           openIn: clientSettings.threadDetailsItems.openIn !== false,
+          gitActions: clientSettings.threadDetailsItems.gitActions !== false,
+          gitWrite: session.canWriteGit,
           labels: threadDetailsLabels(),
         },
         local: localSession?.sameFilesystem ?? false,
@@ -1466,6 +1468,25 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "watchgit") {
+      if (workspaceFeed?.watch === request.watch)
+        workspaceFeed.git.select(request.id, request.selection ?? null, (nonRepo) =>
+          reply({ type: "gitstatus", watch: request.watch, non_repo: nonRepo }),
+        );
+    } else if (request?.type === "initgit") {
+      const feed = workspaceFeed;
+      if (feed && feed.watch === request.watch)
+        void feed.git
+          .initialize(request.subscription)
+          .catch(() => false)
+          .then((ok) => {
+            if (workspaceFeed === feed)
+              reply({
+                type: "gitinitialized",
+                watch: request.watch,
+                error: ok ? undefined : m(msg("Git initialization failed")),
+              });
+          });
     } else if (request?.type === "watchproviderstatus") {
       if (session && workspaceFeed?.watch === request.watch)
         workspaceFeed.selectBanner(

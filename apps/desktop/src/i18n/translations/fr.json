@@ -157,5 +157,8 @@
   "64a9a7f137f4715b": "Aucune route SSH vers {environment}",
   "b99f09d2d9df18ad": "Aucun éditeur installé trouvé",
   "392611fdc89f2809": "Ouvert dans {editor}",
-  "c77307f0c52b5031": "S’ouvre via SSH. Nécessite votre clé sur {environment}"
+  "c77307f0c52b5031": "S’ouvre via SSH. Nécessite votre clé sur {environment}",
+  "0282c27e763f6e1d": "Échec de l’initialisation de Git",
+  "afef16b4bdfd825c": "Initialiser Git",
+  "affd5a57623e949c": "Initialisation..."
 }
