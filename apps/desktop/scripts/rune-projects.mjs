@@ -5,6 +5,7 @@ import {
   CommandId,
   DEFAULT_CLIENT_SETTINGS,
   ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
   ThreadId,
 } from "@t3tools/contracts";
 import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contracts/settings";
@@ -36,6 +37,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import {
+  downloadAttachment,
+  downloadDestination,
+  downloadQueueKey,
+} from "../src/native/downloadAttachment.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage, readRegistryIcon } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -91,6 +97,7 @@ let server;
 let watching;
 let menuWindow;
 const pendingLaunches = new Map();
+const attachmentDownloads = Semaphore.makeUnsafe(3);
 const directoryReads = Semaphore.makeUnsafe(4);
 const imageReads = Semaphore.makeUnsafe(3);
 const sentImages = new Map();
@@ -1047,6 +1054,46 @@ async function prepareLanding(project, reply) {
   }
 }
 
+function attachmentSave(request) {
+  const record = watching;
+  const row = record?.state.rows[record.state.indices.get(request.key)];
+  const file = row?.attachments.find((a) => a.file?.id === request.attachment)?.file;
+  if (!file || record.id !== request.watch || record.owner !== session) return;
+  const owner = record.owner;
+  return (request, reply) => saveAttachment(owner, file, request.path, reply);
+}
+
+async function saveAttachment(owner, file, path, reply) {
+  try {
+    await Effect.runPromise(
+      openEnvironmentRpc(owner).pipe(
+        Effect.flatMap((rpc) =>
+          rpc[WS_METHODS.assetsCreateUrl]({
+            resource: {
+              _tag: "attachment",
+              attachmentId: file.id,
+              disposition: "attachment",
+            },
+          }),
+        ),
+        Effect.flatMap(({ relativeUrl }) =>
+          downloadAttachment(owner.httpBaseUrl, relativeUrl, file.bytes, path),
+        ),
+        Effect.scoped,
+        attachmentDownloads.withPermits(1),
+        Effect.timeout("5 minutes"),
+        Effect.provide(owner.http),
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodePathLayer.layer),
+      ),
+      { signal: owner.signal },
+    );
+    reply({ type: "downloaded" });
+  } catch {
+    reply({ type: "downloaded", error: m(msg("Could not save file")) });
+  }
+}
+
 async function downloadPlan(request, reply) {
   try {
     await Effect.runPromise(
@@ -1144,6 +1191,9 @@ async function handleWorkspaceRequest(request, reply) {
         type: "connected",
         label: session.label,
         attachment_labels: {
+          download: m(msg("Download {label}", { label: "{label}" })),
+          pasted: m(msg("Pasted text")),
+          file: m(msg("File", { $context: "file type badge when the name has no extension" })),
           close: m(msg("Close image preview")),
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
@@ -1462,7 +1512,33 @@ async function handleWorkspaceRequest(request, reply) {
 
 try {
   let workspaceRequests = Promise.resolve();
-  let downloads = Promise.resolve();
+  const downloads = new Map();
+  let resolvingDownloads = Promise.resolve();
+  async function queueDownload(request, reply, save) {
+    let path, key;
+    try {
+      [path, key] = await Effect.runPromise(
+        downloadDestination(request.path).pipe(
+          Effect.flatMap((path) =>
+            downloadQueueKey(path, downloads.keys()).pipe(Effect.map((key) => [path, key])),
+          ),
+          Effect.provide(NodeFileSystem.layer),
+          Effect.provide(NodePathLayer.layer),
+        ),
+        { signal: lifetime.signal },
+      );
+    } catch {
+      reply({ type: "downloaded", error: m(msg("Could not save file")) });
+      return;
+    }
+    const previous = downloads.get(key) ?? Promise.resolve();
+    const pending = previous.then(() => save({ ...request, path }, reply));
+    downloads.set(key, pending);
+    void pending.finally(() => {
+      if (downloads.get(key) === pending) downloads.delete(key);
+    });
+  }
+
   for await (const line of input) {
     if (lifetime.signal.aborted) break;
     let request;
@@ -1744,15 +1820,19 @@ try {
       void workspaceFiles(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
-    } else if (request?.type === "downloadplan") {
-      downloads = downloads.then(() => downloadPlan(request, reply));
+    } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {
+      const save = request.type === "downloadplan" ? downloadPlan : attachmentSave(request);
+      if (save)
+        resolvingDownloads = resolvingDownloads.then(() => queueDownload(request, reply, save));
+      else reply({ type: "downloaded", error: m(msg("The attachment is unavailable.")) });
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
-  await Promise.all([workspaceRequests, downloads, clientSettingsWrites]);
+  await resolvingDownloads;
+  await Promise.all([workspaceRequests, ...downloads.values(), clientSettingsWrites]);
 } finally {
   close();
   await server?.stopped;

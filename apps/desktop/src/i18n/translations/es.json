@@ -168,5 +168,10 @@
   "68883cb3342998e5": "Vuelve a conectarte al entorno e inténtalo de nuevo.",
   "9b0277205d8a9b04": "Todos los proveedores",
   "31fd849033990734": "No hay proveedores",
-  "0d4d01729dabc81e": "{count, plural, one {{count} proveedor} other {{count} proveedores}}"
+  "0d4d01729dabc81e": "{count, plural, one {{count} proveedor} other {{count} proveedores}}",
+  "4952f87dc98191a7": "El adjunto no está disponible.",
+  "dc429ef6ac7de65e": "No se pudo guardar el archivo",
+  "d4864819331ed9fc": "Descargar {label}",
+  "87f63288c0f1ca07": "Texto pegado",
+  "c336d59042368fd6": "Archivo"
 }

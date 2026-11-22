@@ -8,6 +8,15 @@ use uuid::Uuid;
 pub(super) struct Attachment {
     pub(super) name: String,
     pub(super) image: Option<String>,
+    pub(super) file: Option<FileCard>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct FileCard {
+    pub(super) id: String,
+    pub(super) size: String,
+    pub(super) extension: Option<String>,
+    pub(super) pasted: bool,
 }
 
 struct Preview {

@@ -168,5 +168,10 @@
   "68883cb3342998e5": "Återanslut till miljön och försök igen.",
   "9b0277205d8a9b04": "Alla leverantörer",
   "31fd849033990734": "Inga leverantörer",
-  "0d4d01729dabc81e": "{count, plural, one {{count} leverantör} other {{count} leverantörer}}"
+  "0d4d01729dabc81e": "{count, plural, one {{count} leverantör} other {{count} leverantörer}}",
+  "4952f87dc98191a7": "Bilagan är inte tillgänglig.",
+  "dc429ef6ac7de65e": "Kunde inte spara filen",
+  "d4864819331ed9fc": "Ladda ned {label}",
+  "87f63288c0f1ca07": "Inklistrad text",
+  "c336d59042368fd6": "Fil"
 }

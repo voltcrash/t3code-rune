@@ -582,6 +582,12 @@ enum Request<'a> {
         operation: String,
         open: bool,
     },
+    DownloadAttachment {
+        watch: u64,
+        key: String,
+        attachment: String,
+        path: std::path::PathBuf,
+    },
     DownloadPlan {
         path: std::path::PathBuf,
         contents: String,
