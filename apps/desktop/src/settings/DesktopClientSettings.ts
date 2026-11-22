@@ -169,7 +169,10 @@ function withSettingsWriteLock<A, E, R>(
 export const patchClientAppearance = Effect.fn("desktop.clientSettings.setTypography")(function (
   settingsPath: string,
   changes: Partial<
-    Pick<ClientSettings, "fontSmoothing" | "fontFamilySans" | "fontFamilyCode" | "chatWidth">
+    Pick<
+      ClientSettings,
+      "fontSmoothing" | "fontFamilySans" | "fontFamilyCode" | "chatWidth" | "appearanceContrast"
+    >
   >,
 ) {
   return withSettingsWriteLock(settingsPath, (target) =>

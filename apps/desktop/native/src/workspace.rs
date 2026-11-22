@@ -41,7 +41,7 @@ use rune::{
     Cx, El, FileDialogOptions, GrowthSpec, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row,
     spacer, text, text_input, tok,
 };
-use rune_kit::{Kit, MarkdownStyle};
+use rune_kit::MarkdownStyle;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -1502,7 +1502,7 @@ fn timeline(
     lane_inset: f32,
     overlays: &mut Vec<El>,
 ) -> El {
-    let kit = Kit::neutral(dark);
+    let kit = s.contrast.kit(dark);
     let style = MarkdownStyle::from_kit(&kit)
         .body_font(TextStyle::new(14.0, 400.0).lh(22.75))
         .text(theme.text)
@@ -1682,7 +1682,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             s,
             thread,
             theme,
-            &Kit::neutral(dark),
+            &s.contrast.kit(dark),
             &mut overlays,
         ));
     } else if !empty && !landing {
@@ -1837,14 +1837,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 el().w(1.)
             });
     }
-    thread_actions::sidebar_menu(s, &Kit::neutral(dark), &mut overlays);
+    thread_actions::sidebar_menu(s, &s.contrast.kit(dark), &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if panel_open {
         let bar = Topbar {
             leading: if split_panel { 0. } else { bar.leading },
             ..bar
         };
-        let kit = Kit::neutral(dark);
+        let kit = s.contrast.kit(dark);
         let panel = if diff_open {
             file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {

@@ -1,6 +1,6 @@
 use super::{Desktop, Request, workspace};
 use rune::{El, Key, ScrollSpec, Tx, col, el, row, spacer, tok};
-use rune_kit::{IconButton, IconButtonVariant, Kit};
+use rune_kit::{IconButton, IconButtonVariant};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -100,7 +100,7 @@ pub(super) fn overlay(s: &Desktop, theme: &tok::Theme, dark: bool, overlays: &mu
     } else {
         ("Updates unavailable", "The desktop connection closed.")
     };
-    let kit = Kit::neutral(dark);
+    let kit = s.contrast.kit(dark);
     let dismiss = IconButton::new(kit.glyph.close)
         .variant(IconButtonVariant::Ghost)
         .label("Close")

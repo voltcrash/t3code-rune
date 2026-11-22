@@ -1,6 +1,8 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
 mod chat_width;
+mod contrast;
+pub(crate) use contrast::Contrast;
 mod fonts;
 pub(crate) use chat_width::ChatWidth;
 pub(super) use fonts::{FontFamilies, FontSlot};
@@ -422,13 +424,28 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                 ),
         );
     let mut popups = Vec::new();
-    body = body.child(chat_width::section(
-        s,
-        w < 640.,
-        theme,
-        s.dark(cx),
-        &mut popups,
-    ));
+    let narrow = w < 640.;
+    let interface = col()
+        .w_full()
+        .radius(12.)
+        .border(1., theme.separator)
+        .child(contrast::setting(s, narrow, theme, s.dark(cx)))
+        .child(el().w_full().h(1.).fill(theme.separator))
+        .child(chat_width::setting(
+            s,
+            narrow,
+            theme,
+            s.dark(cx),
+            &mut popups,
+        ));
+    body = body.child(
+        col()
+            .w_full()
+            .pt(16.)
+            .gap(8.)
+            .child(label("Interface", 16., 600., theme.text).pl(12.))
+            .child(interface),
+    );
     body = body.child(typography(s, w < 640., theme, s.dark(cx), &mut popups));
     if let Some(err) = &s.appearance_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());

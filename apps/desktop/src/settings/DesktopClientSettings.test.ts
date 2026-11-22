@@ -273,6 +273,7 @@ describe("DesktopClientSettings", () => {
         yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontFamilyCode: "Menlo",
           chatWidth: "full",
+          appearanceContrast: 125,
         });
         yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontFamilySans: "",
@@ -287,6 +288,7 @@ describe("DesktopClientSettings", () => {
               fontFamilySans: "",
               fontFamilyCode: "Menlo",
               chatWidth: "full",
+              appearanceContrast: 125,
             },
             profileVersion: 2,
           },

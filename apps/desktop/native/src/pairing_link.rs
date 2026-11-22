@@ -1,6 +1,6 @@
 use crate::{Desktop, Request, workspace::action};
 use rune::{El, row, spacer, tok};
-use rune_kit::{Dialog, Kit};
+use rune_kit::Dialog;
 use serde::Deserialize;
 
 #[derive(Deserialize, PartialEq)]
@@ -46,7 +46,7 @@ pub(super) fn overlay(s: &Desktop, theme: &tok::Theme, dark: bool, overlays: &mu
                 )),
         )
         .on_close(cancel)
-        .build(&Kit::neutral(dark), overlays);
+        .build(&s.contrast.kit(dark), overlays);
 }
 
 #[cfg(test)]
