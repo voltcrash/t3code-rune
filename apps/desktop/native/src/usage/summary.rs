@@ -152,6 +152,9 @@ impl Default for Summary {
 impl Summary {
     pub(crate) fn restore(&mut self, preferences: Option<Preferences>) {
         if let Some(p) = preferences {
+            if self.metric != p.metric || self.days != p.days {
+                self.clear();
+            }
             self.metric = p.metric;
             self.days = p.days;
         }
@@ -166,10 +169,17 @@ impl Summary {
         }
     }
 
-    pub(super) fn request(&mut self) -> Action<'static> {
+    pub(super) fn clear(&mut self) {
         self.reply = None;
-        self.serial += 1;
         self.limit = 20;
+    }
+
+    pub(super) fn request(&mut self) -> Action<'static> {
+        self.serial += 1;
+        if let Some(reply) = &mut self.reply {
+            reply.loading = true;
+            reply.selection = self.serial;
+        }
         if self.metric == Metric::Limits {
             Action::Open
         } else {
@@ -197,6 +207,9 @@ impl Summary {
                 data.models.sort_by(|a, b| b.price.total_cmp(&a.price));
             }
         }
+        if reply.data.is_none() && reply.loading && !reply.restricted && reply.error.is_none() {
+            reply.data = self.reply.as_mut().and_then(|r| r.data.take());
+        }
         self.reply = Some(reply);
     }
 }
@@ -211,7 +224,8 @@ impl Desktop {
         summary.metric = metric;
         let preferences = summary.preferences();
         if metric == Metric::Limits || previous == Metric::Limits {
-            let request = summary.request();
+            self.workspace.usage.clear_results();
+            let request = self.workspace.usage.summary.request();
             self.usage_action(request);
         } else if let Some(reply) = summary.reply.take() {
             summary.receive(reply);
@@ -224,6 +238,7 @@ impl Desktop {
         if summary.metric == Metric::Limits || days == summary.days {
             return;
         }
+        summary.clear();
         summary.days = days;
         let preferences = summary.preferences();
         let request = summary.request();
@@ -777,4 +792,61 @@ pub(super) fn body(
         )));
     }
     body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn disconnected_totals_follow_the_selected_period_and_environment() {
+        let mut desktop = Desktop::new();
+        desktop.workspace.set_feed("local".into(), 1);
+        desktop.select_usage_metric(Metric::Cost);
+        let publish = |desktop: &mut Desktop, value| {
+            let summary = &mut desktop.workspace.usage.summary;
+            let mut reply: Reply = serde_json::from_value(value).unwrap();
+            reply.selection = summary.serial;
+            summary.receive(reply);
+        };
+        let chart = json!({"ticks": [], "lines": []});
+        let loaded = json!({"selection": 0, "loading": false, "data": {
+            "total": {"cost":"$1.54","tokens":"1.28K"}, "sessions":"1", "savings":"$0",
+            "charts":{"cost":chart,"tokens":chart}, "cached":"0", "input":"1K","output":"256",
+            "unpriced":false,"providers":[],"periods":[],"models":[],"notices":[],"categories":[]
+        }});
+        let waiting = json!({"selection": 0, "loading": true});
+        let has_data = |s: &Desktop| {
+            s.workspace
+                .usage
+                .summary
+                .reply
+                .as_ref()
+                .is_some_and(|r| r.data.is_some())
+        };
+        publish(&mut desktop, loaded.clone());
+        publish(&mut desktop, waiting.clone());
+        assert!(has_data(&desktop));
+        desktop.workspace.set_feed("local".into(), 2);
+        desktop.start_usage();
+        publish(&mut desktop, waiting.clone());
+        assert!(has_data(&desktop));
+        assert!(!desktop.workspace.usage.summary.ready());
+
+        desktop.select_usage_period(1);
+        publish(&mut desktop, waiting.clone());
+        assert!(!has_data(&desktop));
+        publish(&mut desktop, loaded.clone());
+        publish(
+            &mut desktop,
+            json!({"selection":0, "loading":false, "restricted":true}),
+        );
+        assert!(!has_data(&desktop));
+        publish(&mut desktop, loaded);
+        desktop.workspace.set_feed("remote".into(), 3);
+        desktop.start_usage();
+        publish(&mut desktop, waiting);
+        assert!(!has_data(&desktop));
+    }
 }

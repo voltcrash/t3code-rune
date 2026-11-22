@@ -272,6 +272,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 
 pub(super) struct Workspace {
     pub(super) sequence: u64,
+    environment_id: Option<String>,
     pub(super) feed: Option<u64>,
     pub(super) refresh_request: Option<u64>,
     pub(super) refresh_after_edit: Option<u64>,
@@ -308,6 +309,16 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
+    pub(super) fn set_feed(&mut self, environment_id: String, watch: u64) {
+        if self.environment_id.as_ref() != Some(&environment_id) {
+            self.providers = Default::default();
+            self.usage.clear_results();
+            self.environment_id = Some(environment_id);
+        }
+        self.providers.set_watch(watch);
+        self.feed = Some(watch);
+    }
+
     pub(super) fn update_providers(
         &mut self,
         watch: u64,
@@ -335,6 +346,7 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             sequence: 0,
+            environment_id: None,
             feed: None,
             refresh_request: None,
             refresh_after_edit: None,

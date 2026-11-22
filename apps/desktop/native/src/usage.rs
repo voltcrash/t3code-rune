@@ -100,6 +100,8 @@ struct Limits {
 pub(super) struct Snapshot {
     labels: Labels,
     result: Option<Limits>,
+    #[serde(skip)]
+    stale: bool,
     refreshing: bool,
     error: Option<String>,
 }
@@ -118,7 +120,20 @@ impl Panel {
         self.labels.as_ref().map_or("Usage", |labels| &labels.usage)
     }
 
-    pub(super) fn receive(&mut self, snapshot: Snapshot) {
+    pub(super) fn clear_results(&mut self) {
+        self.revealed_email = None;
+        self.view = None;
+        self.summary.clear();
+    }
+
+    pub(super) fn receive(&mut self, mut snapshot: Snapshot) {
+        if self.summary.metric != summary::Metric::Limits {
+            return;
+        }
+        if snapshot.result.is_none() {
+            snapshot.stale = true;
+            snapshot.result = self.view.as_mut().and_then(|v| v.result.take());
+        }
         self.view = Some(snapshot);
     }
 }
@@ -131,7 +146,9 @@ impl Desktop {
     }
 
     pub(super) fn start_usage(&mut self) {
-        self.workspace.usage.view = None;
+        if let Some(view) = &mut self.workspace.usage.view {
+            view.stale = true;
+        }
         let request = self.workspace.usage.summary.request();
         self.usage_action(request);
     }
@@ -148,8 +165,7 @@ impl Desktop {
     pub(super) fn close_usage(&mut self) {
         self.usage_action(Action::Close);
         self.workspace.usage.open = false;
-        self.workspace.usage.revealed_email = None;
-        self.workspace.usage.view = None;
+        self.workspace.usage.clear_results();
     }
 }
 
@@ -328,9 +344,12 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                                 .grow(1.)
                                 .truncate(),
                         )
-                        .child(workspace::action(&labels.manage, theme, true, move |s| {
-                            s.usage_action(Action::Manage { url: &url })
-                        })),
+                        .child(workspace::action(
+                            &labels.manage,
+                            theme,
+                            !paused && snapshot.is_some_and(|v| !v.stale),
+                            move |s| s.usage_action(Action::Manage { url: &url }),
+                        )),
                 );
                 if let Some(message) = &link.message {
                     body = body
@@ -357,7 +376,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let can_refresh = if paused {
         !s.pending && s.workspace.refresh_request.is_none()
     } else if panel.summary.metric == summary::Metric::Limits {
-        snapshot.is_some_and(|v| v.result.is_some() && !v.refreshing)
+        snapshot.is_some_and(|v| v.result.is_some() && !v.stale && !v.refreshing)
     } else {
         panel.summary.ready()
     };

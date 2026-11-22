@@ -103,7 +103,6 @@ impl Art {
 
 #[derive(Default)]
 pub(super) struct Catalog {
-    environment: Option<String>,
     configured_feed: Option<u64>,
     viewport_revision: u64,
     instances: HashMap<String, Instance>,
@@ -213,13 +212,8 @@ impl Catalog {
         false
     }
 
-    pub(super) fn set_environment(&mut self, id: String, watch: u64) {
-        if self.environment.as_ref() != Some(&id) {
-            *self = Self {
-                environment: Some(id),
-                ..Self::default()
-            };
-        } else if self.configured_feed != Some(watch) {
+    pub(super) fn set_watch(&mut self, watch: u64) {
+        if self.configured_feed != Some(watch) {
             self.configured_feed = None;
             for state in self.registry.values_mut() {
                 if !matches!(state, RegistryIcon::Ready { .. }) {
@@ -447,7 +441,7 @@ mod tests {
             .unwrap()
         };
         app.workspace.feed = Some(1);
-        app.workspace.providers.set_environment("local".into(), 1);
+        app.workspace.set_feed("local".into(), 1);
         app.workspace
             .update_providers(1, instances(), Default::default());
         let mut rt = Runtime::new(app, view, (240., 240.), Env::default());
@@ -472,7 +466,7 @@ mod tests {
         );
         rt.update(|s, _| {
             s.workspace.feed = Some(2);
-            s.workspace.providers.set_environment("local".into(), 2);
+            s.workspace.set_feed("local".into(), 2);
         });
         settle(&mut rt);
         assert!(
