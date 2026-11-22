@@ -1,5 +1,5 @@
 use crate::{Desktop, Request};
-use rune::{Cursor, El, Phase, el, tok};
+use rune::{Cursor, El, Phase, el};
 
 const DEFAULT_WIDTH: f32 = 256.;
 const RAIL: &str = "sidebar-resize";
@@ -67,7 +67,7 @@ impl Desktop {
     }
 }
 
-pub(crate) fn rail(shown: f32, bounds: Bounds, theme: &tok::Theme) -> El {
+pub(crate) fn rail(shown: f32, bounds: Bounds) -> El {
     el().key(RAIL)
         .role("slider")
         .label("Resize sidebar")
@@ -86,8 +86,6 @@ pub(crate) fn rail(shown: f32, bounds: Bounds, theme: &tok::Theme) -> El {
         .absolute(shown - 4., 0.)
         .w(9.)
         .h_full()
-        .center()
-        .child(el().w(1.).h_full().fill(theme.separator))
         .on_double_press(|s: &mut Desktop| s.save_sidebar_width(None))
         .on_drag(move |s: &mut Desktop, drag, tx| match drag.phase {
             Phase::Down => {
@@ -127,11 +125,7 @@ mod tests {
                 .h_full()
                 .child(el().key("other").size(20., 20.).focusable(true));
             if s.sidebar_layout.open {
-                root = root.child(rail(
-                    bounds.shown(s.sidebar_layout),
-                    bounds,
-                    &tok::theme(true),
-                ));
+                root = root.child(rail(bounds.shown(s.sidebar_layout), bounds));
             }
             if s.settings_open {
                 root = root.child(

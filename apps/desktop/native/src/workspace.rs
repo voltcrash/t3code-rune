@@ -926,6 +926,21 @@ fn multiline_thread_card(
     card
 }
 
+fn sidebar_border(s: &Desktop, dark: bool) -> rune::Color {
+    let (border, foreground) = if dark {
+        (
+            rune::Color::WHITE.alpha(0.08),
+            rune::color::hex("#f1f3f7").unwrap(),
+        )
+    } else {
+        (
+            rune::color::hex("#e4e4e7").unwrap(),
+            rune::color::hex("#18181b").unwrap(),
+        )
+    };
+    s.contrast.border(border, foreground)
+}
+
 fn thread_row(
     s: &Desktop,
     thread: &Thread,
@@ -988,7 +1003,18 @@ fn thread_row(
     .w_full()
     .px(10.);
     if selected {
-        base = base.fill(theme.separator);
+        base = if dark {
+            let opacity = if s.workspace.search.text.trim().is_empty() {
+                0.11
+            } else {
+                0.07
+            };
+            base.fill(theme.text.alpha(opacity))
+        } else {
+            let border = sidebar_border(s, false);
+            base.fill(rune::Color::WHITE)
+                .border(1., border.alpha(border.a * 0.7))
+        };
     }
     let base = s.workspace.row_clock.track_row(thread, indicator, base);
     if editing {
@@ -998,8 +1024,16 @@ fn thread_row(
         if s.pending {
             base.disabled(true)
         } else {
-            base.hover(theme.separator)
-                .focusable(true)
+            let base = if selected {
+                base
+            } else {
+                base.hover(if dark {
+                    theme.text.alpha(0.08)
+                } else {
+                    rune::oklch(0.992, 0., 0.)
+                })
+            };
+            base.focusable(true)
                 .on_press(move |s: &mut Desktop| s.select_sidebar_thread(&id))
         }
     }
@@ -1098,11 +1132,24 @@ fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
 fn sidebar(
     s: &Desktop,
     bar: Topbar,
-    width: f32,
+    size: [f32; 2],
     theme: &tok::Theme,
     dark: bool,
     overlays: &mut Vec<El>,
 ) -> El {
+    let [width, height] = size;
+    let theme = &tok::Theme {
+        text: if dark {
+            s.contrast.foreground(
+                rune::color::hex("#f1f3f7").unwrap(),
+                rune::Color::BLACK,
+                rune::Color::WHITE,
+            )
+        } else {
+            theme.text
+        },
+        ..*theme
+    };
     let inset = bar.leading;
     let compact = width - inset < 174.;
     let mut on_art = *theme;
@@ -1174,8 +1221,8 @@ fn sidebar(
     }
     let mut sidebar = col()
         .key("sidebar")
-        .w(width)
-        .max_w(width)
+        .w(width - 1.)
+        .max_w(width - 1.)
         .h_full()
         .px(8.0)
         .pb(8.0)
@@ -1222,8 +1269,20 @@ fn sidebar(
         .w(width)
         .h_full()
         .clip_rounded(0.)
+        .fill(if dark {
+            rune::Color::BLACK
+        } else {
+            rune::oklch(0.985, 0., 0.)
+        })
+        .child(crate::stage::sidebar_grain(width, height))
         .children(s.stage.backdrop(dark, width))
         .child(content)
+        .child(
+            el().absolute(width - 1., 0.)
+                .w(1.)
+                .h_full()
+                .fill(sidebar_border(s, dark)),
+        )
 }
 
 fn add_project(s: &mut Desktop, tx: &mut Tx) {
@@ -1844,13 +1903,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     };
     s.workspace.row_clock.mounted.set(show_sidebar);
     if show_sidebar {
-        root = root
-            .child(sidebar(s, bar, width, theme, dark, &mut overlays))
-            .child(if narrow {
-                el().w(1.).h_full().fill(theme.separator)
-            } else {
-                el().w(1.)
-            });
+        root = root.child(sidebar(
+            s,
+            bar,
+            [width, viewport[1]],
+            theme,
+            dark,
+            &mut overlays,
+        ));
     }
     thread_details::menu(s, &kit, &mut overlays);
     thread_actions::sidebar_menu(s, &kit, &mut overlays);
@@ -1883,7 +1943,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         root.child(main)
     };
     let workspace = if show_sidebar && !narrow {
-        workspace.child(crate::sidebar_layout::rail(width, bounds, theme))
+        workspace.child(crate::sidebar_layout::rail(width, bounds))
     } else {
         workspace
     };
