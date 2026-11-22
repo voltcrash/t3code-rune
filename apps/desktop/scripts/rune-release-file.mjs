@@ -6,7 +6,24 @@ import * as NodeStreamPromises from "node:stream/promises";
 
 export class InvalidReleaseFile extends Error {}
 
-export async function writeVerifiedRelease(body, file, release, signal) {
+async function* readCachedRelease(cached) {
+  try {
+    await using file = await NodeFSP.open(
+      cached,
+      NodeFS.constants.O_RDONLY | NodeFS.constants.O_NONBLOCK,
+    );
+    if (!(await file.stat()).isFile()) throw new Error("Expected a regular file.");
+    yield* file.createReadStream({ autoClose: false });
+  } catch (cause) {
+    throw new InvalidReleaseFile("The downloaded file cannot be read.", { cause });
+  }
+}
+
+export function stageCachedRelease(cached, destination, release, signal) {
+  return writeVerifiedRelease(readCachedRelease(cached), destination, release, signal);
+}
+
+async function writeVerifiedRelease(body, file, release, signal) {
   const hash = NodeCrypto.createHash("sha512");
   let size = 0;
   await NodeStreamPromises.pipeline(
