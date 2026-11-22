@@ -820,7 +820,7 @@ mod tests {
             summary.receive(reply);
         };
         let chart = json!({"ticks": [], "lines": []});
-        let loaded = json!({"selection": 0, "loading": false, "data": {
+        let loaded = json!({"selection": 0, "scope":"original pricing and filter", "loading": false, "data": {
             "total": {"cost":"$1.54","tokens":"1.28K"}, "sessions":"1", "savings":"$0",
             "charts":{"cost":chart,"tokens":chart}, "cached":"0", "input":"1K","output":"256",
             "unpriced":false,"providers":[],"periods":[],"models":[],"notices":[],"categories":[]
@@ -843,8 +843,7 @@ mod tests {
         assert!(has_data(&desktop));
         assert!(!desktop.workspace.usage.summary.ready());
 
-        let failed =
-            json!({"selection":0, "loading":false, "retryable":true, "error":"Read failed"});
+        let failed = json!({"selection":0, "scope":"original pricing and filter", "loading":false, "retryable":true, "error":"Read failed"});
         publish(&mut desktop, failed);
         assert!(
             has_data(&desktop),
@@ -856,9 +855,7 @@ mod tests {
             "the same chart survives a second disconnect"
         );
 
-        let mut previous_settings = loaded.clone();
-        previous_settings["scope"] = json!("original pricing and filter");
-        publish(&mut desktop, previous_settings);
+        publish(&mut desktop, loaded.clone());
         publish(&mut desktop, waiting.clone());
         publish(
             &mut desktop,
