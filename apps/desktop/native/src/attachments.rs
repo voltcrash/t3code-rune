@@ -352,6 +352,12 @@ mod tests {
         app.send(request);
         let id = app.request_id;
         app.new_threads.forget("project");
+        app.environment = Some("old-environment".into());
+        app.receive(crate::WorkerMessage {
+            id: None,
+            reply: crate::Reply::LocalClosed,
+        });
+        assert!(app.environment.is_none());
         app.receive(crate::WorkerMessage {
             id: Some(id + 1),
             reply: crate::Reply::Unchanged,
