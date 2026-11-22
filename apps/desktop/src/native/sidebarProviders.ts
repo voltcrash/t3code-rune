@@ -9,7 +9,11 @@ import {
   brandProviderInstanceEntries,
   deriveProviderInstanceEntries,
 } from "@t3tools/client-runtime/state/provider-instances";
-import type { ServerConfig } from "@t3tools/contracts";
+import {
+  officialAcpRegistryIconUrlForAgentId,
+  resolveOfficialAcpRegistryIconUrl,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
 
 type Mark = NonNullable<NonNullable<ReturnType<typeof getProviderClient>>["icon"]>;
@@ -52,6 +56,11 @@ function instanceRows(config: ServerConfig) {
       id: entry.instanceId,
       driver: entry.driverKind,
       initials: providerInstanceInitials(entry.displayName),
+      registry:
+        entry.driverKind === "acpRegistry"
+          ? (resolveOfficialAcpRegistryIconUrl(entry.acpRegistryIconUrl) ??
+            officialAcpRegistryIconUrlForAgentId(entry.acpRegistryAgentId))
+          : null,
       badge: entry.driverKind !== "openaiCompatible" && shouldShowInstanceBadge(entry, entries),
       accent,
       ink: accent ? providerAccentForegroundColor(accent) : undefined,

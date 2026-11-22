@@ -1,6 +1,9 @@
 use rune::{Color, El, Icon, Pixels, TextStyle, el, icon, row, text, tok};
 use serde::Deserialize;
-use std::{cell::OnceCell, collections::HashMap};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::{HashMap, HashSet},
+};
 
 macro_rules! brand {
     ($name:literal, $view:expr, $path:literal, $attributes:literal) => {
@@ -73,6 +76,7 @@ pub(super) struct Instance {
     driver: String,
     initials: String,
     badge: bool,
+    registry: Option<String>,
     accent: Option<String>,
     ink: Option<String>,
 }
@@ -100,21 +104,146 @@ impl Art {
 #[derive(Default)]
 pub(super) struct Catalog {
     environment: Option<String>,
+    configured_feed: Option<u64>,
+    viewport_revision: u64,
     instances: HashMap<String, Instance>,
     art: HashMap<String, Art>,
+    registry: HashMap<String, RegistryIcon>,
+}
+
+#[derive(Default)]
+enum RegistryIcon {
+    #[default]
+    Idle,
+    Loading(String),
+    Missing,
+    Ready {
+        image: image::RgbaImage,
+        tinted: RefCell<Option<(Color, Pixels)>>,
+    },
+}
+
+impl RegistryIcon {
+    fn mask(&self, color: Color) -> Option<Pixels> {
+        let Self::Ready { image, tinted } = self else {
+            return None;
+        };
+        let mut cached = tinted.borrow_mut();
+        if let Some((prior, pixels)) = cached.as_ref()
+            && *prior == color
+        {
+            return Some(pixels.clone());
+        }
+        let mut rgba = image.as_raw().clone();
+        let rgb =
+            [color.r, color.g, color.b].map(|v| (rune::color::srgb_encode(v) * 255.).round() as u8);
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            pixel[..3].copy_from_slice(&rgb);
+            pixel[3] = (f32::from(pixel[3]) * color.a).round() as u8;
+        }
+        let mask = Pixels::new();
+        let (w, h) = image.dimensions();
+        mask.set(w, h, rgba);
+        *cached = Some((color, mask.clone()));
+        Some(mask)
+    }
+}
+
+impl crate::Desktop {
+    fn load_registry_icon(&mut self, watch: u64, url: &str) {
+        if self.workspace.feed != Some(watch)
+            || self.workspace.providers.configured_feed != Some(watch)
+        {
+            return;
+        }
+        let Some(state @ RegistryIcon::Idle) = self.workspace.providers.registry.get_mut(url)
+        else {
+            return;
+        };
+        let operation = uuid::Uuid::new_v4().to_string();
+        *state = RegistryIcon::Loading(operation.clone());
+        self.write_request(
+            None,
+            crate::Request::RegistryIcon {
+                watch,
+                url: url.to_owned(),
+                operation,
+            },
+        );
+    }
+
+    pub(super) fn registry_icon_result(
+        &mut self,
+        watch: u64,
+        url: &str,
+        operation: &str,
+        image: Option<image::RgbaImage>,
+    ) {
+        if self.workspace.feed != Some(watch) {
+            return;
+        }
+        let Some(state) = self.workspace.providers.registry.get_mut(url) else {
+            return;
+        };
+        if !matches!(state, RegistryIcon::Loading(id) if id == operation) {
+            return;
+        }
+        *state = match image {
+            Some(image) => RegistryIcon::Ready {
+                image,
+                tinted: RefCell::default(),
+            },
+            None => RegistryIcon::Missing,
+        };
+        self.workspace.refresh_provider_rows();
+    }
 }
 
 impl Catalog {
-    pub(super) fn set_environment(&mut self, id: String) {
+    pub(super) fn viewport_changed(&mut self) -> bool {
+        if self.configured_feed.is_some()
+            && self
+                .registry
+                .values()
+                .any(|icon| matches!(icon, RegistryIcon::Idle))
+        {
+            self.viewport_revision += 1;
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn set_environment(&mut self, id: String, watch: u64) {
         if self.environment.as_ref() != Some(&id) {
             *self = Self {
                 environment: Some(id),
                 ..Self::default()
             };
+        } else if self.configured_feed != Some(watch) {
+            self.configured_feed = None;
+            for state in self.registry.values_mut() {
+                if !matches!(state, RegistryIcon::Ready { .. }) {
+                    *state = RegistryIcon::Idle;
+                }
+            }
         }
     }
 
-    pub(super) fn update(&mut self, instances: Vec<Instance>, art: HashMap<String, Art>) {
+    pub(super) fn update(
+        &mut self,
+        watch: u64,
+        instances: Vec<Instance>,
+        art: HashMap<String, Art>,
+    ) {
+        self.configured_feed = Some(watch);
+        let urls: HashSet<_> = instances
+            .iter()
+            .filter_map(|instance| instance.registry.as_ref())
+            .collect();
+        self.registry.retain(|url, _| urls.contains(url));
+        for url in urls {
+            self.registry.entry(url.clone()).or_default();
+        }
         self.instances = instances
             .into_iter()
             .map(|instance| (instance.id.clone(), instance))
@@ -133,7 +262,13 @@ impl Catalog {
         let size = if previous { 12. } else { 14. };
         let tile = el().size(size, size).center();
         let compatible = instance.driver == "openaiCompatible";
-        let logo = if let Some(mark) = builtin(&instance.driver) {
+        let remote = instance
+            .registry
+            .as_ref()
+            .and_then(|url| self.registry.get(url));
+        let logo = if let Some(mask) = remote.and_then(|image| image.mask(theme.text_secondary)) {
+            tile.pixels_fit(&mask, rune::SurfaceFit::Fit)
+        } else if let Some(mark) = builtin(&instance.driver) {
             let glyph = icon(mark, size);
             if instance.driver == "claudeAgent" {
                 glyph.color(if previous {
@@ -167,6 +302,22 @@ impl Catalog {
                     .font(TextStyle::new(9., 600.))
                     .color(theme.text),
             )
+        };
+        let logo = if let Some(watch) = self.configured_feed
+            && let Some(url) = &instance.registry
+            && matches!(remote, Some(RegistryIcon::Idle))
+        {
+            let url = url.clone();
+            logo.key(format!("registry-{watch}-{}-{url}", self.viewport_revision))
+                .on_drawn_layout_tx(move |s: &mut crate::Desktop, bounds, tx| {
+                    if s.workspace.sidebar_intersects(bounds) {
+                        s.load_registry_icon(watch, &url);
+                    } else {
+                        tx.live_only();
+                    }
+                })
+        } else {
+            logo
         };
         let mut mark = el()
             .size(size, size)
@@ -230,6 +381,108 @@ impl Catalog {
 mod tests {
     use crate::Desktop;
     use serde_json::json;
+
+    #[test]
+    fn registry_mask_preserves_source_alpha_across_theme_changes() {
+        let icon = super::RegistryIcon::Ready {
+            image: image::RgbaImage::from_raw(2, 1, vec![20, 30, 40, 0, 20, 30, 40, 128]).unwrap(),
+            tinted: Default::default(),
+        };
+        let white = icon.mask(rune::Color::WHITE).unwrap();
+        assert_eq!(white.rgba(), [255, 255, 255, 0, 255, 255, 255, 128]);
+        let black = icon.mask(rune::Color::BLACK.alpha(0.5)).unwrap();
+        assert_eq!(black.rgba(), [0, 0, 0, 0, 0, 0, 0, 64]);
+    }
+
+    #[test]
+    fn registry_load_waits_for_the_feed_and_the_scroll_viewport() {
+        use super::{Colors, RegistryIcon};
+        use rune::{Cx, El, Env, Runtime, ScrollSpec, col, el, tok};
+
+        fn view(s: &Desktop, _: &mut Cx<Desktop>) -> El {
+            let ws = &s.workspace;
+            let theme = tok::theme(false);
+            let mark = ws.providers.icon(
+                &ws.providers.instances["agent"],
+                false,
+                false,
+                Colors {
+                    rest: theme.text,
+                    hovered: theme.text,
+                },
+                &theme,
+            );
+            col().w_full().h_full().child(el().h(40.)).child(
+                ws.sidebar_viewport(
+                    col()
+                        .key("list")
+                        .w_full()
+                        .h(80.)
+                        .scroll(ScrollSpec {
+                            stick_bottom: false,
+                        })
+                        .child(el().h(88.))
+                        .child(mark)
+                        .child(el().h(32.)),
+                ),
+            )
+        }
+
+        let mut app = Desktop::new();
+        let instances = || {
+            serde_json::from_value(json!([{"id":"agent", "driver":"acpRegistry",
+            "initials":"A", "badge":false, "registry":"icon"}]))
+            .unwrap()
+        };
+        app.workspace.feed = Some(1);
+        app.workspace.providers.set_environment("local".into(), 1);
+        app.workspace
+            .update_providers(1, instances(), Default::default());
+        let mut rt = Runtime::new(app, view, (240., 240.), Env::default());
+        let settle = |rt: &mut Runtime<Desktop>| {
+            for _ in 0..120 {
+                rt.frame(1. / 120.);
+            }
+        };
+        settle(&mut rt);
+        assert!(matches!(
+            rt.state.workspace.providers.registry["icon"],
+            RegistryIcon::Idle
+        ));
+        rt.update(|_, tx| tx.scroll_to_bottom("list"));
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Loading(_)
+            ),
+            "scroll into view"
+        );
+        rt.update(|s, _| {
+            s.workspace.feed = Some(2);
+            s.workspace.providers.set_environment("local".into(), 2);
+        });
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Idle
+            ),
+            "before first config"
+        );
+        rt.update(|s, _| {
+            s.workspace
+                .update_providers(2, instances(), Default::default())
+        });
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Loading(_)
+            ),
+            "after first config"
+        );
+    }
 
     #[test]
     fn rows_keep_their_provider_until_the_new_feeds_config_or_a_different_environment_arrives() {

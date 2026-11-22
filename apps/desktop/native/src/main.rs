@@ -211,6 +211,8 @@ enum Reply {
     },
     Image {
         #[serde(default)]
+        registry: bool,
+        #[serde(default)]
         favicon: bool,
         #[serde(default)]
         retryable: bool,
@@ -496,6 +498,11 @@ enum Request<'a> {
     },
     ImageHandled {
         watch: u64,
+        operation: String,
+    },
+    RegistryIcon {
+        watch: u64,
+        url: String,
         operation: String,
     },
     ProjectFavicon {
@@ -828,7 +835,7 @@ impl Desktop {
         } = message.reply
         {
             if self.workspace.feed == Some(watch) {
-                self.workspace.update_providers(instances, art);
+                self.workspace.update_providers(watch, instances, art);
             }
             return;
         }
@@ -1184,7 +1191,9 @@ impl Desktop {
                     self.workspace.set_clock_offset(offset);
                 }
                 self.workspace.sequence = sequence;
-                self.workspace.providers.set_environment(environment_id);
+                self.workspace
+                    .providers
+                    .set_environment(environment_id, watch);
                 self.workspace.feed = Some(watch);
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;
@@ -1930,6 +1939,7 @@ fn start() -> io::Result<()> {
             };
             received_response |= reply.id.is_some();
             if let Reply::Image {
+                registry,
                 favicon,
                 retryable,
                 watch,
@@ -1945,7 +1955,9 @@ fn start() -> io::Result<()> {
                         key,
                         operation,
                         data,
-                        kind: if favicon {
+                        kind: if registry {
+                            image_decode::Kind::Registry
+                        } else if favicon {
                             image_decode::Kind::Project { retryable }
                         } else if full {
                             image_decode::Kind::Preview
