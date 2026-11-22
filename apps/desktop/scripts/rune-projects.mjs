@@ -1396,6 +1396,16 @@ async function handleWorkspaceRequest(request, reply) {
         message,
       });
     else reply({ type: "error", message });
+  } finally {
+    // The old request still owns clipboard files until its file-backed upload has settled.
+    if (
+      reading &&
+      reading !== session &&
+      request.files?.length &&
+      (request.type === "sendmessage" || request.type === "launchthread")
+    ) {
+      reply({ type: "unchanged" });
+    }
   }
 }
 

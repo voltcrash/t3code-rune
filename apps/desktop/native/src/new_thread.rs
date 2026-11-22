@@ -1,4 +1,5 @@
 use super::{Desktop, Request, composer};
+use crate::attachments::Selection as Attachment;
 use rune::{El, TextEdit, TextStyle, col, row, spacer, text, text_input, tok};
 use rune_kit::{Combobox, ComboboxOption, ComboboxState};
 use serde::Deserialize;
@@ -28,7 +29,7 @@ pub(super) struct NewThreads {
 
 struct LaunchDraft {
     prompt: TextEdit,
-    files: Vec<String>,
+    files: Vec<Attachment>,
     base: TextEdit,
     checkout_branch: String,
     worktree: bool,
@@ -124,7 +125,7 @@ impl NewThreads {
             self.active = None;
         }
     }
-    pub(super) fn editable_files(&mut self) -> Option<&mut Vec<String>> {
+    pub(super) fn editable_files(&mut self) -> Option<&mut Vec<Attachment>> {
         let draft = self.current();
         (!draft.uncertain).then_some(&mut draft.files)
     }
@@ -354,6 +355,8 @@ pub(super) fn view(
     let compact = width < 404.;
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
+    let target = super::attachments::Target::Project(project.to_owned());
+    let paste = target.clone();
     let field = text_input(&draft.prompt, TextStyle::new(14.0, 400.0).lh(21.0))
         .key("new-thread-prompt")
         .label("Message")
@@ -362,7 +365,8 @@ pub(super) fn view(
         .placeholder("Ask anything...", theme.text_secondary)
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
-        .on_submit(|s: &mut Desktop, _| s.launch());
+        .on_submit(|s: &mut Desktop, _| s.launch())
+        .on_input_paste(move |s: &mut Desktop, content, _| paste.paste(s, content));
     let options = draft
         .choices
         .iter()
@@ -398,7 +402,6 @@ pub(super) fn view(
         }
     })
     .build(kit, overlays);
-    let target = super::attachments::Target::Project(project.to_owned());
     let mut controls = row()
         .w_full()
         .gap(8.0)
@@ -618,7 +621,10 @@ mod tests {
         };
         let mut drafts = NewThreads::default();
         drafts.configure("a".into(), vec![choice("one")], modes(), false, "main");
-        drafts.editable_files().unwrap().push("photo.png".into());
+        drafts
+            .editable_files()
+            .unwrap()
+            .push(Attachment::local("photo.png"));
         assert!(drafts.current().ready());
         drafts.current().runtime_override = Some("approval-required".into());
         let original = drafts.current().operation.clone();
@@ -665,7 +671,7 @@ mod tests {
         assert!(drafts.current().prompt.text.is_empty());
         drafts.configure("a".into(), vec![choice("one")], modes(), false, "main");
         assert_eq!(drafts.current().operation, original);
-        assert_eq!(drafts.current().files, ["photo.png"]);
+        assert_eq!(drafts.current().files[0].path, "photo.png");
         assert!(drafts.editable_files().is_none());
         drafts.configure(
             "a".into(),

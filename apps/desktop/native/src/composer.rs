@@ -1,5 +1,6 @@
 use super::workspace::Conversation;
 use super::{Desktop, Request, Workspace};
+use crate::attachments::Selection as Attachment;
 use rune::{
     Color, Cx, El, Icon, Shadow, TextEdit, TextStyle, auto_grow, col, el, icon, row, spacer,
     text_input, tok,
@@ -15,7 +16,7 @@ struct SendAttempt {
 
 pub(super) struct Draft {
     editor: TextEdit,
-    files: Vec<String>,
+    files: Vec<Attachment>,
     pub(super) model: Option<crate::models::Handoff>,
     pub(super) permission: Option<crate::permissions::Selection>,
     operation: Option<SendAttempt>,
@@ -70,7 +71,7 @@ impl Draft {
         self.editor = TextEdit::new(&combined);
         self.operation = None;
     }
-    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<String>)) {
+    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
         let before = self.files.len();
         change(&mut self.files);
         if self.files.len() != before {
@@ -245,9 +246,11 @@ pub(super) fn view(
     let input_id = id.to_owned();
     let edit_id = id.to_owned();
     let asking = s.workspace.questions.contains_key(id);
+    let target = super::attachments::Target::Thread(id.to_owned());
     let field = if asking {
         super::questions::input(s, id, theme)
     } else {
+        let paste = target.clone();
         text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
             .key("message-input")
             .label("Message")
@@ -264,6 +267,7 @@ pub(super) fn view(
                 }
             })
             .on_submit(|s: &mut Desktop, _| s.send_message())
+            .on_input_paste(move |s: &mut Desktop, content, _| paste.paste(s, content))
     };
     let pane = s
         .workspace
@@ -279,7 +283,6 @@ pub(super) fn view(
         !s.pending && !empty && !guarded,
         Desktop::send_message,
     );
-    let target = super::attachments::Target::Thread(id.to_owned());
     let mut controls = row().w_full().center_y().gap(9.0);
     if !asking {
         controls = controls.child(target.button(theme, s.pending));
@@ -519,7 +522,7 @@ mod tests {
     fn a_retry_reuses_the_operation_until_the_matching_send_is_confirmed() {
         let mut ws = Workspace::new();
         let draft = ws.drafts.entry("thread".into()).or_default();
-        draft.edit_files(|files| files.push("document.pdf".into()));
+        draft.edit_files(|files| files.push(Attachment::local("document.pdf")));
         let Request::SendMessage { operation, .. } =
             draft.submission("thread", "codex", "original").unwrap()
         else {
@@ -543,7 +546,10 @@ mod tests {
         };
         assert_eq!(retry, operation);
         assert!(text.is_empty());
-        assert_eq!(files, ["document.pdf"]);
+        assert_eq!(
+            serde_json::to_value(&files).unwrap(),
+            serde_json::json!(["document.pdf"])
+        );
         let replay = || crate::models::Handoff {
             project: "project".into(),
             source: "codex".into(),
