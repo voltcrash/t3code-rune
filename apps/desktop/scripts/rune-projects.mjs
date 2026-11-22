@@ -37,7 +37,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
-import { downloadAttachment } from "../src/native/downloadAttachment.ts";
+import { downloadAttachment, downloadDestination } from "../src/native/downloadAttachment.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage, readRegistryIcon } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -1511,6 +1511,31 @@ async function handleWorkspaceRequest(request, reply) {
 try {
   let workspaceRequests = Promise.resolve();
   const downloads = new Map();
+  let resolvingDownloads = Promise.resolve();
+  async function queueDownload(request, reply) {
+    let path;
+    try {
+      path = await Effect.runPromise(
+        downloadDestination(request.path).pipe(
+          Effect.provide(NodeFileSystem.layer),
+          Effect.provide(NodePathLayer.layer),
+        ),
+        { signal: lifetime.signal },
+      );
+    } catch {
+      reply({ type: "downloaded", error: m(msg("Could not save file")) });
+      return;
+    }
+    const key = path.normalize("NFD").toLowerCase();
+    const save = request.type === "downloadplan" ? downloadPlan : saveAttachment;
+    const previous = downloads.get(key) ?? Promise.resolve();
+    const pending = previous.then(() => save({ ...request, path }, reply));
+    downloads.set(key, pending);
+    void pending.finally(() => {
+      if (downloads.get(key) === pending) downloads.delete(key);
+    });
+  }
+
   for await (const line of input) {
     if (lifetime.signal.aborted) break;
     let request;
@@ -1793,20 +1818,14 @@ try {
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
     } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {
-      const path = request.path;
-      const save = request.type === "downloadplan" ? downloadPlan : saveAttachment;
-      const previous = downloads.get(path) ?? Promise.resolve();
-      const pending = previous.then(() => save(request, reply));
-      downloads.set(path, pending);
-      void pending.finally(() => {
-        if (downloads.get(path) === pending) downloads.delete(path);
-      });
+      resolvingDownloads = resolvingDownloads.then(() => queueDownload(request, reply));
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
+  await resolvingDownloads;
   await Promise.all([workspaceRequests, ...downloads.values(), clientSettingsWrites]);
 } finally {
   close();

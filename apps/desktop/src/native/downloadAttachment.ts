@@ -1,9 +1,34 @@
+import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
+import * as Option from "effect/Option";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import { AttachmentUnavailable } from "./attachments.ts";
+
+export const downloadDestination = Effect.fn("nativeDesktop.downloadDestination")(function* (
+  destination: string,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  let ancestor = yield* resolveSymlinkTarget(destination);
+  const missing: string[] = [];
+  while (true) {
+    const resolved = yield* fs.realPath(ancestor).pipe(
+      Effect.asSome,
+      Effect.catchIf(
+        (error) => error.reason._tag === "NotFound",
+        () => Effect.succeedNone,
+      ),
+    );
+    if (Option.isSome(resolved)) return path.join(resolved.value, ...missing.reverse());
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) return yield* fs.realPath(ancestor);
+    missing.push(path.basename(ancestor));
+    ancestor = parent;
+  }
+});
 
 export const downloadAttachment = Effect.fn("nativeDesktop.downloadAttachment")(function* (
   baseUrl: string,

@@ -4,13 +4,22 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { FetchHttpClient } from "effect/http";
-import { downloadAttachment } from "./downloadAttachment.ts";
+import { downloadAttachment, downloadDestination } from "./downloadAttachment.ts";
 
 it.effect("replaces the chosen file only after receiving the complete attachment", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped();
     const path = (yield* Path.Path).join(directory, "report.txt");
+    const paths = yield* Path.Path;
+    const linkedDirectory = paths.join(directory, "linked");
+    yield* fs.symlink(directory, linkedDirectory);
+    const linkedFile = paths.join(directory, "alias.txt");
+    yield* fs.symlink("report.txt", linkedFile);
+    const realPath = paths.join(yield* fs.realPath(directory), "report.txt");
+    expect(yield* downloadDestination(paths.join(linkedDirectory, "alias.txt"))).toBe(realPath);
+    yield* fs.remove(linkedFile);
+    yield* fs.remove(linkedDirectory);
     yield* fs.writeFileString(path, "original");
     const save = (content: string) =>
       downloadAttachment(
