@@ -9,6 +9,7 @@ import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { runeUpdates } from "./rune-updates.mjs";
+import { handleCodexAuthLink } from "./rune-codex-auth.mjs";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
@@ -1273,6 +1274,8 @@ try {
         } catch {
           // A malformed launch link must not interrupt the current environment.
         }
+      } else {
+        void handleCodexAuthLink(request.url, !packaged && !sourceBuild, lifetime.signal);
       }
       continue;
     }
