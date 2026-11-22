@@ -32,12 +32,13 @@ export function watchProjectFileActions(
     return active === owner && !lifetime.aborted ? (file?.scripts ?? []) : [];
   }
   return {
-    reconcile() {
+    reconcile(refresh = false) {
       const next = location();
-      if (active?.rpc === next?.rpc && active?.cwd === next?.cwd) return;
+      const sameCheckout = active?.rpc === next?.rpc && active?.cwd === next?.cwd;
+      if (sameCheckout && (!refresh || !next)) return;
       active?.controller.abort();
       active = undefined;
-      publish([]);
+      if (!sameCheckout) publish([]);
       if (!next || signal.aborted) return;
       const owner = { ...next, controller: new AbortController() };
       active = owner;
@@ -49,12 +50,19 @@ export function watchProjectFileActions(
     },
     async current() {
       const owner = active;
-      if (!owner) return [];
+      if (!owner) return { scripts: [], isCurrent: () => false };
       const scripts = await read(owner);
-      const latest = location();
-      if (owner !== active || latest?.cwd !== owner.cwd || latest.rpc !== owner.rpc) return [];
-      publish(scripts);
-      return scripts;
+      const isCurrent = () => {
+        const latest = location();
+        return (
+          !signal.aborted &&
+          owner === active &&
+          latest?.cwd === owner.cwd &&
+          latest.rpc === owner.rpc
+        );
+      };
+      if (isCurrent()) publish(scripts);
+      return { scripts, isCurrent };
     },
   };
 }

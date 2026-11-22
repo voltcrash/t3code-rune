@@ -117,6 +117,18 @@ impl Desktop {
             c.available = available;
         }
     }
+    pub(super) fn refresh_file_actions(&mut self) {
+        if self.can_edit_scripts()
+            && let Some(catalog) = &self.workspace.details.scripts
+        {
+            self.write_request(
+                None,
+                Request::RefreshProjectFileActions {
+                    watch: catalog.watch,
+                },
+            );
+        }
+    }
     fn current_scripts(&self) -> Option<&[Script]> {
         let c = self.workspace.details.scripts.as_ref()?;
         (self.script_target() == Some((c.watch, c.project.as_str(), c.thread.as_deref()))

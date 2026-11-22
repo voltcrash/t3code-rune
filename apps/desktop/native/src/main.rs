@@ -471,6 +471,9 @@ enum Request<'a> {
         project: Option<&'a str>,
         thread: Option<&'a str>,
     },
+    RefreshProjectFileActions {
+        watch: u64,
+    },
     SaveProjectScript {
         watch: u64,
         project: &'a str,

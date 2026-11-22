@@ -227,6 +227,9 @@ impl Desktop {
             open
         };
         self.workspace.details.menu = None;
+        if focus_row {
+            self.refresh_file_actions();
+        }
         tx.focus_when_shown(
             if focus_row {
                 focus
@@ -238,6 +241,9 @@ impl Desktop {
     }
 
     fn open_details_menu(&mut self, action: ContextAction) {
+        if matches!(action, ContextAction::Scripts) {
+            self.refresh_file_actions();
+        }
         if let Some((draft, id)) = self.details_target() {
             self.workspace.details.menu = Some(ContextMenu {
                 target: (draft, id.to_owned()),

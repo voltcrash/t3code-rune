@@ -116,7 +116,10 @@ export function watchProjectScripts(
       input: ProjectScriptInput | null,
       activeRpc: () => Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined,
       signal: AbortSignal,
-      readFileActions?: () => Promise<readonly T3ProjectFileScript[]>,
+      readFileActions?: () => Promise<{
+        scripts: readonly T3ProjectFileScript[];
+        isCurrent: () => boolean;
+      }>,
     ) {
       const rpc = activeRpc();
       const target = selected;
@@ -125,11 +128,11 @@ export function watchProjectScripts(
         throw new Error(m(msg("Failed to save action.")));
       }
       const shown = key ? new Map(byKey) : byKey;
+      const file = readFileActions ? await readFileActions() : undefined;
       const config = await Effect.runPromise(
         rpc[WS_METHODS.serverGetConfig]({}).pipe(Effect.timeout("20 seconds")),
         { signal },
       );
-      const candidates = readFileActions ? await readFileActions() : undefined;
       const legacy = projectScripts(project);
       if (
         !legacy ||
@@ -141,12 +144,13 @@ export function watchProjectScripts(
         throw new Error(m(msg("Failed to save action.")));
       }
       const record = { id: ProjectId.make(project), scripts: legacy };
-      if (candidates) {
+      if (file) {
         const configured = resolveProjectScripts(config.settings, record);
-        const offered = importableProjectScripts(candidates, configured);
+        const offered = importableProjectScripts(file.scripts, configured);
         if (
           key ||
           !input ||
+          !file.isCurrent() ||
           !offered.some((s) => NodeUtil.isDeepStrictEqual(projectFileScriptInput(s), input))
         ) {
           throw new Error(m(msg("Failed to import action.")));

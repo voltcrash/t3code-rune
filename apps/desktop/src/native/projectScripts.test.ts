@@ -233,9 +233,15 @@ it("offers checkout actions once and rejects stale imports against the current f
   scripts.configure(configured);
   scripts.setFileActions([offered, alternate]);
   expect(visible).toEqual(["Preview", "Check"]);
+  let saved: readonly ProjectScript[] = [];
   const rpc = {
     [WS_METHODS.serverGetConfig]: () => Effect.succeed({ settings: configured, keybindings: [] }),
-    [WS_METHODS.serverUpdateSettings]: () => {
+    [WS_METHODS.serverUpdateSettings]: ({
+      patch,
+    }: {
+      patch: ReturnType<typeof scriptSettingsPatch>;
+    }) => {
+      saved = patch.projectScriptOverrides.p ?? [];
       writes++;
       return Effect.succeed(configured);
     },
@@ -247,7 +253,7 @@ it("offers checkout actions once and rejects stale imports against the current f
       input,
       () => rpc,
       new AbortController().signal,
-      async () => [candidate],
+      async () => ({ scripts: [candidate], isCurrent: () => true }),
     );
   await expect(save({ ...offered, command: "changed" })).rejects.toThrow();
   configured = { ...configured, defaultProjectScripts: [existing] };
@@ -261,6 +267,35 @@ it("offers checkout actions once and rejects stale imports against the current f
   scripts.configure(configured);
   expect(visible).toEqual(["Preview"]);
   expect(writes).toBe(0);
-  await save(offered);
+  await expect(
+    scripts.save(
+      "p",
+      null,
+      input,
+      () => rpc,
+      new AbortController().signal,
+      async () => ({ scripts: [offered], isCurrent: () => false }),
+    ),
+  ).rejects.toThrow();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const pending = scripts.save(
+    "p",
+    null,
+    input,
+    () => rpc,
+    new AbortController().signal,
+    async () => {
+      started.resolve();
+      await release.promise;
+      return { scripts: [offered], isCurrent: () => true };
+    },
+  );
+  await started.promise;
+  const added = { ...existing, id: "added", name: "Concurrent edit", command: "echo edit" };
+  configured = { ...configured, defaultProjectScripts: [added] };
+  release.resolve();
+  await pending;
+  expect(saved.map((s) => s.name)).toEqual([added.name, offered.name]);
   expect(writes).toBe(1);
 });

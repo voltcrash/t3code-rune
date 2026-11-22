@@ -1526,6 +1526,8 @@ try {
           feed.selectScriptTarget(undefined);
         }
       }
+    } else if (request?.type === "refreshprojectfileactions") {
+      if (workspaceFeed?.watch === request.watch) workspaceFeed.fileActions.reconcile(true);
     } else if (request?.type === "saveprojectscript") {
       const feed = workspaceFeed;
       if (
