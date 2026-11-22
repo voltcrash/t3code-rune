@@ -1,8 +1,8 @@
 use super::{
-    Desktop, El, Kit, Request, TextEdit, TextStyle, Thread, Tx, Workspace, icon, label, row,
-    text_input, tok,
+    Desktop, El, Request, TextEdit, TextStyle, Thread, Tx, Workspace, icon, label, row, text_input,
+    tok,
 };
-use rune_kit::{Menu, MenuItem, glyphs};
+use rune_kit::{Kit, Menu, MenuItem, glyphs};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

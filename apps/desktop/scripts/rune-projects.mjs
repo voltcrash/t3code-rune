@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ThreadId,
 } from "@t3tools/contracts";
+import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contracts/settings";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
@@ -644,6 +645,7 @@ function publishClientAppearance(error) {
   write({
     type: "clientappearance",
     chat_width: clientSettings.chatWidth,
+    contrast: clientSettings.appearanceContrast,
     sans: clientSettings.fontFamilySans,
     code: clientSettings.fontFamilyCode,
     smoothing: clientSettings.fontSmoothing,
@@ -677,6 +679,13 @@ async function setClientAppearance(request) {
       ["comfortable", "wide", "full"].includes(request.width)
     ) {
       changes = { chatWidth: request.width };
+    } else if (
+      request.type === "setcontrast" &&
+      Number.isInteger(request.value) &&
+      request.value >= MIN_APPEARANCE_CONTRAST &&
+      request.value <= MAX_APPEARANCE_CONTRAST
+    ) {
+      changes = { appearanceContrast: request.value };
     } else throw new Error("Invalid appearance setting");
     clientSettings = await Effect.runPromise(
       patchClientAppearance(clientSettingsPath, changes).pipe(
@@ -1324,7 +1333,8 @@ try {
     } else if (
       request?.type === "setfontsmoothing" ||
       request?.type === "setfontfamily" ||
-      request?.type === "setchatwidth"
+      request?.type === "setchatwidth" ||
+      request?.type === "setcontrast"
     ) {
       clientSettingsWrites = clientSettingsWrites.then(() => setClientAppearance(request));
     } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {

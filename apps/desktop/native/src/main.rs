@@ -65,6 +65,7 @@ enum Reply {
         code: String,
         smoothing: bool,
         chat_width: appearance::ChatWidth,
+        contrast: u8,
         error: Option<String>,
     },
     Appearance {
@@ -331,6 +332,9 @@ enum Request<'a> {
     SetAppearance {
         mode: appearance::Mode,
     },
+    SetContrast {
+        value: u8,
+    },
     SetChatWidth {
         width: appearance::ChatWidth,
     },
@@ -513,6 +517,7 @@ struct Desktop {
     saving_client_appearance: bool,
     chat_width: appearance::ChatWidth,
     chat_width_menu: bool,
+    contrast: appearance::Contrast,
     font_families: appearance::FontFamilies,
     typography_advanced: bool,
     settings_open: bool,
@@ -562,6 +567,7 @@ impl Desktop {
             saving_client_appearance: false,
             chat_width: Default::default(),
             chat_width_menu: false,
+            contrast: Default::default(),
             font_families: Default::default(),
             typography_advanced: false,
             settings_open: false,
@@ -609,6 +615,7 @@ impl Desktop {
             font_smoothing: self.font_smoothing,
             saving_client_appearance: self.saving_client_appearance,
             chat_width: self.chat_width,
+            contrast: self.contrast,
             font_families: std::mem::take(&mut self.font_families),
             pairing_offers: std::mem::take(&mut self.pairing_offers),
             update: std::mem::take(&mut self.update),
@@ -1228,8 +1235,9 @@ fn view(s: &Desktop, cx: &mut Cx<Desktop>) -> El {
         rune::oklch(0.992, 0.0, 0.0)
     };
     theme.text = rune::color::hex(if dark { "#f5f5f5" } else { "#18181b" }).unwrap();
-    theme.text_secondary = rune::color::hex(if dark { "#a3a3a3" } else { "#71717a" }).unwrap();
+    theme.text_secondary = rune::color::hex(if dark { "#a1a1a1" } else { "#71717b" }).unwrap();
     theme.separator = theme.text.alpha(0.12);
+    s.contrast.apply(&mut theme, dark);
     let content = if s.output.is_some() && s.environment.is_some() {
         workspace::view(s, cx, &theme)
     } else {
@@ -1558,7 +1566,8 @@ fn start() -> io::Result<()> {
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
-            s.poll_answer(tx) || stop || clock || renamed || resized
+            let contrast = s.contrast.cancel_unfocused_drag(tx);
+            s.poll_answer(tx) || stop || clock || renamed || resized || contrast
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             #[cfg(target_os = "linux")]
@@ -1786,6 +1795,7 @@ fn start() -> io::Result<()> {
                     code,
                     smoothing,
                     chat_width,
+                    contrast,
                     error,
                 } = reply.reply
                 {
@@ -1795,6 +1805,7 @@ fn start() -> io::Result<()> {
                         s.appearance_error = error;
                         s.saving_client_appearance = false;
                     }
+                    s.receive_contrast(contrast);
                     appearance::apply_fonts(tx, &sans, &code, smoothing);
                     s.font_families.receive(sans, code);
                     return;

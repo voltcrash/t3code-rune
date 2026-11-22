@@ -1,6 +1,6 @@
 use super::{Desktop, Request, workspace::LiveStatus};
 use rune::{El, ScrollSpec, TextEdit, TextStyle, col, el, row, spacer, text, text_input, tok};
-use rune_kit::{Kit, Markdown, MarkdownStyle};
+use rune_kit::{Markdown, MarkdownStyle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -324,7 +324,7 @@ pub(super) fn banner(s: &Desktop, thread: &str, theme: &tok::Theme, dark: bool) 
     let version = &form.prompt.version;
     let enabled = s.question_enabled(thread, version, step);
     let can_answer = enabled && form.prompt.response_capability != "not_resumable";
-    let kit = Kit::neutral(dark);
+    let kit = s.contrast.kit(dark);
     let mut header = row().w_full().gap(6.).center_y().min_h(24.).child(label(
         &q.header,
         12.,

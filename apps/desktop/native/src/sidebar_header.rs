@@ -1,6 +1,6 @@
 use super::{Desktop, NEW_THREAD_ICON, Project, Workspace, add_project};
 use rune::{El, Icon, Key, KeyEvent, TextStyle, Tx, el, icon, row, text_input, tok};
-use rune_kit::{Combobox, ComboboxOption, ComboboxState, Kit};
+use rune_kit::{Combobox, ComboboxOption, ComboboxState};
 use std::collections::HashSet;
 
 #[derive(Default)]
@@ -210,7 +210,7 @@ fn scope_picker(s: &Desktop, theme: &tok::Theme, dark: bool, overlays: &mut Vec<
         }
         tx.scroll_to("thread-list", 0., 0.);
     })
-    .build(&Kit::neutral(dark), overlays)
+    .build(&s.contrast.kit(dark), overlays)
 }
 
 pub(super) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, overlays: &mut Vec<El>) -> El {

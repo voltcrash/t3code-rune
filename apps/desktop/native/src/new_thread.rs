@@ -1,6 +1,6 @@
 use super::{Desktop, Request, composer};
 use rune::{El, TextEdit, TextStyle, col, row, spacer, text, text_input, tok};
-use rune_kit::{Combobox, ComboboxOption, ComboboxState, Kit};
+use rune_kit::{Combobox, ComboboxOption, ComboboxState};
 use serde::Deserialize;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -323,7 +323,7 @@ pub(super) fn view(
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
 ) -> El {
-    let kit = &Kit::neutral(s.dark(cx));
+    let kit = &s.contrast.kit(s.dark(cx));
     let width = cx
         .layout_size("thread-titlebar")
         .map_or(840., |size| size[0]);

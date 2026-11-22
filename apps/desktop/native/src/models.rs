@@ -1,6 +1,6 @@
 use crate::{Desktop, Request, Thread, workspace::label};
 use rune::{El, KeyEvent, Tx, icon, row, tok};
-use rune_kit::{Combobox, ComboboxEvent, ComboboxOption, ComboboxState, Kit, Placement, glyphs};
+use rune_kit::{Combobox, ComboboxEvent, ComboboxOption, ComboboxState, Placement, glyphs};
 use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
@@ -274,7 +274,7 @@ pub(super) fn control(
     if !s.models.combo.is_open() {
         return rune_kit::Popover::new("thread-model")
             .trigger(trigger.on_press_tx(Desktop::show_thread_models))
-            .build(&Kit::neutral(s.dark(cx)), overlays);
+            .build(&s.contrast.kit(s.dark(cx)), overlays);
     }
     Combobox::new(
         "thread-model",
@@ -290,5 +290,5 @@ pub(super) fn control(
     .trigger(trigger)
     .placement(Placement::TopEnd)
     .on_choose(Desktop::choose_thread_model)
-    .build(&Kit::neutral(s.dark(cx)), overlays)
+    .build(&s.contrast.kit(s.dark(cx)), overlays)
 }

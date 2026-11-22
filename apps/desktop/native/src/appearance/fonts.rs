@@ -1,6 +1,6 @@
 use super::{Desktop, Request, label};
 use rune::{El, Family, TextStyle, col, tok};
-use rune_kit::{Combobox, ComboboxOption, ComboboxState, Kit, Placement, Select, SelectAppearance};
+use rune_kit::{Combobox, ComboboxOption, ComboboxState, Placement, Select, SelectAppearance};
 use serde::Serialize;
 use std::sync::OnceLock;
 
@@ -117,7 +117,7 @@ pub(super) fn row(
         FontSlot::Sans => "System default",
         FontSlot::Code => "System monospace",
     };
-    let kit = Kit::neutral(dark);
+    let kit = s.contrast.kit(dark);
     let field_label = format!("{title} family");
     let disabled = s.font_smoothing.is_none() || s.saving_client_appearance;
     let trigger = Select::new::<&str>(key, &[])

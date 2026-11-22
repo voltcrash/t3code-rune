@@ -289,7 +289,7 @@ pub(super) fn view(
             s,
             selected.map(|p| (p.mode.as_str(), p.label.as_str())),
             theme,
-            &rune_kit::Kit::neutral(dark),
+            &s.contrast.kit(dark),
             overlays,
             s.pending || s.workspace.terminal_watch().is_none(),
             true,

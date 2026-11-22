@@ -1,6 +1,6 @@
 use super::{Desktop, Request, label, reset_button};
 use rune::{El, Tx, col, row, tok};
-use rune_kit::{Kit, Placement, Select, SelectAppearance};
+use rune_kit::{Placement, Select, SelectAppearance};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -47,7 +47,7 @@ impl ChatWidth {
     }
 }
 
-pub(super) fn section(
+pub(super) fn setting(
     s: &Desktop,
     narrow: bool,
     theme: &tok::Theme,
@@ -77,7 +77,7 @@ pub(super) fn section(
             "Full" => ChatWidth::Full.choose(s, tx),
             _ => {}
         })
-        .build(&Kit::neutral(dark), popups);
+        .build(&s.contrast.kit(dark), popups);
     let picker = if narrow { picker.w_full() } else { picker };
 
     let mut title = row()
@@ -103,19 +103,10 @@ pub(super) fn section(
         .wrap(),
     );
     let layout = if narrow { col() } else { row().center_y() };
-    col()
+    layout
         .w_full()
-        .pt(16.)
-        .gap(8.)
-        .child(label("Interface", 16., 600., theme.text).pl(12.))
-        .child(
-            layout
-                .w_full()
-                .padding(if narrow { 12. } else { 16. })
-                .gap(12.)
-                .radius(12.)
-                .border(1., theme.separator)
-                .child(copy)
-                .child(picker),
-        )
+        .padding(if narrow { 12. } else { 16. })
+        .gap(12.)
+        .child(copy)
+        .child(picker)
 }
