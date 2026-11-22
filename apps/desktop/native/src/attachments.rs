@@ -1,6 +1,43 @@
 use crate::Desktop;
 use rune::{El, FileDialogOptions, Icon, TextStyle, col, el, icon, row, text, tok};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use tempfile::TempPath;
+
+pub(super) struct Selection {
+    pub(super) path: String,
+    _clipboard_file: Option<TempPath>,
+}
+
+impl Selection {
+    pub(super) fn local(path: &str) -> Self {
+        Self {
+            path: path.to_owned(),
+            _clipboard_file: None,
+        }
+    }
+
+    fn png(bytes: &[u8]) -> io::Result<Self> {
+        let mut file = tempfile::Builder::new()
+            .prefix("image-")
+            .suffix(".png")
+            .tempfile()?;
+        file.write_all(bytes)?;
+        let file = file.into_temp_path();
+        let path = file.to_str().ok_or(io::ErrorKind::InvalidData)?.to_owned();
+        Ok(Self {
+            path,
+            _clipboard_file: Some(file),
+        })
+    }
+}
+
+pub(super) fn paths(files: &[Selection]) -> Vec<String> {
+    files.iter().map(|file| file.path.clone()).collect()
+}
+
+const FILE_LIMIT: usize = 100;
+const TOO_MANY: &str = "You can attach up to 100 files per message.";
 
 #[derive(Clone)]
 pub(super) enum Target {
@@ -9,7 +46,7 @@ pub(super) enum Target {
 }
 
 impl Target {
-    fn edit(&self, app: &mut Desktop, change: impl FnOnce(&mut Vec<String>)) {
+    fn edit(&self, app: &mut Desktop, change: impl FnOnce(&mut Vec<Selection>)) {
         if app.pending || !app.can_operate {
             return;
         }
@@ -45,19 +82,55 @@ impl Target {
                     error = Some("Choose a file whose name can be displayed as text.");
                     continue;
                 };
-                if files.iter().any(|existing| existing == path) {
+                if files.iter().any(|existing| existing.path == path) {
                     continue;
                 }
-                if files.len() >= 100 {
-                    error = Some("You can attach up to 100 files per message.");
+                if files.len() >= FILE_LIMIT {
+                    error = Some(TOO_MANY);
                     break;
                 }
-                files.push(path.into());
+                files.push(Selection::local(path));
             }
         });
         if let Some(error) = error {
             app.error = Some(error.into())
         }
+    }
+
+    pub(super) fn paste(&self, app: &mut Desktop, content: &rune::ClipboardContent) -> bool {
+        let paths = content.files();
+        let image = content.image();
+        if !paths.is_empty() {
+            let contains_image = paths.iter().any(|p| {
+                image::ImageFormat::from_path(p).is_ok()
+                    || p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
+            });
+            if image.is_none() && !contains_image && !content.text().is_empty() {
+                return false;
+            }
+            self.add(app, paths);
+            return true;
+        }
+        let Some(image) = image else {
+            return false;
+        };
+        let mut error = None;
+        self.edit(app, |files| {
+            if files.len() >= FILE_LIMIT {
+                error = Some(TOO_MANY.to_owned());
+            } else {
+                match Selection::png(image.png()) {
+                    Ok(file) => files.push(file),
+                    Err(e) => error = Some(e.to_string()),
+                }
+            }
+        });
+        if error.is_some() {
+            app.error = error;
+        }
+        true
     }
 
     pub(super) fn button(&self, theme: &tok::Theme, locked: bool) -> El {
@@ -103,7 +176,7 @@ impl Target {
         }
     }
 
-    pub(super) fn list(&self, files: &[String], theme: &tok::Theme, locked: bool) -> Option<El> {
+    pub(super) fn list(&self, files: &[Selection], theme: &tok::Theme, locked: bool) -> Option<El> {
         if files.is_empty() {
             return None;
         }
@@ -114,7 +187,8 @@ impl Target {
             .scroll(rune::ScrollSpec {
                 stick_bottom: false,
             });
-        for path in files {
+        for file in files {
+            let path = &file.path;
             let name = Path::new(path)
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -150,7 +224,7 @@ impl Target {
                             .disabled(locked)
                             .focusable(!locked)
                             .on_press(move |app: &mut Desktop| {
-                                target.edit(app, |files| files.retain(|p| *p != path));
+                                target.edit(app, |files| files.retain(|f| f.path != path));
                             }),
                     ),
             );
@@ -169,3 +243,39 @@ const REMOVE: Icon = Icon {
     view: 24.,
     body: r#"<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rune::ClipboardContent;
+
+    #[test]
+    fn paste_keeps_text_editable_and_stages_images_only_in_the_active_writable_draft() {
+        let mut app = Desktop::new();
+        app.can_operate = true;
+        app.new_threads
+            .configure("project".into(), vec![], Default::default(), false, "main");
+        let target = Target::Project("project".into());
+        let mixed = ClipboardContent::new("share this").with_files([PathBuf::from("notes.txt")]);
+        assert!(!target.paste(&mut app, &mixed));
+        assert!(app.new_threads.editable_files().unwrap().is_empty());
+
+        let mut png = io::Cursor::new(Vec::new());
+        image::RgbaImage::new(1, 1)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let bytes = png.into_inner();
+        let image = rune::ClipboardImage::from_png(bytes.clone()).unwrap();
+        let clipboard = ClipboardContent::new("").with_image(image);
+        app.can_operate = false;
+        target.paste(&mut app, &clipboard);
+        assert!(app.new_threads.editable_files().unwrap().is_empty());
+        app.can_operate = true;
+        assert!(target.paste(&mut app, &clipboard));
+        let files = app.new_threads.editable_files().unwrap();
+        let path = PathBuf::from(&files[0].path);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        files.clear();
+        assert!(!path.exists());
+    }
+}
