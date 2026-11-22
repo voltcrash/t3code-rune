@@ -206,6 +206,7 @@ export function watchDraftModels(
       Stream.suspend(() =>
         connected[WS_METHODS.subscribeServerConfig]({
           providerStatusDeltas: true,
+          usageLimitSources: true,
           ...(!selected && { workspaceSnapshotsOnDemand: true, providerCatalogsOnDemand: true }),
         }),
       ).pipe(
