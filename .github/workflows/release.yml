@@ -126,6 +126,8 @@ jobs:
       release_name: ${{ steps.release_meta.outputs.name }}
       short_sha: ${{ steps.release_meta.outputs.short_sha }}
       previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
+      windows_baselines: ${{ steps.windows_baselines.outputs.baselines }}
+      windows_fixture_versions: ${{ steps.windows_baselines.outputs.fixture_versions }}
       cli_dist_tag: ${{ steps.release_meta.outputs.cli_dist_tag }}
       is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
@@ -234,6 +236,20 @@ jobs:
             --channel "${{ steps.release_meta.outputs.release_channel }}" \
             --current-tag "${{ steps.release_meta.outputs.tag }}" \
             --github-output
+
+      - id: windows_baselines
+        name: Select installed Windows release baselines
+        if: steps.release_meta.outputs.release_channel != 'preview' && hashFiles('scripts/smoke-rune-windows-upgrade.py') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ steps.release_meta.outputs.release_channel }}
+          TAG: ${{ steps.release_meta.outputs.tag }}
+          PRERELEASE: ${{ steps.release_meta.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | ([.tag_name] + [.assets[].name | select(endswith("-x64.exe") or endswith("-arm64.exe"))]) | @tsv' \
+            | python3 .github/scripts/windows-upgrade-baselines.py
 
       # Share only the verification results, not the large registry metadata cache.
       - name: Upload dependency verification
@@ -533,6 +549,7 @@ jobs:
     outputs:
       mac_target: ${{ steps.bundle_build.outputs.mac_target }}
       linux_target: ${{ steps.bundle_build.outputs.linux_target }}
+      native_windows: ${{ steps.bundle_build.outputs.native_windows }}
       previous_desktop_tag: ${{ steps.desktop_baseline.outputs.previous_tag }}
       npm_launcher_artifact_id: ${{ steps.npm_launcher.outputs.artifact-id }}
     env:
@@ -590,31 +607,34 @@ jobs:
         env:
           RELEASE_CHANNEL: ${{ needs.preflight.outputs.release_channel }}
         run: |
-          script="$(node -p "
-            const scripts = require('./package.json').scripts;
-            const electron = process.env.RELEASE_CHANNEL !== 'preview';
-            [electron && 'build:desktop:electron:bundle', 'build:desktop:bundle', 'build:desktop'].find(name => name && scripts[name]);
-          ")"
-          if [[ "$RELEASE_CHANNEL" == preview ]]; then
-            desktop_dist=dist/rune-bundle/rune-projects.mjs
-          else
-            desktop_dist=dist-electron
-          fi
           mac=dmg
           linux=AppImage
+          native_windows=false
           if [[ "$RELEASE_CHANNEL" == preview || -f scripts/smoke-rune-mac-upgrade.py ]]; then mac=dmg,zip; fi
           if [[ "$RELEASE_CHANNEL" == preview || -f scripts/smoke-rune-linux-deb.sh ]]; then linux=AppImage,deb; fi
+          if [[ "$RELEASE_CHANNEL" == preview || -f scripts/smoke-rune-windows-upgrade.py ]]; then native_windows=true; fi
           echo "mac_target=$mac" >> "$GITHUB_OUTPUT"
           echo "linux_target=$linux" >> "$GITHUB_OUTPUT"
-          if [[ "$RELEASE_CHANNEL" != preview && ( "$mac" == dmg,zip || "$linux" == AppImage,deb ) ]]; then
-            echo "additional_worker=apps/desktop/dist/rune-bundle/rune-projects.mjs" >> "$GITHUB_OUTPUT"
+          echo "native_windows=$native_windows" >> "$GITHUB_OUTPUT"
+          if [[ "$mac" == dmg,zip && "$linux" == AppImage,deb && "$native_windows" == true ]]; then
+            script=build:desktop:bundle
+            desktop_dist=dist/rune-bundle/rune-projects.mjs
+          else
+            script="$(node -p "['build:desktop:electron:bundle', 'build:desktop:bundle', 'build:desktop'].find(name => require('./package.json').scripts[name])")"
+            desktop_dist=dist-electron
+            if [[ "$mac" == dmg,zip || "$linux" == AppImage,deb || "$native_windows" == true ]]; then
+              echo "additional_worker=apps/desktop/dist/rune-bundle/rune-projects.mjs" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          if [[ "$RELEASE_CHANNEL" != preview && ( "$mac" == dmg,zip || "$linux" == AppImage,deb || "$native_windows" == true ) ]]; then
+            echo "upgrade_check=true" >> "$GITHUB_OUTPUT"
           fi
           echo "script=$script" >> "$GITHUB_OUTPUT"
           echo "desktop_dist=$desktop_dist" >> "$GITHUB_OUTPUT"
 
       - name: Find the previous published desktop release
         id: desktop_baseline
-        if: steps.bundle_build.outputs.additional_worker != ''
+        if: steps.bundle_build.outputs.upgrade_check == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ needs.preflight.outputs.release_channel }}
@@ -818,8 +838,12 @@ jobs:
       verify_runner: windows-2025
       platform: win
       target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'nsis,zip' || 'nsis' }}
+      windows_fixture_version: ${{ fromJSON(needs.preflight.outputs.windows_fixture_versions || '{}').x64 }}
+      native_windows: ${{ needs.build_bundle.outputs.native_windows == 'true' }}
+      previous_desktop_tag: ${{ needs.build_bundle.outputs.previous_desktop_tag }}
+      is_prerelease: ${{ needs.preflight.outputs.is_prerelease == 'true' }}
       arch: x64
-      rust_target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'x86_64-pc-windows-gnu' || 'x86_64-pc-windows-msvc' }}
+      rust_target: ${{ needs.build_bundle.outputs.native_windows == 'true' && 'x86_64-pc-windows-gnu' || 'x86_64-pc-windows-msvc' }}
       resource_key: win32-x64
       cli_archive: true
 
@@ -842,10 +866,67 @@ jobs:
       verify_runner: windows-11-arm
       platform: win
       target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'nsis,zip' || 'nsis' }}
+      windows_fixture_version: ${{ fromJSON(needs.preflight.outputs.windows_fixture_versions || '{}').arm64 }}
+      native_windows: ${{ needs.build_bundle.outputs.native_windows == 'true' }}
+      previous_desktop_tag: ${{ needs.build_bundle.outputs.previous_desktop_tag }}
+      is_prerelease: ${{ needs.preflight.outputs.is_prerelease == 'true' }}
       arch: arm64
-      rust_target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'aarch64-pc-windows-gnullvm' || 'aarch64-pc-windows-msvc' }}
+      rust_target: ${{ needs.build_bundle.outputs.native_windows == 'true' && 'aarch64-pc-windows-gnullvm' || 'aarch64-pc-windows-msvc' }}
       resource_key: win32-arm64
       cli_archive: true
+
+  windows_feed:
+    name: Merge the Windows update feed
+    needs: [preflight, build_bundle, desktop_win_x64, desktop_win_arm64]
+    if: needs.build_bundle.outputs.native_windows == 'true' && needs.preflight.outputs.release_channel != 'preview'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/scripts...
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: windows-feed-*
+          merge-multiple: true
+          path: manifests
+      - name: Merge both installer entries
+        env:
+          CHANNEL: ${{ needs.preflight.outputs.release_channel == 'nightly' && 'nightly' || 'latest' }}
+        run: |
+          mkdir verified
+          node scripts/merge-update-manifests.ts --platform win "manifests/$CHANNEL-win-x64.yml" "manifests/$CHANNEL-win-arm64.yml" "verified/$CHANNEL.yml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-update-feed
+          path: verified/*.yml
+          if-no-files-found: error
+
+  windows_upgrade:
+    name: Windows ${{ matrix.kind }} ${{ matrix.arch }} on ${{ matrix.runner }}
+    needs: [preflight, build_bundle, windows_feed]
+    if: needs.windows_feed.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.preflight.outputs.windows_baselines || '[]') }}
+    uses: ./.github/workflows/release-windows-verify.yml
+    with:
+      arch: ${{ matrix.arch }}
+      verify_runner: ${{ matrix.runner }}
+      version: ${{ needs.preflight.outputs.version }}
+      native_windows: true
+      release_channel: ${{ needs.preflight.outputs.release_channel }}
+      previous_desktop_tag: ${{ matrix.tag }}
+      windows_baseline: ${{ matrix.kind }}
+      is_prerelease: ${{ needs.preflight.outputs.is_prerelease == 'true' }}
+      cli_archive: ${{ matrix.kind != 'Electron' && (matrix.arch == 'arm64' || matrix.runner == 'windows-2025') }}
 
   release:
     name: Publish GitHub Release
@@ -863,8 +944,10 @@ jobs:
         desktop_linux_arm64,
         desktop_win_x64,
         desktop_win_arm64,
+        build_bundle,
+        windows_upgrade,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' && (needs.windows_upgrade.result == 'success' || (needs.windows_upgrade.result == 'skipped' && (needs.build_bundle.outputs.native_windows != 'true' || needs.preflight.outputs.release_channel == 'preview'))) }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
     concurrency:
@@ -889,7 +972,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Prevent a published Rune channel from reverting to Electron
-        if: needs.preflight.outputs.release_channel != 'preview' && (hashFiles('scripts/smoke-rune-mac-upgrade.py') == '' || hashFiles('scripts/smoke-rune-linux-deb.sh') == '')
+        if: needs.preflight.outputs.release_channel != 'preview' && (hashFiles('scripts/smoke-rune-mac-upgrade.py') == '' || hashFiles('scripts/smoke-rune-linux-deb.sh') == '' || hashFiles('scripts/smoke-rune-windows-upgrade.py') == '')
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ needs.preflight.outputs.release_channel }}
@@ -897,7 +980,7 @@ jobs:
           set -euo pipefail
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > "$RUNNER_TEMP/published-desktop-tags"
           missing=()
-          for marker in scripts/smoke-rune-mac-upgrade.py scripts/smoke-rune-linux-deb.sh; do
+          for marker in scripts/smoke-rune-mac-upgrade.py scripts/smoke-rune-linux-deb.sh scripts/smoke-rune-windows-upgrade.py; do
             if [[ ! -f "$marker" ]]; then missing+=("$marker"); fi
           done
           while IFS= read -r tag; do
@@ -991,9 +1074,21 @@ jobs:
       # the file entry whose name carries the running arch. Require every
       # platform's two build jobs to have produced matching metadata before
       # merging it, so a successful release can never strand one architecture.
+      - name: Download the Windows feed that passed the upgrade checks
+        if: needs.windows_upgrade.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-update-feed
+          path: verified-windows
+
       - name: Merge desktop updater manifests
         if: needs.preflight.outputs.release_channel != 'preview'
-        run: node scripts/merge-release-update-manifests.ts release-assets
+        run: |
+          if [[ -d verified-windows ]]; then
+            node scripts/merge-release-update-manifests.ts release-assets --verified-windows verified-windows
+          else
+            node scripts/merge-release-update-manifests.ts release-assets
+          fi
 
       # Updater manifests and blockmaps are what electron-updater consumes.
       # They are only listed for channels an updater is meant to follow.

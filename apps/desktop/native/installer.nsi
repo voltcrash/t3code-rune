@@ -119,8 +119,19 @@ FunctionEnd
 Function .onInit
   !insertmacro LockInstaller
   ${IfNot} ${NATIVE_ARCH}
-    MessageBox MB_OK "Use the ${PRODUCT} installer for this PC’s architecture." /SD IDOK
-    Abort
+    !ifdef ALLOW_EMULATED_X64
+      ; Windows 11 can run existing x64 installations on Arm through emulation.
+      StrCpy $1 0
+      System::Call 'kernel32::GetMachineTypeAttributes(i 0x8664, *i .r1)i.r0'
+      IntOp $1 $1 & 1
+      ${If} $0 != 0
+      ${OrIf} $1 == 0
+    !endif
+        MessageBox MB_OK "Use the ${PRODUCT} installer for this PC’s architecture." /SD IDOK
+        Abort
+    !ifdef ALLOW_EMULATED_X64
+      ${EndIf}
+    !endif
   ${EndIf}
   !ifdef RELEASE_INSTALL
     !insertmacro ReadReleaseLocation

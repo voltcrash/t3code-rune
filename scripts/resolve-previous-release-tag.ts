@@ -193,47 +193,57 @@ const parseNightlyTag = (
   };
 };
 
-export const resolvePreviousReleaseTag = Effect.fn(
-  "resolve-previous-release-tag.resolvePreviousReleaseTag",
-)(function* (
-  channel: ReleaseChannel,
-  currentTag: string,
-  tags: ReadonlyArray<string>,
-  options?: { readonly desktopUpdate: boolean },
-) {
-  if (channel === "stable") {
-    const current = parseStableTag(currentTag);
+const listPreviousReleaseTags = Effect.fn("resolve-previous-release-tag.listPreviousReleaseTags")(
+  function* (
+    channel: ReleaseChannel,
+    currentTag: string,
+    tags: ReadonlyArray<string>,
+    options?: { readonly desktopUpdate: boolean },
+  ) {
+    if (channel === "stable") {
+      const current = parseStableTag(currentTag);
+      if (!current) {
+        return yield* new InvalidReleaseTagError({ channel, currentTag });
+      }
+
+      const candidates = tags
+        .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
+        .filter(
+          (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,
+        )
+        .filter((entry) => compareStableVersions(entry.parsed, current) < 0)
+        .toSorted((left, right) => compareStableVersions(right.parsed, left.parsed));
+
+      if (options?.desktopUpdate && current.prerelease.length === 0) {
+        const preferred = candidates.filter((entry) => entry.parsed.prerelease.length === 0);
+        const fallback = candidates.filter((entry) => entry.parsed.prerelease.length > 0);
+        return [...preferred, ...fallback].map((entry) => entry.tag);
+      }
+      return candidates.map((entry) => entry.tag);
+    }
+
+    const current = parseNightlyTag(currentTag, channel);
     if (!current) {
       return yield* new InvalidReleaseTagError({ channel, currentTag });
     }
 
     const candidates = tags
-      .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
+      .map((tag) => ({ tag, parsed: parseNightlyTag(tag, channel) }))
       .filter(
-        (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,
+        (entry): entry is { tag: string; parsed: NightlyVersion } => entry.parsed !== undefined,
       )
-      .filter((entry) => compareStableVersions(entry.parsed, current) < 0)
-      .toSorted((left, right) => compareStableVersions(right.parsed, left.parsed));
+      .filter((entry) => compareNightlyVersions(entry.parsed, current) < 0)
+      .toSorted((left, right) => compareNightlyVersions(right.parsed, left.parsed));
 
-    if (options?.desktopUpdate && current.prerelease.length === 0) {
-      const previousStable = candidates.find((entry) => entry.parsed.prerelease.length === 0);
-      if (previousStable) return previousStable.tag;
-    }
-    return candidates[0]?.tag;
-  }
+    return candidates.map((entry) => entry.tag);
+  },
+);
 
-  const current = parseNightlyTag(currentTag, channel);
-  if (!current) {
-    return yield* new InvalidReleaseTagError({ channel, currentTag });
-  }
-
-  const candidates = tags
-    .map((tag) => ({ tag, parsed: parseNightlyTag(tag, channel) }))
-    .filter((entry): entry is { tag: string; parsed: NightlyVersion } => entry.parsed !== undefined)
-    .filter((entry) => compareNightlyVersions(entry.parsed, current) < 0)
-    .toSorted((left, right) => compareNightlyVersions(right.parsed, left.parsed));
-
-  return candidates[0]?.tag;
+export const resolvePreviousReleaseTag = Effect.fn(
+  "resolve-previous-release-tag.resolvePreviousReleaseTag",
+)(function* (...args: Parameters<typeof listPreviousReleaseTags>) {
+  const tags = yield* listPreviousReleaseTags(...args);
+  return tags[0];
 });
 
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
@@ -360,6 +370,10 @@ const command = Command.make(
       ),
       Flag.optional,
     ),
+    listEligible: Flag.Boolean("list-eligible").pipe(
+      Flag.withDescription("Print eligible baseline tags in preference order, one per line."),
+      Flag.withDefault(false),
+    ),
     githubOutput: Flag.Boolean("github-output").pipe(
       Flag.withDescription("Write values to GITHUB_OUTPUT instead of stdout."),
       Flag.withDefault(false),
@@ -369,12 +383,17 @@ const command = Command.make(
     channel,
     currentTag,
     githubOutput,
+    listEligible,
     publishedDesktopTags,
   }) {
     const desktopUpdate = Option.isSome(publishedDesktopTags);
     const tags = desktopUpdate ? tagLines(publishedDesktopTags.value) : yield* listGitTags();
-    const previous = yield* resolvePreviousReleaseTag(channel, currentTag, tags, { desktopUpdate });
-    yield* writePreviousReleaseTagOutput(previous, githubOutput);
+    const candidates = yield* listPreviousReleaseTags(channel, currentTag, tags, { desktopUpdate });
+    if (listEligible) {
+      process.stdout.write(candidates.join("\n"));
+      return;
+    }
+    yield* writePreviousReleaseTagOutput(candidates[0], githubOutput);
   }),
 ).pipe(Command.withDescription("Resolve the previous release tag for a stable or nightly series."));
 

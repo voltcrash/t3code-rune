@@ -31,11 +31,11 @@ the version.
     run the release rules stored in those historical commits.
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
-- Builds the platform-independent JS (server bundle, web client, Rune worker, Electron main) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
+- Builds the platform-independent JS (server bundle, web client, and Rune worker) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
 - Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`), gated only on the bundle. macOS and Linux targets build on hardware of their own architecture. Both Windows targets build and sign (with jsign) on a Linux runner, which packages faster than Windows runners, and a Windows job of the target's architecture (`windows-2025` or `windows-11-arm`, the `verify_runner`) runs the packaged natives and the CLI archive. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
   - macOS `arm64` and `x64` Rune DMG and ZIP. Stable and nightly update feeds require Developer ID signing and notarization. Before publication, each architecture upgrades a copy of the previous installation and opens a seeded thread. First releases and manual prereleases without an applicable update path open the ZIP directly. The current publication workflow blocks Electron-only source revisions once the channel has shipped Rune.
   - Linux `x64` and `arm64` Rune AppImage and Debian package. Stable and nightly preserve the installed AppImage filename and Debian package identity. Both architectures upgrade the previous Debian package and exercise the installed AppImage updater before publication. Linux Rune clients require the native runtime marker in the feed, including on managed mirrors.
-  - Windows `x64` and `arm64` NSIS installer. Manual previews ship a Rune installer and a portable ZIP built from the same payload.
+  - Windows `x64` and `arm64` Rune NSIS installers. Official feeds require Azure Trusted Signing. The upgrade checks exercise native x64, native ARM64, and emulated x64 on ARM64 before publication. Manual previews also ship a portable ZIP built from the same payload.
 - Opens both packaged Linux AppImages (under Xvfb) and macOS arm64 DMG against a seeded database and opens a thread. The Intel DMG opens under Rosetta. Manual previews also open the installed and portable Windows apps on each target architecture. The Linux launch checks use AT-SPI. The Rune checks on macOS and Windows focus the sidebar row, press Space and verify the message in a frame the window presented. A build whose backend or bundle cannot start fails here, so nothing is published. The database in `scripts/fixtures/desktop-launch` is an old snapshot on purpose: the packaged server must migrate it forward, as it does for upgrading users. Do not regenerate it on schema changes.
 - Publishes one GitHub Release with all produced files.
   - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
@@ -516,49 +516,23 @@ switch in Settings reads that tag and refuses an older desktop build.
 
 ### Windows payload topology and update validation
 
-Windows packages the bundled server and only its runtime-external/native
-dependency closure in `resources/server.asar`. Native modules and helper
-executables declared as unpacked by that archive must be present at the matching
-paths below `resources/server.asar.unpacked`. The Windows-native backend reads
-the archive in place through Electron. Packaged Windows builds also ship
-`resources/wsl-runtime.tar.gz` plus its SHA-256 sidecar: the Linux CLI archive
-(`t3-<version>-linux-<arch>.tar.gz`, the same arch as the Windows host) built
-by the Linux desktop job and handed to the Windows desktop build as
-`--wsl-runtime`, copied in verbatim so WSL runs the exact bytes a Linux user
-downloads. WSL verifies and extracts that archive
-into `~/.t3/wsl-runtime/sha256-<archive-digest>` inside the selected distro,
-then reuses it for later launches of the same update.
+The Rune installer packages the native launcher, its Node runtime, the Rune worker, and
+the bundled server. It also ships the Linux CLI archive for the same version and
+architecture in `resources/wsl-runtime.tar.gz`. The Windows release job verifies it
+against the digest from the Linux build. WSL verifies the sidecar digest when it
+extracts the archive into `~/.t3/wsl-runtime/sha256-<archive-digest>`.
 
-Windows keeps JavaScript and package metadata inside `app.asar` and unpacks only
-native libraries and helper executables. Avoid enabling whole-package smart
-unpacking: each loose file adds work to NSIS installation and counts against
-the payload limit.
+For stable and nightly updates, separate Windows runners install the latest published Electron
+and Rune versions from the same channel and open a recorded conversation. If the channel has
+yet to ship Rune, the build signs an earlier-version Rune installer for this check. It stays in
+a temporary workflow artifact. Each updater reads the same two-architecture manifest that
+will be published. The candidate must match the installed publisher, replace the app at its
+registered path, and reopen the recorded conversation. Stable-track prereleases use a direct
+installation. The checks also exercise the packaged file index, resource monitor, and CLI.
 
-The artifact builder rejects a Windows package when any of these invariants
-break:
-
-- `resources/server.asar` is absent or does not contain the server entry.
-- Any file marked unpacked in the ASAR header is absent from
-  `resources/server.asar.unpacked`.
-- On same-architecture Windows builds, the packaged primary cannot load the fff
-  native library from inside `server.asar` through its `.unpacked` sibling.
-- The isolated, extracted sidecar cannot load the server entry with plain Node.
-- A Windows build given `--wsl-runtime` omits the WSL archive or SHA-256
-  sidecar, or the sidecar digest does not match the emitted archive.
-- The emitted WSL archive is not a Linux CLI release archive: it must unpack to
-  a single `t3-<version>-linux-<arch>` directory holding `t3`, `client/`, and
-  `node_modules/` with the Linux node-pty binary, and must not carry a loose
-  server bundle (`bin.mjs`).
-- The external Windows resource monitor is absent.
-- The unpacked Windows application contains more than 80 files.
-
-Cross-architecture Windows builds retain every structural and extracted-sidecar
-check, but skip executing the target Electron binary. A same-architecture build
-for each release target must exercise the primary native-load probe.
-
-NSIS differential packaging remains enabled. A sidecar layout transition can
-produce a larger one-time download; subsequent small releases retain their
-blockmaps, with a 60 MB maximum for a representative sidecar-to-sidecar update.
+Manual preview installers use a separate directory. To reproduce the official upgrade
+path, package with `--signed --update-feed`, a matching WSL archive, and the release
+signing profile. Use a disposable Windows account for the installation and update.
 
 ## 0) npm OIDC trusted publishing setup (CLI)
 
