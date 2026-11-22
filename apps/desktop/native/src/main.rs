@@ -42,6 +42,8 @@ enum Reply {
     MenuAction {
         action: linux_menu::Action,
     },
+    #[cfg(windows)]
+    QuitForUpdate,
     RestartUpdated {
         executable: std::path::PathBuf,
     },
@@ -1246,6 +1248,8 @@ impl Desktop {
             }
             #[cfg(target_os = "linux")]
             Reply::MenuAction { .. } => unreachable!(),
+            #[cfg(windows)]
+            Reply::QuitForUpdate => unreachable!(),
             Reply::Live { .. }
             | Reply::PlanSaved { .. }
             | Reply::Downloaded { .. }
@@ -1932,6 +1936,11 @@ fn start() -> io::Result<()> {
                 {
                     break;
                 }
+                continue;
+            }
+            #[cfg(windows)]
+            if matches!(reply.reply, Reply::QuitForUpdate) {
+                handle.close();
                 continue;
             }
             if let Reply::RestartUpdated { executable } = reply.reply {

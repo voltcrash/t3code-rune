@@ -142,7 +142,7 @@ export async function buildRuneInstaller({
     VERSION: version,
     NUMERIC_VERSION: version.split(/[-+]/, 1)[0],
     INSTALL_NAME: releaseInstall ? "T3Code.Native" : product + " Rune",
-    ...(releaseInstall ? { RELEASE_INSTALL: "1" } : {}),
+    ...(releaseInstall ? { RELEASE_INSTALL: "1", RELEASE_ARCH: arch } : {}),
     PLUGIN_DIR: tmp,
     PAYLOAD: app,
     REMOVALS: manifest,

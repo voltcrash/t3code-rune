@@ -116,10 +116,10 @@ export async function checkRuneRelease(
     channel === "nightly" ? nightlyTag.test(`v${version}`) : /^\d+\.\d+\.\d+$/.test(version);
   if (!valid || (tag && tag !== `v${version}`)) throw new Error("Unexpected release version.");
   if (compareSemverVersions(version, current) <= 0) return { status: "current" } as const;
-  if (platform === "linux" && manifest.desktopRuntime !== "rune") {
+  if ((platform === "win32" || platform === "linux") && manifest.desktopRuntime !== "rune") {
     return {
       status: "disabled",
-      message: "This release does not include a native Linux update.",
+      message: `This release does not include a native ${platform === "win32" ? "Windows" : "Linux"} update.`,
     } as const;
   }
   const arch = source.arch === "x64" && source.format === "deb" ? "amd64" : source.arch;

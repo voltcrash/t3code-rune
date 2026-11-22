@@ -33,6 +33,7 @@ VIAddVersionKey /LANG=1033 "FileDescription" "${PRODUCT} Installer"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "T3 Tools"
 
 !ifdef RELEASE_INSTALL
+  VIAddVersionKey /LANG=1033 "InternalName" "T3Code.ReleaseInstaller.${RELEASE_ARCH}"
   !include "${__FILEDIR__}/rune-install-location.nsh"
   !include "${__FILEDIR__}/rune-url-protocol.nsh"
 !else
@@ -183,6 +184,8 @@ Function LaunchInstalledApp
       ${EndIf}
     ${EndIf}
   ${EndIf}
+  IfSilent 0 +2
+    SetErrorLevel 3
   MessageBox MB_OK "${PRODUCT} was installed. Open it from the Start menu." /SD IDOK
 FunctionEnd
 

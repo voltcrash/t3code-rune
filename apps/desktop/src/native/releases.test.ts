@@ -46,11 +46,16 @@ it("honors update policy, skips unmarked packages and preserves a mirror's signe
     });
   }
   expect(read).not.toHaveBeenCalled();
-  const legacy = () =>
-    Promise.resolve(JSON.stringify({ version: "1.3.0", files: [{ url: name, size: 42, sha512 }] }));
-  await expect(
-    checkRuneRelease("1.2.0", { repository: null, arch: "x64", format: "deb" }, mirror, legacy),
-  ).resolves.toMatchObject({ status: "disabled" });
+  for (const [format, url] of [
+    ["deb", name],
+    ["exe", "T3-Code-1.3.0-x64.exe"],
+  ] as const) {
+    const legacy = () =>
+      Promise.resolve(JSON.stringify({ version: "1.3.0", files: [{ url, size: 42, sha512 }] }));
+    await expect(
+      checkRuneRelease("1.2.0", { repository: null, arch: "x64", format }, mirror, legacy),
+    ).resolves.toMatchObject({ status: "disabled" });
+  }
   const result = await checkRuneRelease(
     "1.2.0",
     { repository: null, arch: "x64", format: "deb" },
