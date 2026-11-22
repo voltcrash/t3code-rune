@@ -1,0 +1,27 @@
+name: Dispatch stable release tag
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'pingdotgg/t3code' && !github.event.deleted
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the current release workflow for the tagged commit
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const tag = context.ref.slice('refs/tags/'.length);
+            if (/^v[0-9]+\.[0-9]+\.[0-9]+-(?:nightly|preview)(?:[.+]|$)/.test(tag)) return;
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'release.yml',
+              ref: context.payload.repository.default_branch,
+              inputs: { channel: 'stable', version: tag, stable_commit: context.sha },
+            });

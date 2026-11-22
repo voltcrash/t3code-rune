@@ -110,6 +110,20 @@ def visible_message(node):
     )
 
 
+def painted_message(node):
+    if not visible_message(node):
+        return False
+    rect = node.get_extents(Atspi.CoordType.SCREEN)
+    if rect.width <= 0 or rect.height <= 0 or rect.x < 0 or rect.y < 0:
+        return False
+    region = f"{rect.width}x{rect.height}+{rect.x}+{rect.y}"
+    colors = subprocess.check_output(
+        ["import", "-silent", "-window", "root", "-crop", region, "-format", "%k", "info:"],
+        text=True, timeout=5,
+    )
+    return int(colors) > 1
+
+
 def close_packaged_window(app):
     from Xlib import X, display, protocol
 
@@ -151,7 +165,7 @@ def main():
                 row = wait_for(app, "finding the seeded sidebar row", seeded_row)
                 if not row.do_action(0):
                     raise RuntimeError("Could not open the seeded thread")
-                wait_for(app, "showing the seeded message", visible_message)
+                wait_for(app, "painting the seeded message in the thread", painted_message)
                 if args.executable is not None:
                     close_packaged_window(app)
             app.stdin.close()

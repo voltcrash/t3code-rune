@@ -5,7 +5,11 @@ import { unmanagedUpdatePolicy } from "../updates/DesktopUpdatePolicy.ts";
 const sha512 = Buffer.alloc(64, 7).toString("base64");
 const source = { repository: "owner/fork", arch: "arm64", format: "zip" } as const;
 function manifest(version: string, filename: string) {
-  return JSON.stringify({ version, files: [{ url: filename, size: 42, sha512 }] });
+  return JSON.stringify({
+    version,
+    desktopRuntime: "rune",
+    files: [{ url: filename, size: 42, sha512 }],
+  });
 }
 
 it("pins a compatible installer to the offered stable tag even when the latest URL moves", async () => {
@@ -42,6 +46,11 @@ it("honors update policy, skips unmarked packages and preserves a mirror's signe
     });
   }
   expect(read).not.toHaveBeenCalled();
+  const legacy = () =>
+    Promise.resolve(JSON.stringify({ version: "1.3.0", files: [{ url: name, size: 42, sha512 }] }));
+  await expect(
+    checkRuneRelease("1.2.0", { repository: null, arch: "x64", format: "deb" }, mirror, legacy),
+  ).resolves.toMatchObject({ status: "disabled" });
   const result = await checkRuneRelease(
     "1.2.0",
     { repository: null, arch: "x64", format: "deb" },

@@ -99,7 +99,7 @@ on:
         required: false
         default: false
         type: boolean
-      previous_mac_tag:
+      previous_desktop_tag:
         required: false
         default: ""
         type: string
@@ -639,7 +639,7 @@ jobs:
           name: cli-linux-${{ inputs.arch }}
           path: wsl-runtime
 
-      - name: Build Rune Linux preview
+      - name: Build Rune Linux artifacts
         if: inputs.target == 'AppImage,deb'
         shell: bash
         env:
@@ -647,7 +647,10 @@ jobs:
           pnpm_config_store_dir: ${{ steps.stage_pnpm.outputs.dir }}/store
           pnpm_config_prefer_offline: "true"
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: true
-        run: vp run dist:desktop:rune --platform linux --target AppImage,deb --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose
+        run: |
+          args=(--platform linux --target AppImage,deb --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose)
+          if [[ "${{ inputs.release_channel }}" != preview ]]; then args+=(--update-feed); fi
+          vp run dist:desktop:rune "${args[@]}"
 
       - name: Build Rune macOS artifacts
         if: inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true'
@@ -868,12 +871,44 @@ jobs:
             fi
           fi
 
+      - name: Verify Linux installed upgrades
+        if: inputs.target == 'AppImage,deb' && inputs.release_channel != 'preview' && !inputs.untrusted_bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_desktop_tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          arch=$(dpkg --print-architecture)
+          candidate="$GITHUB_WORKSPACE/release/T3-Code-$RELEASE_VERSION-$arch.deb"
+          baseline=""
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            old_version="${PREVIOUS_TAG#nightly-}"
+            old_deb="T3-Code-${old_version#v}-$arch.deb"
+            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$old_deb" --dir "$RUNNER_TEMP/previous-desktop"
+            baseline="$RUNNER_TEMP/previous-desktop/$old_deb"
+          fi
+          bash scripts/smoke-rune-linux-deb.sh "$candidate" "$RUNNER_TEMP/desktop-launch-check/deb" "$baseline"
+          if [[ -z "$PREVIOUS_TAG" || ( "$RELEASE_CHANNEL" == stable && "$IS_PRERELEASE" == true ) ]]; then exit 0; fi
+          image_arch="${arch/amd64/x86_64}"
+          gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "*-$image_arch.AppImage" --dir "$RUNNER_TEMP/previous-desktop"
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24 -noreset' bash -ec '
+            gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus \
+              --method org.freedesktop.DBus.Properties.Set org.a11y.Status IsEnabled "<true>"
+            exec /usr/bin/python3 scripts/smoke-rune-linux-appimage.py \
+              --previous "$RUNNER_TEMP"/previous-desktop/*.AppImage --candidate release/*.AppImage \
+              --manifest release/*-linux*.yml --version "$RELEASE_VERSION" --artifacts-dir "$RUNNER_TEMP/desktop-launch-check/appimage"
+          '
+
       - name: Verify macOS update before publication
         if: inputs.target == 'dmg,zip' && inputs.release_channel != 'preview' && !inputs.untrusted_bundle
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIOUS_TAG: ${{ inputs.previous_mac_tag }}
+          PREVIOUS_TAG: ${{ inputs.previous_desktop_tag }}
           RELEASE_CHANNEL: ${{ inputs.release_channel }}
           IS_PRERELEASE: ${{ inputs.is_prerelease }}
           RELEASE_VERSION: ${{ inputs.version }}

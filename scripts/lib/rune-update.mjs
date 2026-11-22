@@ -47,7 +47,7 @@ async function writeManifest(directory, name, version, files, platformLabel) {
         version,
         releaseDate: new Date().toISOString(),
         files,
-        extras: { path: files[0].url, sha512: files[0].sha512 },
+        extras: { path: files[0].url, sha512: files[0].sha512, desktopRuntime: "rune" },
       },
       { platformLabel },
     ),
