@@ -93,6 +93,7 @@ let server;
 let watching;
 let menuWindow;
 const pendingLaunches = new Map();
+const attachmentDownloads = Semaphore.makeUnsafe(3);
 const directoryReads = Semaphore.makeUnsafe(4);
 const imageReads = Semaphore.makeUnsafe(3);
 const sentImages = new Map();
@@ -1077,6 +1078,8 @@ async function saveAttachment(request, reply) {
           ),
         ),
         Effect.scoped,
+        attachmentDownloads.withPermits(1),
+        Effect.timeout("5 minutes"),
         Effect.provide(record.owner.http),
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
@@ -1507,7 +1510,7 @@ async function handleWorkspaceRequest(request, reply) {
 
 try {
   let workspaceRequests = Promise.resolve();
-  let downloads = Promise.resolve();
+  const downloads = new Map();
   for await (const line of input) {
     if (lifetime.signal.aborted) break;
     let request;
@@ -1789,17 +1792,22 @@ try {
       void workspaceFiles(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
-    } else if (request?.type === "downloadattachment") {
-      downloads = downloads.then(() => saveAttachment(request, reply));
-    } else if (request?.type === "downloadplan") {
-      downloads = downloads.then(() => downloadPlan(request, reply));
+    } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {
+      const path = request.path;
+      const save = request.type === "downloadplan" ? downloadPlan : saveAttachment;
+      const previous = downloads.get(path) ?? Promise.resolve();
+      const pending = previous.then(() => save(request, reply));
+      downloads.set(path, pending);
+      void pending.finally(() => {
+        if (downloads.get(path) === pending) downloads.delete(path);
+      });
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
-  await Promise.all([workspaceRequests, downloads, clientSettingsWrites]);
+  await Promise.all([workspaceRequests, ...downloads.values(), clientSettingsWrites]);
 } finally {
   close();
   await server?.stopped;

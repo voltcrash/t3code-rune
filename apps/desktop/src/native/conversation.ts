@@ -41,7 +41,6 @@ import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
 import { formatBytes } from "@t3tools/shared/formatBytes";
-import { imageMimeType } from "@t3tools/shared/image";
 import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
@@ -152,7 +151,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     body: item.text,
     attachments: (item.attachments ?? []).map((a) => {
       const name = a.name;
-      if (a.type === "image" || (a.type === "file" && imageMimeType(a) !== null)) {
+      if (a.type === "image") {
         return { name, image: imageKey({ _tag: "attachment", attachmentId: a.id }) };
       }
       if (a.type !== "file") return { name };
