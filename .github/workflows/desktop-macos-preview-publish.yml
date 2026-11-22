@@ -44,7 +44,6 @@ jobs:
       pull-requests: write
     outputs:
       eligible: ${{ steps.gate.outputs.eligible }}
-      native_launcher: ${{ steps.stage.outputs.native_launcher }}
       pr_number: ${{ steps.pr.outputs.pr_number }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
       version: ${{ steps.version.outputs.version }}
@@ -258,7 +257,6 @@ jobs:
       # Fetch the archive as bytes. Extracting it over the checkout, even with
       # download-artifact, could replace code that runs with signing secrets.
       - name: Download and validate PR bundle
-        id: stage
         if: steps.gate.outputs.eligible == 'true'
         shell: bash
         env:
@@ -268,9 +266,6 @@ jobs:
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$RUNNER_TEMP/js-bundle.zip"
           python3 .github/scripts/stage-preview-bundle.py "$RUNNER_TEMP/js-bundle.zip" "$RUNNER_TEMP/js-bundle"
-          if [[ -f "$RUNNER_TEMP/js-bundle/desktop/dist/rune-bundle/t3-code" ]]; then
-            echo "native_launcher=true" >> "$GITHUB_OUTPUT"
-          fi
 
       # Only validated bundle files cross into the signing job's artifact.
       - name: Stage validated preview for packaging
@@ -442,7 +437,6 @@ jobs:
           DOWNLOAD_URL: ${{ steps.upload.outputs.download_url }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           PREVIEW_VERSION: ${{ needs.resolve.outputs.version }}
-          NATIVE_LAUNCHER: ${{ needs.resolve.outputs.native_launcher }}
         with:
           script: |
             const prNumber = Number(process.env.PR_NUMBER);
@@ -466,9 +460,7 @@ jobs:
               `Version: ${process.env.PREVIEW_VERSION}`,
               `Commit: ${process.env.HEAD_SHA.slice(0, 7)}`,
               "",
-              process.env.NATIVE_LAUNCHER === "true"
-                ? "This PR supplies the Rune launcher, desktop worker, server and web client."
-                : "This PR supplies the Electron main process, server and web client.",
+              "This PR supplies the Rune launcher, desktop worker, server and web client.",
               "Packaging, native helpers and runtime dependencies come from the default branch.",
               "",
               "No GitHub sign-in is needed. The download stays available until this PR closes. The `preview:mac` label was consumed by this build; a maintainer applies it again to build a newer commit.",

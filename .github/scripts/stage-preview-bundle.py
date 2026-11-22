@@ -6,11 +6,14 @@ import sys
 import zipfile
 from pathlib import Path
 
-ROOTS = ("server/dist", "desktop/dist-electron")
+SERVER_DIST = "server/dist"
 RUNE_WORKER = "desktop/dist/rune-bundle/rune-projects.mjs"
 RUNE_LAUNCHER = "desktop/dist/rune-bundle/t3-code"
-ELECTRON_MAIN = "desktop/dist-electron/main.cjs"
-SERVER_ENTRY_POINTS = {
+REQUIRED = {
+    RUNE_WORKER,
+    RUNE_LAUNCHER,
+    "server/dist/claude-history-worker.mjs",
+    "server/dist/client/asset-manifest.json",
     "server/dist/bin.mjs",
     "server/dist/client/index.html",
 }
@@ -44,11 +47,11 @@ def stage_bundle(archive: Path, destination: Path):
                 or any(ord(char) < 32 or ord(char) == 127 for char in name)
             ):
                 raise ValueError(f"Unsafe preview path: {entry.filename!r}")
-            allowed = any(name.startswith(root + "/") for root in ROOTS) or (
+            allowed = name.startswith(SERVER_DIST + "/") or (
                 name in (RUNE_WORKER, RUNE_LAUNCHER) and not entry.is_dir()
             )
             if entry.is_dir():
-                allowed |= any(root == name or root.startswith(name + "/") for root in ROOTS)
+                allowed |= name == SERVER_DIST or SERVER_DIST.startswith(name + "/")
                 allowed |= RUNE_WORKER.startswith(name + "/")
             if not allowed:
                 raise ValueError(f"Unexpected preview path: {name!r}")
@@ -60,16 +63,8 @@ def stage_bundle(archive: Path, destination: Path):
             seen.add(name.casefold())
             if not entry.is_dir():
                 files.add(name)
-        if RUNE_LAUNCHER in files:
-            if any(name.startswith("desktop/dist-electron/") for name in files):
-                raise ValueError("Native preview bundle contains an Electron shell")
-            required = SERVER_ENTRY_POINTS | {RUNE_WORKER, "server/dist/claude-history-worker.mjs"}
-        else:
-            required = SERVER_ENTRY_POINTS | {ELECTRON_MAIN}
-        if not required <= files:
-            raise ValueError("Preview bundle is missing required entry points")
-        if RUNE_WORKER in files and "server/dist/client/asset-manifest.json" not in files:
-            raise ValueError("Rune preview bundle is missing the client asset manifest")
+        if not REQUIRED <= files:
+            raise ValueError("Preview bundle is missing required Rune or server entry points")
         # Validate before writing into a fresh directory so existing links/files cannot be followed or overwritten.
         destination.mkdir(parents=True, exist_ok=False)
         for entry in entries:

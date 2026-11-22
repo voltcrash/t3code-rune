@@ -75,8 +75,8 @@ consumes it once the build is ready. To publish a later commit, apply the label 
   from the trusted checkout. Use the `channel=preview` release train to preview packaging changes.
 
 The ZIP validator accepts the server distribution and the two Rune desktop files at their build
-paths. It also recognizes the format used by older Electron preview runs. Closing the PR or removing
-its unconsumed label removes the download.
+paths. For a branch that still produces the older desktop bundle, rebase onto main and request a
+new build. Closing the PR or removing its unconsumed label removes the download.
 
 ## Required release credentials
 
