@@ -1191,7 +1191,9 @@ impl Desktop {
                     self.workspace.set_clock_offset(offset);
                 }
                 self.workspace.sequence = sequence;
-                self.workspace.providers.set_environment(environment_id);
+                self.workspace
+                    .providers
+                    .set_environment(environment_id, watch);
                 self.workspace.feed = Some(watch);
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;

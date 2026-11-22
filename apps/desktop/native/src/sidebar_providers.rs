@@ -104,6 +104,7 @@ impl Art {
 #[derive(Default)]
 pub(super) struct Catalog {
     environment: Option<String>,
+    feed: u64,
     instances: HashMap<String, Instance>,
     art: HashMap<String, Art>,
     registry: HashMap<String, RegistryIcon>,
@@ -149,10 +150,10 @@ impl RegistryIcon {
 }
 
 impl crate::Desktop {
-    fn load_registry_icon(&mut self, url: &str) {
-        let Some(watch) = self.workspace.feed else {
+    fn load_registry_icon(&mut self, watch: u64, url: &str) {
+        if self.workspace.feed != Some(watch) {
             return;
-        };
+        }
         let Some(state @ RegistryIcon::Idle) = self.workspace.providers.registry.get_mut(url)
         else {
             return;
@@ -197,13 +198,20 @@ impl crate::Desktop {
 }
 
 impl Catalog {
-    pub(super) fn set_environment(&mut self, id: String) {
+    pub(super) fn set_environment(&mut self, id: String, watch: u64) {
         if self.environment.as_ref() != Some(&id) {
             *self = Self {
                 environment: Some(id),
                 ..Self::default()
             };
+        } else if self.feed != watch {
+            for state in self.registry.values_mut() {
+                if !matches!(state, RegistryIcon::Ready { .. }) {
+                    *state = RegistryIcon::Idle;
+                }
+            }
         }
+        self.feed = watch;
     }
 
     pub(super) fn update(&mut self, instances: Vec<Instance>, art: HashMap<String, Art>) {
@@ -278,11 +286,14 @@ impl Catalog {
             && matches!(remote, Some(RegistryIcon::Idle))
         {
             let url = url.clone();
-            logo.on_visible(move |s: &mut crate::Desktop, visible, _| {
-                if visible {
-                    s.load_registry_icon(&url);
-                }
-            })
+            let watch = self.feed;
+            logo.key(format!("registry-{watch}-{url}")).on_visible(
+                move |s: &mut crate::Desktop, visible, _| {
+                    if visible {
+                        s.load_registry_icon(watch, &url);
+                    }
+                },
+            )
         } else {
             logo
         };
