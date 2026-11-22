@@ -1538,7 +1538,7 @@ fn packaged_runtime() -> io::Result<Option<(std::path::PathBuf, std::path::PathB
                 .map(|dir| dir.join("lib/t3-code"))
         };
         rune::set_app_id(if installed {
-            "com.t3tools.T3Code"
+            "t3code"
         } else if resources.is_some() {
             "com.t3tools.T3Code.Rune"
         } else {

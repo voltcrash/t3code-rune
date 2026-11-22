@@ -1,7 +1,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-const archive = process.env.T3_SMOKE_UPDATE_ZIP;
+const archive = process.env.T3_SMOKE_UPDATE_ASSET;
 const manifest = process.env.T3_SMOKE_UPDATE_MANIFEST;
 const repository = process.env.T3_SMOKE_UPDATE_REPOSITORY;
 const tag = "v" + process.env.T3_SMOKE_UPDATE_VERSION;

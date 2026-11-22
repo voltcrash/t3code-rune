@@ -554,11 +554,14 @@ async function buildRunePackage() {
     }
   } else {
     const desktopId = linuxUpdate ? "t3code" : "com.t3tools.T3Code.Rune";
-    const icon = `usr/share/icons/hicolor/1024x1024/apps/${desktopId}.png`;
+    const icon = `usr/share/icons/hicolor/512x512/apps/${desktopId}.png`;
     const entry = `usr/share/applications/${desktopId}.desktop`;
     await NodeFSP.mkdir(NodePath.dirname(NodePath.join(app, icon)), { recursive: true });
     await NodeFSP.mkdir(NodePath.dirname(NodePath.join(app, entry)), { recursive: true });
-    await NodeFSP.copyFile(NodePath.join(repoRoot, icons.linuxIconPng), NodePath.join(app, icon));
+    await NodeFSP.copyFile(
+      NodePath.join(server, "client/icon-512x512.png"),
+      NodePath.join(app, icon),
+    );
     const desktopEntry = await NodeFSP.readFile(
       NodePath.join(desktop, "native/t3-code.desktop"),
       "utf8",
@@ -574,10 +577,7 @@ async function buildRunePackage() {
             : `Exec=${binaryName}`,
         )
         .replace(/^Icon=.*$/m, `Icon=${desktopId}`)
-        .replace(
-          /^StartupWMClass=.*$/m,
-          `StartupWMClass=${linuxUpdate ? "com.t3tools.T3Code" : desktopId}`,
-        ),
+        .replace(/^StartupWMClass=.*$/m, `StartupWMClass=${desktopId}`),
     );
     if (buildDeb) {
       await buildRuneDeb({

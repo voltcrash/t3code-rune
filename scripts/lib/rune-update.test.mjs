@@ -117,13 +117,13 @@ it.each([
     const [map] = JSON.parse(NodeZlib.inflateRawSync(bytes.subarray(payload.length, -4))).files;
     expect(map.sizes.reduce((total, size) => total + size, 0)).toBe(payload.length);
     expect(map.checksums).toHaveLength(map.sizes.length);
-    expect(
-      parseUpdateManifest(
-        await NodeFSP.readFile(NodePath.join(dir.path, name), "utf8"),
-        name,
-        "Linux",
-      ).files,
-    ).toEqual([
+    const manifest = parseUpdateManifest(
+      await NodeFSP.readFile(NodePath.join(dir.path, name), "utf8"),
+      name,
+      "Linux",
+    );
+    expect(manifest.extras.desktopRuntime).toBe("rune");
+    expect(manifest.files).toEqual([
       {
         url: image,
         size: bytes.length,

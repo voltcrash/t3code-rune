@@ -7,7 +7,10 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 import * as NodeUtil from "node:util";
+import type { DesktopBridge } from "@t3tools/contracts";
 import { _electron, type ElectronApplication } from "playwright-core";
+
+declare const window: { desktopBridge: DesktopBridge };
 
 // A snapshot from an older build on purpose: the packaged server must migrate it forward, as it
 // does for every upgrading user. It holds one project and two threads, nothing else.
@@ -22,6 +25,7 @@ const { values } = NodeUtil.parseArgs({
     // An unpackaged app directory for a plain Electron executable, as PR CI runs it.
     app: { type: "string" },
     "artifacts-dir": { type: "string" },
+    "install-update": { type: "string" },
   },
 });
 const executable = values.executable;
@@ -51,7 +55,7 @@ try {
       XDG_DATA_HOME: NodePath.join(home, ".local/share"),
       T3CODE_HOME: t3Home,
       T3CODE_TELEMETRY_ENABLED: "false",
-      T3CODE_DISABLE_AUTO_UPDATE: "true",
+      T3CODE_DISABLE_AUTO_UPDATE: values["install-update"] ? "false" : "true",
     },
     timeout: STEP_TIMEOUT_MS,
   });
@@ -72,6 +76,22 @@ try {
       .screenshot({ path: NodePath.join(artifactsDir, "window.png"), timeout: 10_000 })
       .catch(() => {});
     throw error;
+  }
+  const version = values["install-update"];
+  if (version) {
+    step = `installing ${version} from the staged feed`;
+    await page.evaluate(() => window.desktopBridge.checkForUpdate());
+    const downloaded = await page.evaluate(() => window.desktopBridge.downloadUpdate());
+    if (downloaded.state.downloadedVersion !== version) {
+      throw new Error(
+        downloaded.state.message ?? "The installed updater did not download the candidate.",
+      );
+    }
+    const closed = app.waitForEvent("close", { timeout: STEP_TIMEOUT_MS });
+    // Installation can close the renderer before Playwright receives the IPC reply.
+    await page.evaluate((v) => window.desktopBridge.installUpdate(v), version).catch(() => {});
+    await closed;
+    app = undefined;
   }
   console.log("Desktop launch check passed: the app opened and showed the seeded thread.");
 } catch (error) {

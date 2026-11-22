@@ -2,14 +2,14 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 import plistlib
 import subprocess
 import sys
 import tempfile
-import threading
 import uuid
+
+from rune_update_smoke import exercise_updater
 
 
 def run(*args):
@@ -43,49 +43,6 @@ def upgrade_electron(installed, candidate, scratch):
                    check=True, timeout=120)
 
 
-def upgrade_rune(installed, args, scratch):
-    resources = installed / "Contents/Resources"
-    repository = json.loads((resources / "rune-release.json").read_text())["repository"]
-    if not repository:
-        raise ValueError("The previous installation has no configured release repository")
-    archive = args.update_zip
-    channel = "nightly" if args.channel == "nightly" else "latest"
-    suffix = "-x64" if args.arch == "x64" else ""
-    manifest = archive.with_name(f"{channel}-mac{suffix}.yml")
-    fixture = Path(__file__).resolve().parent / "fixtures/desktop-launch/update-feed.js"
-    env = {**os.environ, "T3CODE_HOME": str(scratch / "profile"),
-           "T3CODE_DISABLE_AUTO_UPDATE": "0", "T3CODE_TELEMETRY_ENABLED": "false",
-           "T3_SMOKE_UPDATE_VERSION": args.version, "T3_SMOKE_UPDATE_REPOSITORY": repository,
-           "T3_SMOKE_UPDATE_ZIP": str(archive.resolve()), "T3_SMOKE_UPDATE_MANIFEST": str(manifest.resolve())}
-    with subprocess.Popen([installed / "Contents/Helpers/node", "--import", fixture.as_uri(),
-                           resources / "rune-projects.mjs", "--packaged"],
-                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env) as worker:
-        deadline = threading.Timer(180, worker.kill)
-        deadline.start()
-        try:
-            for request, flag in [("checkupdates", "available"), ("downloadupdate", "installable"),
-                                  ("installupdate", "executable")]:
-                worker.stdin.write(json.dumps({"type": request}) + "\n")
-                worker.stdin.flush()
-                for line in worker.stdout:
-                    event = json.loads(line)
-                    if event.get("type") in ("releasecheck", "restartupdated"):
-                        if not event.get(flag):
-                            raise RuntimeError(f"{request} failed: {event}")
-                        if request == "installupdate" and Path(event[flag]) != installed / "Contents/MacOS/t3-code":
-                            raise RuntimeError("The updater requested a different executable")
-                        break
-                else:
-                    raise RuntimeError(f"Installed update worker exited during {request}")
-            worker.stdin.close()
-            if worker.wait() != 0:
-                raise RuntimeError("Installed update worker exited unsuccessfully")
-        finally:
-            if worker.poll() is None:
-                worker.kill()
-            deadline.cancel()
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-zip", type=Path)
@@ -109,7 +66,12 @@ def main():
             if executable != "t3-code":
                 upgrade_electron(installed, candidate, root)
             elif not args.manual_prerelease:
-                upgrade_rune(installed, args, root)
+                channel = "nightly" if args.channel == "nightly" else "latest"
+                suffix = "-x64" if args.arch == "x64" else ""
+                manifest = args.update_zip.with_name(f"{channel}-mac{suffix}.yml")
+                exercise_updater(installed / "Contents/Helpers/node", installed / "Contents/Resources",
+                                 args.update_zip, manifest, args.version, root / "profile",
+                                 installed / "Contents/MacOS/t3-code")
             else:
                 # Stable-track prereleases are manual installs and never appear on the stable feed.
                 installed = candidate
