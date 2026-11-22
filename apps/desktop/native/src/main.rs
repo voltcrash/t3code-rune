@@ -1866,9 +1866,9 @@ fn start() -> io::Result<()> {
             {
                 if !tx.key_repeat() {
                     if s.workspace.usage.open {
-                        s.close_usage(tx);
+                        s.close_usage();
                     } else {
-                        s.open_usage(tx);
+                        s.open_usage();
                     }
                 }
                 return true;

@@ -582,7 +582,7 @@ impl Desktop {
             }
             Action::Projects => self.show_projects(),
             Action::Settings => self.open_settings(tx),
-            Action::Usage => self.open_usage(tx),
+            Action::Usage => self.open_usage(),
             Action::CheckUpdates => self.check_updates(tx),
             Action::PickProject | Action::Project(_) | Action::GoToFile | Action::OpenFile => {
                 unreachable!()

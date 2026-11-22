@@ -7,6 +7,7 @@ import {
   collectLimitPools,
   displayLimitWindows,
   remainingPercent,
+  type LimitAccount,
 } from "@t3tools/shared/usageLimits";
 import {
   collectExternalUsageLinks,
@@ -41,6 +42,19 @@ export function usageLabels() {
   };
 }
 
+function accountIdentity(account: LimitAccount) {
+  const emailInName = account.displayName?.includes("@") ? account.displayName : null;
+  const name = emailInName ? null : account.displayName;
+  return {
+    name:
+      name ??
+      account.sourceLabel ??
+      getProviderClient(account.driver)?.label ??
+      String(account.driver),
+    email: account.email ?? emailInName,
+  };
+}
+
 function limitsView(owner: Environment, config: LimitConfig, now: number) {
   const presentations = new Map([
     [owner.environmentId, { entry: { target: { label: owner.label } }, serverConfig: config }],
@@ -53,21 +67,17 @@ function limitsView(owner: Environment, config: LimitConfig, now: number) {
         name: window.label,
         remaining: window.remainingPercent,
         accounts: window.members.map(({ account, window: member }) => ({
-          name:
-            account.displayName ??
-            account.sourceLabel ??
-            getProviderClient(pool.driver)?.label ??
-            String(pool.driver),
-          email: account.email,
+          ...accountIdentity(account),
           remaining: remainingPercent(member),
           reset: formatResetsIn(member, now, m),
         })),
       })),
     })),
     notices: collectLimitNotices(presentations, m),
-    links: collectExternalUsageLinks(presentations, m).filter(
-      ({ url }) => URL.canParse(url) && new URL(url).protocol === "https:",
-    ),
+    links: collectExternalUsageLinks(presentations, m).filter(({ url }) => {
+      const protocol = URL.parse(url)?.protocol;
+      return protocol === "http:" || protocol === "https:";
+    }),
   };
 }
 

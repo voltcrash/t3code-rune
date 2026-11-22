@@ -1,5 +1,5 @@
 use crate::{Desktop, Request, workspace};
-use rune::{Cx, El, Icon, ScrollSpec, Tx, col, el, icon, row, spacer, tok};
+use rune::{Cx, El, Icon, ScrollSpec, col, el, icon, row, spacer, tok};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const CHART: Icon = Icon {
@@ -98,22 +98,20 @@ impl Desktop {
         }
     }
 
-    pub(super) fn open_usage(&mut self, tx: &mut Tx) {
+    pub(super) fn open_usage(&mut self) {
         if self.workspace.usage.labels.is_none() || self.workspace.feed.is_none() {
             return;
         }
         self.dismiss_palette();
         self.workspace.usage.open = true;
         self.usage_action(Action::Open);
-        tx.focus_when_shown("usage-close", true);
     }
 
-    pub(super) fn close_usage(&mut self, tx: &mut Tx) {
+    pub(super) fn close_usage(&mut self) {
         self.usage_action(Action::Close);
         self.workspace.usage.open = false;
         self.workspace.usage.revealed_email = None;
         self.workspace.usage.view = None;
-        tx.focus_when_shown("sidebar-usage", true);
     }
 }
 
@@ -130,7 +128,7 @@ pub(super) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
             .focusable(true)
             .hover(theme.text.alpha(0.06))
             .child(icon(&CHART, 16.).color(theme.text_secondary))
-            .on_press_tx(Desktop::open_usage),
+            .on_press(Desktop::open_usage),
     )
 }
 
@@ -297,7 +295,8 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .label(&labels.close)
         .build(&kit)
         .key("usage-close")
-        .on_press_tx(Desktop::close_usage);
+        .autofocus()
+        .on_press(Desktop::close_usage);
     let can_refresh = snapshot.is_some_and(|v| v.result.is_some() && !v.refreshing);
     let refresh = rune_kit::IconButton::new(&workspace::palette::REFRESH)
         .variant(rune_kit::IconButtonVariant::Ghost)
@@ -342,7 +341,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .child(header)
         .child(el().w_full().h(1.).fill(theme.separator))
         .child(body)
-        .modal_tx(true, Desktop::close_usage)
+        .modal(true, Desktop::close_usage)
         .modal_click_outside(true);
     overlays.push(
         el().absolute(0., 0.)
