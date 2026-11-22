@@ -41,6 +41,14 @@ it.effect("replaces the chosen file only after receiving the complete attachment
       expect(yield* fs.readFileString(path)).toBe("original");
       expect(yield* fs.readDirectory(directory)).toEqual(["report.txt"]);
     }
+    const mixed = paths.join(directory, "Mixed");
+    const alternateParent = paths.join(directory, "mixed");
+    yield* fs.makeDirectory(mixed);
+    const sharesParent = yield* fs.exists(alternateParent);
+    if (!sharesParent) yield* fs.makeDirectory(alternateParent);
+    const first = yield* downloadDestination(paths.join(mixed, "new.md"));
+    const second = yield* downloadDestination(paths.join(alternateParent, "new.md"));
+    expect(yield* downloadQueueKey(second, [first])).toBe(sharesParent ? first : second);
     yield* save("pdf");
     expect(yield* fs.readFileString(path)).toBe("pdf");
   }).pipe(Effect.provide(NodeServices.layer)),

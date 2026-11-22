@@ -41,20 +41,21 @@ export const downloadQueueKey = Effect.fn("nativeDesktop.downloadQueueKey")(func
     if (other === destination) return other;
     if (other.normalize("NFD").toLowerCase() !== folded) continue;
     let parent = path.dirname(destination);
+    let otherParent = path.dirname(other);
     while (!(yield* fs.exists(parent))) {
       const next = path.dirname(parent);
       if (parent === next) return yield* fs.realPath(parent);
       parent = next;
+      otherParent = path.dirname(otherParent);
     }
     const relative = path.relative(parent, destination);
-    const candidate = path.relative(parent, other);
-    if (candidate.startsWith(`..${path.sep}`) || path.isAbsolute(candidate)) continue;
+    const candidate = path.relative(otherParent, other);
     // Ask the destination filesystem whether the two new names denote one entry.
     const probe = yield* fs.makeTempDirectoryScoped({ directory: parent, prefix: ".t3-save-" });
     const first = path.join(probe, relative);
     yield* fs.makeDirectory(path.dirname(first), { recursive: true });
     yield* fs.writeFile(first, new Uint8Array());
-    if (yield* fs.exists(path.join(probe, candidate))) return other;
+    if (yield* fs.exists(path.join(otherParent, path.basename(probe), candidate))) return other;
   }
   return destination;
 }, Effect.scoped);
