@@ -1330,7 +1330,8 @@ fn sidebar(
             .child(spacer())
             .child(action("Disconnect", theme, !s.pending, |s| {
                 s.send(Request::Disconnect)
-            })),
+            }))
+            .children(crate::updates::sidebar(s, theme)),
     );
     col()
         .w(width)

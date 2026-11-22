@@ -1113,6 +1113,15 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
+        update_labels: {
+          check: m(msg("Check for updates")),
+          checking: m(msg("Checking for updates…")),
+          available: m(msg("Update ready to download")),
+          downloading: m(msg("Downloading update")),
+          downloaded: m(msg("Update downloaded")),
+          restart: m(msg("Restart to update")),
+          installing: m(msg("Installing…")),
+        },
         details: {
           hidden: hiddenDetails,
           machine: initialWorkspace.machine,

@@ -1,5 +1,5 @@
 use super::{Desktop, Request, workspace};
-use rune::{El, Key, ScrollSpec, Tx, col, el, row, spacer, tok};
+use rune::{El, Icon, Key, ScrollSpec, Tx, col, el, icon, row, spacer, tok};
 use rune_kit::{IconButton, IconButtonVariant};
 use serde::Deserialize;
 
@@ -22,9 +22,21 @@ enum Operation {
     Install,
 }
 
+#[derive(Deserialize)]
+pub(super) struct Labels {
+    check: String,
+    checking: String,
+    available: String,
+    downloading: String,
+    downloaded: String,
+    restart: String,
+    installing: String,
+}
+
 #[derive(Default)]
 pub(super) struct Panel {
     pub(super) open: bool,
+    pub(super) labels: Option<Labels>,
     pending: Option<Operation>,
     result: Option<Result>,
 }
@@ -60,6 +72,69 @@ impl Desktop {
             self.update.pending = Some(operation);
         }
     }
+}
+
+const DOWNLOAD: Icon = Icon {
+    name: "download-desktop-update",
+    view: 24.,
+    body: r#"<path d="M12 3v12m-4-4 4 4 4-4M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+pub(super) fn sidebar(s: &Desktop, theme: &tok::Theme) -> Option<El> {
+    let panel = &s.update;
+    let labels = panel.labels.as_ref()?;
+    let result = panel.result.as_ref();
+    let downloaded = result.is_some_and(|r| r.downloaded);
+    let available = result.is_some_and(|r| r.available);
+    let refresh = &workspace::palette::REFRESH;
+    let (caption, glyph) = match panel.pending {
+        Some(Operation::Check) => (&labels.checking, refresh),
+        Some(Operation::Download) => (&labels.downloading, &DOWNLOAD),
+        Some(Operation::Install) => (&labels.installing, refresh),
+        None if result.is_some_and(|r| r.installable) => (&labels.restart, refresh),
+        None if downloaded => (&labels.downloaded, refresh),
+        None if available => (&labels.available, &DOWNLOAD),
+        None => (&labels.check, refresh),
+    };
+    let active = panel.pending.is_some() || downloaded || available;
+    let mut mark = el().size(16., 16.).child(icon(glyph, 16.).color(if active {
+        theme.text
+    } else {
+        theme.text_secondary
+    }));
+    if downloaded {
+        mark = mark.child(
+            el().pin(None, None, Some(-3.), Some(-3.))
+                .size(10., 10.)
+                .radius(5.)
+                .fill(theme.text)
+                .center()
+                .child(icon(&rune_kit::glyphs::CHECK, 8.).color(theme.bg)),
+        );
+    }
+    let mut trigger = el()
+        .key("sidebar-update")
+        .role("button")
+        .label(caption)
+        .help(caption)
+        .focusable(true)
+        .size(32., 32.)
+        .radius(16.)
+        .center()
+        .hover(theme.separator)
+        .child(mark)
+        .on_press_tx(|s: &mut Desktop, tx| {
+            if s.update.result.as_ref().is_some_and(|r| r.available) && s.update.pending.is_none() {
+                s.update.open = true;
+                s.send_update_action(Request::DownloadUpdate, Operation::Download);
+            } else {
+                s.check_updates(tx);
+            }
+        });
+    if active {
+        trigger = trigger.fill(theme.text.alpha(0.05));
+    }
+    Some(trigger)
 }
 
 pub(super) fn overlay(s: &Desktop, theme: &tok::Theme, dark: bool, overlays: &mut Vec<El>) {
