@@ -1,9 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off globalFetch:off - Tests exercise the real native loopback listener without an OpenAI account.
 import * as NodeHttp from "node:http";
 import { describe, expect, it } from "vite-plus/test";
-import { codexAuthDeliveryUrl, readCodexAuthDelivery } from "@t3tools/shared/codexAuthHandoff";
+import { codexAuthDeliveryUrl, readCodexAuthDelivery } from "./codexAuthHandoff.ts";
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
-import { receiveCodexAuthCallback, cancelCodexAuthCallback } from "./CodexAuthCallback.ts";
+import { receiveCodexAuthCallback } from "./codexAuthCallback.ts";
 
 // Holds every probe socket until all ports are read, so one call never returns the same port twice.
 async function freePorts(count: number) {
@@ -103,31 +103,28 @@ describe("desktop Codex callback helper", () => {
     onTestFinished,
     signal,
   }) => {
-    for (const external of [false, true]) {
-      const authorizationUrl = request(await freePort());
-      const abort = new AbortController();
-      const opening = Promise.withResolvers<boolean>();
-      onTestFinished(() => opening.resolve(true));
-      await expect(
-        receiveCodexAuthCallback(
-          authorizationUrl,
-          async () => {
-            if (external) abort.abort();
-            else cancelCodexAuthCallback(authorizationUrl);
-            return opening.promise;
-          },
-          undefined,
-          abort.signal,
-        ),
-      ).rejects.toThrow("cancelled");
-      if (signal.aborted) return;
-      expect(
-        await receiveCodexAuthCallback(authorizationUrl, async () => {
-          await fetch(callback(authorizationUrl));
-          return true;
-        }),
-      ).toBe(callback(authorizationUrl));
-    }
+    const authorizationUrl = request(await freePort());
+    const abort = new AbortController();
+    const opening = Promise.withResolvers<boolean>();
+    onTestFinished(() => opening.resolve(true));
+    await expect(
+      receiveCodexAuthCallback(
+        authorizationUrl,
+        async () => {
+          abort.abort();
+          return opening.promise;
+        },
+        undefined,
+        abort.signal,
+      ),
+    ).rejects.toThrow("cancelled");
+    if (signal.aborted) return;
+    expect(
+      await receiveCodexAuthCallback(authorizationUrl, async () => {
+        await fetch(callback(authorizationUrl));
+        return true;
+      }),
+    ).toBe(callback(authorizationUrl));
   });
   it("allows two accounts to complete independently", async () => {
     const [portA, portB] = await freePorts(2);

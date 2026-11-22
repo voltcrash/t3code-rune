@@ -5,7 +5,6 @@ import "@fontsource-variable/inter";
 import "./index.css";
 
 import { hasCloudPublicConfig } from "./cloud/publicConfig";
-import { isElectron } from "./env";
 import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { whenLocaleReady } from "./i18n/runtime";
@@ -25,12 +24,9 @@ window.addEventListener("vite:preloadError", (event) => {
 
 const app = <AppRoot router={router} />;
 
-// Split by runtime to keep Clerk out of local startup and clerk-js out of browser builds.
 const managedAuthShellModule =
   clerkPublishableKey && hasCloudPublicConfig()
-    ? isElectron
-      ? import("./components/clerk/ElectronManagedAuthShell")
-      : import("./components/clerk/BrowserManagedAuthShell")
+    ? import("./components/clerk/BrowserManagedAuthShell")
     : null;
 
 export const startup = Promise.all([

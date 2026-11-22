@@ -84,6 +84,3 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(DesktopUpdatePolicy, make);
-
-export const layerTest = (policy: UpdatePolicy = unmanagedUpdatePolicy) =>
-  Layer.succeed(DesktopUpdatePolicy, policy);

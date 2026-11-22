@@ -8,7 +8,7 @@ const trimNonEmptyOption = (value: string): Option.Option<string> => {
   return trimmed.length > 0 ? Option.some(trimmed) : Option.none();
 };
 
-export const trimmedString = (name: string) =>
+const trimmedString = (name: string) =>
   Config.String(name).pipe(Config.option, Config.map(Option.flatMap(trimNonEmptyOption)));
 
 const optionalBoolean = (name: string) =>
@@ -59,8 +59,6 @@ export const DesktopConfig = Config.all({
   otlpProtocol: Config.schema(OtlpProtocol, "T3CODE_OTLP_PROTOCOL").pipe(
     Config.withDefault("http/json"),
   ),
-  desktopLauncherPath: trimmedString("T3CODE_DESKTOP_LAUNCHER_PATH"),
-  appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate: configuredDisableAutoUpdate,
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(

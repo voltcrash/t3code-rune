@@ -206,8 +206,7 @@ describe("check:changed", () => {
       "apps/server/src/orchestration-v2/ThreadSettlementService.ts",
       "apps/server/src/persistence/Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts",
       "apps/web/src/components/sidebar/SidebarThreadRow.tsx",
-      "apps/desktop/src/backend/DesktopBackendManager.ts",
-      "apps/desktop/src/electron/ElectronProtocol.ts",
+      "apps/desktop/src/backend/DesktopBackendProcess.ts",
       "apps/desktop/native/src/workspace.rs",
       "apps/desktop/src/native/workspaceFeed.ts",
       "apps/desktop/src/native/environmentRpc.ts",
@@ -220,7 +219,7 @@ describe("check:changed", () => {
     for (const file of [
       "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
       "apps/web/src/components/chat/ChatView.tsx",
-      "apps/desktop/src/updates/DesktopRemoteUpdates.ts",
+      "apps/desktop/src/updates/DesktopUpdatePolicy.ts",
       "packages/contracts/src/orchestration.ts",
     ]) {
       assert.isFalse(launches(file), file);

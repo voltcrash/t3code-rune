@@ -31,26 +31,9 @@ export const StageWorkspaceConfig = Schema.Struct({
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  packageExtensions: Schema.optional(
-    Schema.Record(
-      Schema.String,
-      Schema.Struct({
-        peerDependenciesMeta: Schema.Record(
-          Schema.String,
-          Schema.Struct({ optional: Schema.Boolean }),
-        ),
-      }),
-    ),
-  ),
   nodeLinker: Schema.optional(Schema.Literals(["hoisted"])),
 });
 export type StageWorkspaceConfig = typeof StageWorkspaceConfig.Type;
-
-// TypeScript is a typings-only peer; pnpm auto-installation would ship a compiler.
-const STAGE_PACKAGE_EXTENSIONS = {
-  "electron-webauthn": { peerDependenciesMeta: { typescript: { optional: true } } },
-  "@electron-webauthn/macos": { peerDependenciesMeta: { typescript: { optional: true } } },
-} as const;
 
 export interface DesktopBuildIconAssets {
   readonly macIconPng: string;
@@ -283,7 +266,6 @@ export function createStageWorkspaceConfig(input: {
       ? { patchedDependencies }
       : {}),
     ...(overrides && Object.keys(overrides).length > 0 ? { overrides } : {}),
-    packageExtensions: STAGE_PACKAGE_EXTENSIONS,
   };
 }
 

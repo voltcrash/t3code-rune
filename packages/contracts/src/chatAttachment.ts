@@ -37,8 +37,11 @@ export const ChatAttachmentId = TrimmedNonEmptyString.check(
 );
 export type ChatAttachmentId = typeof ChatAttachmentId.Type;
 
+/** @public */
 export const SNAP_SHOT_ACCESSIBLE_TEXT_MAX_CHARS = 32_000;
+/** @public */
 export const SNAP_SHOT_ACCESSIBILITY_MAX_NODES = 10_000;
+/** @public */
 export const SNAP_SHOT_ACCESSIBILITY_MAX_SERIALIZED_CHARS = 32_000;
 
 const SnapShotAccessibilityBounds = Schema.Struct({
