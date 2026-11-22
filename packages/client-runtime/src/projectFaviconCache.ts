@@ -48,7 +48,7 @@ export interface ProjectFaviconStorage {
   readonly remove: (key: string, entry: ProjectFaviconEntry) => Promise<void>;
 }
 
-async function readBounded(response: Response, maxBytes: number) {
+export async function readBoundedImageBytes(response: Response, maxBytes: number) {
   const declared = Number(response.headers.get("content-length"));
   if (declared > maxBytes) {
     await response.body?.cancel().catch(() => {});
@@ -108,7 +108,7 @@ export function createProjectFaviconImageLoader(input: {
       .toLowerCase();
     const mimeType = contentType?.startsWith("image/") ? contentType : mediaMimeType(url);
     if (!mimeType) throw new Error("Project icon has no image type.");
-    const bytes = await readBounded(response, PROJECT_FAVICON_MAX_SOURCE_BYTES);
+    const bytes = await readBoundedImageBytes(response, PROJECT_FAVICON_MAX_SOURCE_BYTES);
     signal.throwIfAborted();
     const dataUrl = `data:${mimeType};base64,${Base64.encode(bytes)}`;
     if (isImageDataUrl(dataUrl)) return dataUrl;

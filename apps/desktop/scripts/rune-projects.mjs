@@ -8,7 +8,7 @@ import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contr
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
-import { watchSidebarProviders } from "../src/native/sidebarProviders.ts";
+import { readRegistryIcon, watchSidebarProviders } from "../src/native/sidebarProviders.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import {
   hiddenThreadDetails,
@@ -149,9 +149,13 @@ function startWorkspaceFeed(owner, initial, watch) {
     save: (id) => savePreference("desktop-editor", id),
     publish: (catalog) => write({ type: "workspaceeditors", watch, catalog }),
   });
-  const configureProviders = watchSidebarProviders((instances, art) =>
-    write({ type: "workspaceproviders", watch, instances, art }),
-  );
+  let registryIcons = new Set();
+  const configureProviders = watchSidebarProviders((instances, art) => {
+    registryIcons = new Set(
+      instances.flatMap((instance) => (instance.registry ? [instance.registry] : [])),
+    );
+    write({ type: "workspaceproviders", watch, instances, art });
+  });
   const feed = watchWorkspace(
     owner,
     initial,
@@ -172,7 +176,13 @@ function startWorkspaceFeed(owner, initial, watch) {
       configureProviders(config);
     },
   );
-  workspaceFeed = { watch, controller, editors, ...feed };
+  workspaceFeed = {
+    watch,
+    controller,
+    editors,
+    hasRegistryIcon: (url) => registryIcons.has(url),
+    ...feed,
+  };
   if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
 }
 
@@ -379,6 +389,27 @@ async function transferImage(owner, signal, result, read) {
   } catch {
     if (!signal.aborted) write({ ...result, retryable: true });
   }
+}
+
+async function loadRegistryIcon(request) {
+  const feed = workspaceFeed;
+  const owner = session;
+  if (!owner || !feed || feed.watch !== request.watch) return;
+  const result = {
+    type: "image",
+    watch: request.watch,
+    key: request.url,
+    operation: request.operation,
+    registry: true,
+  };
+  if (!feed.hasRegistryIcon(request.url)) return write(result);
+  const signal = AbortSignal.any([owner.signal, feed.controller.signal]);
+  await transferImage(
+    owner,
+    signal,
+    result,
+    Effect.tryPromise((abort) => readRegistryIcon(request.url, abort)),
+  );
 }
 
 async function loadProjectFavicon(request) {
@@ -1533,6 +1564,8 @@ try {
     } else if (request?.type === "imagehandled") {
       const sent = sentImages.get(request.operation);
       if (sent?.watch === request.watch) sent.handled.resolve();
+    } else if (request?.type === "registryicon") {
+      void loadRegistryIcon(request);
     } else if (request?.type === "projectfavicon") {
       void loadProjectFavicon(request);
     } else if (request?.type === "inspectimage") {

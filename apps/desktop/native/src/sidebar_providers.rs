@@ -1,6 +1,9 @@
-use rune::{Color, El, Icon, Pixels, TextStyle, el, icon, row, text, tok};
+use rune::{Color, El, Icon, Image, Pixels, TextStyle, el, icon, row, text, tok};
 use serde::Deserialize;
-use std::{cell::OnceCell, collections::HashMap};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::{HashMap, HashSet},
+};
 
 macro_rules! brand {
     ($name:literal, $view:expr, $path:literal, $attributes:literal) => {
@@ -73,6 +76,7 @@ pub(super) struct Instance {
     driver: String,
     initials: String,
     badge: bool,
+    registry: Option<String>,
     accent: Option<String>,
     ink: Option<String>,
 }
@@ -102,6 +106,94 @@ pub(super) struct Catalog {
     environment: Option<String>,
     instances: HashMap<String, Instance>,
     art: HashMap<String, Art>,
+    registry: HashMap<String, RegistryIcon>,
+}
+
+#[derive(Default)]
+enum RegistryIcon {
+    #[default]
+    Idle,
+    Loading(String),
+    Missing,
+    Ready {
+        image: Image,
+        tinted: RefCell<Option<(Color, Pixels)>>,
+    },
+}
+
+impl RegistryIcon {
+    fn mask(&self, color: Color) -> Option<Pixels> {
+        let Self::Ready { image, tinted } = self else {
+            return None;
+        };
+        let mut cached = tinted.borrow_mut();
+        if let Some((prior, pixels)) = cached.as_ref()
+            && *prior == color
+        {
+            return Some(pixels.clone());
+        }
+        let original = image.pixels();
+        let mut rgba = original.rgba();
+        let rgb =
+            [color.r, color.g, color.b].map(|v| (rune::color::srgb_encode(v) * 255.).round() as u8);
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            pixel[..3].copy_from_slice(&rgb);
+            pixel[3] = (f32::from(pixel[3]) * color.a).round() as u8;
+        }
+        let mask = Pixels::new();
+        let (w, h) = original.size();
+        mask.set(w, h, rgba);
+        *cached = Some((color, mask.clone()));
+        Some(mask)
+    }
+}
+
+impl crate::Desktop {
+    fn load_registry_icon(&mut self, url: &str) {
+        let Some(watch) = self.workspace.feed else {
+            return;
+        };
+        let Some(state @ RegistryIcon::Idle) = self.workspace.providers.registry.get_mut(url)
+        else {
+            return;
+        };
+        let operation = uuid::Uuid::new_v4().to_string();
+        *state = RegistryIcon::Loading(operation.clone());
+        self.write_request(
+            None,
+            crate::Request::RegistryIcon {
+                watch,
+                url: url.to_owned(),
+                operation,
+            },
+        );
+    }
+
+    pub(super) fn registry_icon_result(
+        &mut self,
+        watch: u64,
+        url: &str,
+        operation: &str,
+        image: Option<Image>,
+    ) {
+        if self.workspace.feed != Some(watch) {
+            return;
+        }
+        let Some(state) = self.workspace.providers.registry.get_mut(url) else {
+            return;
+        };
+        if !matches!(state, RegistryIcon::Loading(id) if id == operation) {
+            return;
+        }
+        *state = match image {
+            Some(image) => RegistryIcon::Ready {
+                image,
+                tinted: RefCell::default(),
+            },
+            None => RegistryIcon::Missing,
+        };
+        self.workspace.refresh_provider_rows();
+    }
 }
 
 impl Catalog {
@@ -115,6 +207,14 @@ impl Catalog {
     }
 
     pub(super) fn update(&mut self, instances: Vec<Instance>, art: HashMap<String, Art>) {
+        let urls: HashSet<_> = instances
+            .iter()
+            .filter_map(|instance| instance.registry.as_ref())
+            .collect();
+        self.registry.retain(|url, _| urls.contains(url));
+        for url in urls {
+            self.registry.entry(url.clone()).or_default();
+        }
         self.instances = instances
             .into_iter()
             .map(|instance| (instance.id.clone(), instance))
@@ -133,7 +233,13 @@ impl Catalog {
         let size = if previous { 12. } else { 14. };
         let tile = el().size(size, size).center();
         let compatible = instance.driver == "openaiCompatible";
-        let logo = if let Some(mark) = builtin(&instance.driver) {
+        let remote = instance
+            .registry
+            .as_ref()
+            .and_then(|url| self.registry.get(url));
+        let logo = if let Some(mask) = remote.and_then(|image| image.mask(theme.text_secondary)) {
+            tile.pixels_fit(&mask, rune::SurfaceFit::Fit)
+        } else if let Some(mark) = builtin(&instance.driver) {
             let glyph = icon(mark, size);
             if instance.driver == "claudeAgent" {
                 glyph.color(if previous {
@@ -167,6 +273,18 @@ impl Catalog {
                     .font(TextStyle::new(9., 600.))
                     .color(theme.text),
             )
+        };
+        let logo = if let Some(url) = &instance.registry
+            && matches!(remote, Some(RegistryIcon::Idle))
+        {
+            let url = url.clone();
+            logo.on_visible(move |s: &mut crate::Desktop, visible, _| {
+                if visible {
+                    s.load_registry_icon(&url);
+                }
+            })
+        } else {
+            logo
         };
         let mut mark = el()
             .size(size, size)

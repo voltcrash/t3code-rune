@@ -87,6 +87,7 @@ fn project_icon(cache: &ImageCache, bytes: &[u8]) -> Option<Image> {
 }
 
 pub(crate) enum Kind {
+    Registry,
     Preview,
     Thumbnail,
     Project { retryable: bool },
@@ -112,11 +113,14 @@ pub(crate) fn start(handle: rune::AppHandle<super::Desktop>) -> std::sync::mpsc:
                 .and_then(|bytes| match job.kind {
                     Kind::Preview => Some(cache.load(bytes)),
                     Kind::Thumbnail => thumbnail(&cache, &bytes, 512),
-                    Kind::Project { .. } => project_icon(&cache, &bytes),
+                    Kind::Registry | Kind::Project { .. } => project_icon(&cache, &bytes),
                 });
             let image = image.filter(|image| image.wait().is_ok());
             handle.update(move |s, _| {
                 match job.kind {
+                    Kind::Registry => {
+                        s.registry_icon_result(job.watch, &job.key, &job.operation, image)
+                    }
                     Kind::Project { retryable } => s.project_favicon_result(
                         job.watch,
                         &job.key,

@@ -310,6 +310,10 @@ impl Workspace {
         art: HashMap<String, crate::sidebar_providers::Art>,
     ) {
         self.providers.update(instances, art);
+        self.refresh_provider_rows();
+    }
+
+    pub(super) fn refresh_provider_rows(&mut self) {
         self.filter_revision += 1;
     }
 
