@@ -581,7 +581,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       const stable = yield* appImageName("0.0.37");
       const nightly = yield* appImageName("0.0.38-nightly.20261026.3740");
+      const prerelease = yield* appImageName("0.0.38-alpha-nightly.20261026.3740");
 
+      assert.equal(prerelease, stable);
       assert.notInclude(stable, "${version}");
       assert.notInclude(nightly, "${version}");
       assert.notEqual(stable, nightly);

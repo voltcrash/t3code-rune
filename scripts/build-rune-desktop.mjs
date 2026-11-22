@@ -291,8 +291,12 @@ async function buildRunePackage() {
   }
   if (signed && !mac && !win) throw new Error("Rune signing supports macOS and Windows builds.");
   const channel = resolveDesktopUpdateChannel(version);
-  if (updateFeed && channel !== "nightly" && !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error("--update-feed requires a stable or nightly release version.");
+  if (
+    updateFeed &&
+    channel !== "nightly" &&
+    /^\d+\.\d+\.\d+-(?:nightly|preview)(?:[.+]|$)/.test(version)
+  ) {
+    throw new Error("Preview builds and malformed nightly versions cannot publish update feeds.");
   }
   const signing = signed && mac ? readMacSigning() : undefined;
   const windowsSigning = signed && win ? readWindowsSigning() : undefined;

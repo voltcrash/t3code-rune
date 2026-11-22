@@ -13,6 +13,18 @@ it.effect("selects the latest earlier stable tag and ignores nightlies", () =>
     ]);
 
     assert.equal(previous, "v1.1.2");
+    const published = ["v1.1.2", "v1.2.0-rc.1"];
+    assert.equal(yield* resolvePreviousReleaseTag("stable", "v1.2.0", published), "v1.2.0-rc.1");
+    assert.equal(
+      yield* resolvePreviousReleaseTag("stable", "v1.2.0", published, { desktopUpdate: true }),
+      "v1.1.2",
+    );
+    assert.equal(
+      yield* resolvePreviousReleaseTag("stable", "v1.2.0", ["v1.2.0-rc.1"], {
+        desktopUpdate: true,
+      }),
+      "v1.2.0-rc.1",
+    );
   }),
 );
 

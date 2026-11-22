@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Node's incremental SHA-256 hashes WSL archives without buffering them in memory.
 import * as NodeCrypto from "node:crypto";
+import { desktopUpdateChannelOf as resolveDesktopUpdateChannel } from "@t3tools/shared/cliRelease";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import {
@@ -629,9 +630,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 
 export const DESKTOP_APP_ID = "com.t3tools.t3code";
 
-export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
-}
+export { resolveDesktopUpdateChannel };
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
   return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
