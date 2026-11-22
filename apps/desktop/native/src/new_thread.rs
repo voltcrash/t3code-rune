@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::permissions;
 pub(super) type ProviderPermissions = HashMap<String, Vec<permissions::OptionRow>>;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub(super) struct Choice {
     id: String,
     name: String,
@@ -33,7 +33,7 @@ struct LaunchDraft {
     checkout_branch: String,
     worktree: bool,
     model: Option<String>,
-    picked_label: Option<String>,
+    picked: Option<Choice>,
     choices: Vec<Choice>,
     permissions: ProviderPermissions,
     runtime_override: Option<String>,
@@ -43,6 +43,12 @@ struct LaunchDraft {
 }
 
 impl NewThreads {
+    pub(super) fn provider_instance(&self) -> Option<&str> {
+        self.drafts
+            .get(self.active.as_deref()?)?
+            .displayed_choice()
+            .map(|c| c.instance.as_str())
+    }
     pub(super) fn has_draft(&self, project: &str) -> bool {
         self.drafts.contains_key(project)
     }
@@ -69,7 +75,7 @@ impl NewThreads {
                 checkout_branch: base.to_owned(),
                 worktree,
                 model: None,
-                picked_label: None,
+                picked: None,
                 choices: Vec::new(),
                 permissions: Default::default(),
                 runtime_override: None,
@@ -163,7 +169,7 @@ impl NewThreads {
 
 impl LaunchDraft {
     fn update_models(&mut self, choices: Vec<Choice>, permissions: ProviderPermissions) {
-        if self.picked_label.is_none() {
+        if self.picked.is_none() {
             self.model = choices
                 .iter()
                 .find(|choice| choice.preferred)
@@ -181,13 +187,16 @@ impl LaunchDraft {
     fn select_model(&mut self, id: &str) {
         if let Some(choice) = self.choices.iter().find(|choice| choice.id == id) {
             self.model = Some(choice.id.clone());
-            self.picked_label = Some(choice.name.clone());
+            self.picked = Some(choice.clone());
         }
     }
     fn choice(&self) -> Option<&Choice> {
         self.choices
             .iter()
             .find(|choice| Some(&choice.id) == self.model.as_ref())
+    }
+    fn displayed_choice(&self) -> Option<&Choice> {
+        self.choice().or(self.picked.as_ref())
     }
     fn permission_options(&self) -> &[permissions::OptionRow] {
         self.choice()
@@ -363,9 +372,8 @@ pub(super) fn view(
     .current(draft.model.as_deref())
     .trigger(crate::models::trigger(
         draft
-            .choice()
+            .displayed_choice()
             .map(|c| c.name.as_str())
-            .or(draft.picked_label.as_deref())
             .unwrap_or("Choose a model"),
         theme,
         !locked,
@@ -629,9 +637,10 @@ mod tests {
         update(&mut app, 5, "other");
         assert_eq!(app.new_threads.current().model.as_deref(), Some("live"));
         assert!(!app.new_threads.current().ready());
+        assert_eq!(app.new_threads.provider_instance(), Some("replay"));
         update(&mut app, 5, "live");
         assert!(app.new_threads.current().ready());
-        app.new_threads.current().picked_label = None;
+        app.new_threads.current().picked = None;
         update(&mut app, 5, "one");
         update(&mut app, 4, "stale");
         assert_eq!(app.new_threads.current().model.as_deref(), Some("one"));

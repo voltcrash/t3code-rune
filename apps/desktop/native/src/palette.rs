@@ -116,7 +116,7 @@ impl Action {
     }
 }
 
-pub(super) static REFRESH: Icon = Icon {
+pub(crate) static REFRESH: Icon = Icon {
     name: "refresh-workspace",
     view: 24.0,
     body: r#"<path d="M20 7v5h-5 M4 17v-5h5 M5.6 8.4a7.5 7.5 0 0 1 12.6-2l1.8 2 M4 15.6l1.8 2a7.5 7.5 0 0 0 12.6-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>"#,

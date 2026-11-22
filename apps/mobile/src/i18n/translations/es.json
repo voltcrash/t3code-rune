@@ -5336,5 +5336,16 @@
   "ad208e3e32c85029": "Ocultar todo",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Llamadas a herramientas en el chat",
-  "8d545d54c0a9e950": "Oculta los comandos, ediciones y búsquedas que ejecutan los agentes. Ocultar las correctas mantiene los fallos. Zen solo muestra las respuestas finales. Las aprobaciones, preguntas y errores siempre se muestran."
+  "8d545d54c0a9e950": "Oculta los comandos, ediciones y búsquedas que ejecutan los agentes. Ocultar las correctas mantiene los fallos. Zen solo muestra las respuestas finales. Las aprobaciones, preguntas y errores siempre se muestran.",
+  "07d380ebce7c7cba": "Abre la configuración del proveedor para instalar {provider} en este entorno.",
+  "f1ab192c62a6e680": "Abre la configuración del proveedor para iniciar sesión con Google.",
+  "6457e38508a19b22": "Abre la configuración del proveedor para iniciar sesión.",
+  "6e43db58d4b2d877": "Inicia sesión desde la CLI para volver a autenticarte.",
+  "361c3052d7669f01": "No hay modelos disponibles para este proveedor.",
+  "7d3850e5d84691a5": "El proveedor {provider} no está disponible.",
+  "8c373cfba06c51f9": "El proveedor {provider} tiene disponibilidad limitada.",
+  "7869f98d80c5be6e": "{provider} no está autenticado",
+  "60c47138e614902e": "Se sabe que {provider} {version} tiene fallos",
+  "a9c2d58d116bedfb": "{provider} {version} no es compatible",
+  "4d2ce7340c3903f0": "Estado del proveedor {provider}"
 }

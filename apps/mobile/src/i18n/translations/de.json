@@ -5342,5 +5342,16 @@
   "ad208e3e32c85029": "Alle ausblenden",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Tool-Aufrufe im Chat",
-  "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt."
+  "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt.",
+  "07d380ebce7c7cba": "Öffne die Anbietereinrichtung, um {provider} in dieser Umgebung zu installieren.",
+  "f1ab192c62a6e680": "Öffne die Anbietereinrichtung, um dich mit Google anzumelden.",
+  "6457e38508a19b22": "Öffne die Anbietereinrichtung, um dich anzumelden.",
+  "6e43db58d4b2d877": "Melde dich über die CLI an, um dich erneut zu authentifizieren.",
+  "361c3052d7669f01": "Für diesen Anbieter sind keine Modelle verfügbar.",
+  "7d3850e5d84691a5": "Der Anbieter {provider} ist nicht verfügbar.",
+  "8c373cfba06c51f9": "Der Anbieter {provider} ist eingeschränkt verfügbar.",
+  "7869f98d80c5be6e": "{provider} ist nicht authentifiziert",
+  "60c47138e614902e": "{provider} {version} ist bekanntermaßen defekt",
+  "a9c2d58d116bedfb": "{provider} {version} wird nicht unterstützt",
+  "4d2ce7340c3903f0": "Status des Anbieters {provider}"
 }

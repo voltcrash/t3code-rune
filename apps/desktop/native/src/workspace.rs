@@ -1819,6 +1819,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     if let Some(drawer) = crate::terminal::view(s, theme, dark, viewport[1]) {
         main = main.child(drawer);
     }
+    if let Some([width, _]) = cx.layout_size("thread-titlebar")
+        && let Some(banner) = crate::provider_status::view(s, width, bar.height, theme, dark)
+    {
+        main = main.child(banner);
+    }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     let show_sidebar = s.sidebar_layout.open && (!panel_open || split_panel);
     let bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);

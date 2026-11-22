@@ -50,14 +50,6 @@ export function keepsUnavailableModelOptions(
   );
 }
 
-export function formatProviderDriverKindLabel(provider: ProviderDriverKind): string {
-  return provider
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
 export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderDriverKind,
