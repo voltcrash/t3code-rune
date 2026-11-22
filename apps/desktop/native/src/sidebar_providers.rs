@@ -99,11 +99,21 @@ impl Art {
 
 #[derive(Default)]
 pub(super) struct Catalog {
+    environment: Option<String>,
     instances: HashMap<String, Instance>,
     art: HashMap<String, Art>,
 }
 
 impl Catalog {
+    pub(super) fn set_environment(&mut self, id: String) {
+        if self.environment.as_ref() != Some(&id) {
+            *self = Self {
+                environment: Some(id),
+                ..Self::default()
+            };
+        }
+    }
+
     pub(super) fn update(&mut self, instances: Vec<Instance>, art: HashMap<String, Art>) {
         self.instances = instances
             .into_iter()
@@ -213,5 +223,42 @@ impl Catalog {
                 )
                 .child(self.icon(current, false, dark, colors, theme)),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Desktop;
+    use serde_json::json;
+
+    #[test]
+    fn rows_keep_their_provider_until_the_new_feeds_config_or_a_different_environment_arrives() {
+        let mut app = Desktop::new();
+        let workspace = |watch: u64, environment: &str| {
+            serde_json::from_value(json!({
+                "type":"workspace", "id":watch, "watch":watch, "environment_id":environment,
+                "scratch_available":false, "projects":[], "threads":[]
+            }))
+            .unwrap()
+        };
+        let providers = |watch: u64, instances| {
+            serde_json::from_value(json!({
+                "type":"workspaceproviders","watch":watch,"instances":instances,"art":{}
+            }))
+            .unwrap()
+        };
+        let codex = json!([{"id":"work","driver":"codex","initials":"WC","badge":false}]);
+        app.pending = true;
+        app.receive(workspace(0, "local"));
+        app.receive(providers(0, codex.clone()));
+        app.workspace.refresh_request = Some(1);
+        app.receive(workspace(1, "local"));
+        assert!(app.workspace.providers.instances.contains_key("work"));
+        app.receive(providers(1, json!([])));
+        assert!(app.workspace.providers.instances.is_empty());
+        app.receive(providers(1, codex));
+        app.workspace.refresh_request = Some(2);
+        app.receive(workspace(2, "remote"));
+        assert!(app.workspace.providers.instances.is_empty());
     }
 }

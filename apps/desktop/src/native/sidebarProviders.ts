@@ -65,7 +65,7 @@ export function watchSidebarProviders(
     art: Record<string, NonNullable<ReturnType<typeof driverArt>>>,
   ) => void,
 ) {
-  let previous: ReturnType<typeof instanceRows> = [];
+  let previous: ReturnType<typeof instanceRows> | undefined;
   const sent = new Set<string>();
   return (config: ServerConfig | undefined) => {
     if (!config) return;

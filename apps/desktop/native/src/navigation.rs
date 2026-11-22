@@ -275,7 +275,7 @@ mod tests {
             app.pending = true;
             app.receive(
                 serde_json::from_value(serde_json::json!({
-                    "type": "workspace", "watch": 0, "id": 0, "landing_project": "p",
+                    "type": "workspace", "environment_id": "fixture", "watch": 0, "id": 0, "landing_project": "p",
                     "scratch_available": false, "projects": [record], "threads": []
                 }))
                 .unwrap(),
@@ -318,7 +318,7 @@ mod tests {
         app.request_id = 3;
         app.pending = true;
         let refreshed = serde_json::json!({
-            "type": "workspace", "watch": 2, "id": 2, "landing_project": "p",
+            "type": "workspace", "environment_id": "fixture", "watch": 2, "id": 2, "landing_project": "p",
             "scratch_available": false, "projects": [record], "threads": []
         });
         app.receive(serde_json::from_value(refreshed.clone()).unwrap());

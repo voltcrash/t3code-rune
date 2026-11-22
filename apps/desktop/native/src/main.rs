@@ -180,6 +180,7 @@ enum Reply {
         watch: u64,
     },
     Workspace {
+        environment_id: String,
         watch: u64,
         editors: Option<workspace::thread_details::editor::Catalog>,
         #[serde(default)]
@@ -1169,6 +1170,7 @@ impl Desktop {
                 self.pending = true;
             }
             Reply::Workspace {
+                environment_id,
                 watch,
                 editors,
                 sequence,
@@ -1182,7 +1184,7 @@ impl Desktop {
                     self.workspace.set_clock_offset(offset);
                 }
                 self.workspace.sequence = sequence;
-                self.workspace.providers = Default::default();
+                self.workspace.providers.set_environment(environment_id);
                 self.workspace.feed = Some(watch);
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;

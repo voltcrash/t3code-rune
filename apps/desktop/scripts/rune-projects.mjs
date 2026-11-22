@@ -1348,6 +1348,7 @@ async function handleWorkspaceRequest(request, reply) {
       startWorkspaceFeed(reading, workspace, request.id);
       reply({
         type: "workspace",
+        environment_id: reading.environmentId,
         editors: workspaceFeed.editors.catalog(),
         landing_project: workspaceFeed.initialLanding,
         watch: request.id,
