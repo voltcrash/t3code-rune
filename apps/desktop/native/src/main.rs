@@ -644,6 +644,7 @@ struct Desktop {
     update: updates::Panel,
     appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
+    image_jobs: Option<std::sync::mpsc::Sender<image_decode::Request>>,
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
     pairing_offers: std::collections::VecDeque<pairing_link::Offer>,
@@ -681,6 +682,7 @@ impl Desktop {
             #[cfg(target_os = "linux")]
             frame: Default::default(),
             output: None,
+            image_jobs: None,
             zoom: Default::default(),
             sidebar_layout: Default::default(),
             answer_advance: None,
@@ -734,6 +736,7 @@ impl Desktop {
             frame: self.frame,
             provider_status: self.provider_status.for_new_connection(),
             output: self.output.take(),
+            image_jobs: self.image_jobs.clone(),
             last_id: self.last_id,
             request_id: self.request_id,
             clipboard_uploads: std::mem::take(&mut self.clipboard_uploads),
@@ -1788,6 +1791,8 @@ fn start() -> io::Result<()> {
         .spawn()?;
     let output = child.stdin.take();
     let input = BufReader::new(child.stdout.take().unwrap());
+    let (images, image_requests) = std::sync::mpsc::channel();
+    let composer_images = images.clone();
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
@@ -1987,6 +1992,7 @@ fn start() -> io::Result<()> {
         .init(move || {
             let mut desktop = Desktop {
                 output,
+                image_jobs: Some(composer_images),
                 ..Desktop::new()
             };
             desktop.send(Request::Local);
@@ -2002,7 +2008,7 @@ fn start() -> io::Result<()> {
             owner.close();
         });
     }
-    let images = image_decode::start(handle.clone());
+    image_decode::start(handle.clone(), image_requests);
     let source_build = mode == Some("--source-build");
     let reader = std::thread::spawn(move || {
         let mut received_response = false;
@@ -2025,7 +2031,7 @@ fn start() -> io::Result<()> {
             } = reply.reply
             {
                 if images
-                    .send(image_decode::Job {
+                    .send(image_decode::Request::Remote(image_decode::Job {
                         watch,
                         key,
                         operation,
@@ -2039,7 +2045,7 @@ fn start() -> io::Result<()> {
                         } else {
                             image_decode::Kind::Thumbnail
                         },
-                    })
+                    }))
                     .is_err()
                 {
                     break;

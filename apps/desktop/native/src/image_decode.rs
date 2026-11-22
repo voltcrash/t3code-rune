@@ -1,6 +1,8 @@
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits};
 use rune::ImageCache;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock, Weak, mpsc};
 
 fn thumbnail(bytes: &[u8], size: u32) -> Option<image::RgbaImage> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
@@ -98,12 +100,67 @@ pub(crate) struct Job {
     pub data: Option<String>,
 }
 
-pub(crate) fn start(handle: rune::AppHandle<super::Desktop>) -> std::sync::mpsc::Sender<Job> {
-    let (send, recv) = std::sync::mpsc::channel::<Job>();
+pub(crate) type Raster = Arc<OnceLock<Option<rune::Image>>>;
+
+pub(crate) enum Request {
+    Remote(Job),
+    Local {
+        path: PathBuf,
+        edge: u32,
+        result: Weak<OnceLock<Option<rune::Image>>>,
+    },
+}
+
+pub(crate) fn local(sender: &mpsc::Sender<Request>, path: &Path, edge: u32) -> Raster {
+    let result = Raster::default();
+    let _ = sender.send(Request::Local {
+        path: path.to_owned(),
+        edge,
+        result: Arc::downgrade(&result),
+    });
+    result
+}
+
+fn local_thumbnail(path: &Path, size: u32) -> Option<image::RgbaImage> {
+    const MAX_BYTES: u64 = 10 * 1024 * 1024;
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_BYTES {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return None;
+    }
+    thumbnail(&bytes, size)
+}
+
+pub(crate) fn start(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receiver<Request>) {
     std::thread::spawn(move || {
         use base64::Engine;
-        let cache = ImageCache::new(std::sync::Arc::new(|| {}));
-        for job in recv {
+        let cache = ImageCache::new(Arc::new(|| {}));
+        for request in recv {
+            let job = match request {
+                Request::Local { path, edge, result } => {
+                    if result.strong_count() == 0 {
+                        continue;
+                    }
+                    let image = local_thumbnail(&path, edge)
+                        .map(|pixels| {
+                            cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())
+                        })
+                        .filter(|image| image.wait().is_ok());
+                    handle.update_if(move |_, _| {
+                        result.upgrade().is_some_and(|slot| slot.set(image).is_ok())
+                    });
+                    continue;
+                }
+                Request::Remote(job) => job,
+            };
             let mut mask = None;
             let cache_pixels = |pixels: image::RgbaImage| {
                 cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())
@@ -145,7 +202,6 @@ pub(crate) fn start(handle: rune::AppHandle<super::Desktop>) -> std::sync::mpsc:
             });
         }
     });
-    send
 }
 
 #[cfg(test)]

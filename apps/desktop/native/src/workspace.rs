@@ -3,7 +3,7 @@ mod activity;
 #[path = "command.rs"]
 mod command;
 #[path = "images.rs"]
-mod images;
+pub(crate) mod images;
 #[path = "message.rs"]
 mod message;
 #[path = "project_favicon.rs"]
@@ -281,6 +281,8 @@ pub(super) struct Workspace {
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
     pub(crate) file_preview: Option<workspace_files::Preview>,
+    pub(crate) attachment_viewport: rune::Live<[f32; 4]>,
+    pub(crate) draft_image: Option<crate::attachments::Preview>,
     pub(crate) explorer: Option<workspace_tree::Explorer>,
     pub questions: Forms,
     pub(super) scratch_available: bool,
@@ -340,6 +342,8 @@ impl Workspace {
             paused: false,
             diff: Default::default(),
             file_preview: None,
+            attachment_viewport: rune::Live::new([0.; 4]),
+            draft_image: None,
             explorer: None,
             scratch_available: false,
             projects: Vec::new(),
@@ -707,6 +711,7 @@ impl Desktop {
                 .as_ref()
                 .is_none_or(|pane| pane.id != id);
         if opened {
+            self.workspace.draft_image = None;
             self.cancel_settle_navigation();
         }
         self.history.visit(Page::Thread(id.into()));
