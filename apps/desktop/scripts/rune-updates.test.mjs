@@ -9,6 +9,7 @@ import { expect, it, vi } from "vitest";
 import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
 import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
 import { installedMacPackage, installMacPackage } from "./rune-mac-update.mjs";
+import { windowsUpdateDirectory } from "./rune-windows-update.mjs";
 import { runeUpdates } from "./rune-updates.mjs";
 
 const run = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -53,14 +54,13 @@ it("rechecks the administrator's feed and update permission before downloading a
   );
   const filename = "T3-Code-1.3.0-arm64.exe";
   const sha512 = Buffer.alloc(64, 1).toString("base64");
-  using serve = vi
-    .spyOn(globalThis, "fetch")
-    .mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({ version: "1.3.0", files: [{ url: filename, size: 42, sha512 }] }),
-        ),
-    );
+  using serve = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+    Response.json({
+      version: "1.3.0",
+      desktopRuntime: "rune",
+      files: [{ url: filename, size: 42, sha512 }],
+    }),
+  );
   const publish = vi.fn();
   let policy = {
     mode: "auto",
@@ -88,6 +88,38 @@ it("rechecks the administrator's feed and update permission before downloading a
   await request("downloadupdate");
   expect(serve).toHaveBeenCalledTimes(2);
   expect(publish.mock.lastCall[0].title).toBe("Updates unavailable");
+});
+
+it.runIf(NodePath.sep === "\\")("pins the staged installer directory until launch", async () => {
+  await using root = await NodeFSP.mkdtempDisposable(NodePath.join(NodeOS.tmpdir(), "rune-stage-"));
+  const folder = NodePath.join(root.path, "install");
+  await NodeFSP.mkdir(folder);
+  const probe = `
+$ErrorActionPreference = 'Stop'
+${windowsUpdateDirectory}
+$folder = $env:T3_SMOKE_STAGE
+$moved = $folder + '-moved'
+$guards = [Collections.Generic.List[IDisposable]]::new()
+[IO.Directory]::Move($folder, $moved)
+[IO.Directory]::Move($moved, $folder)
+try {
+  Lock-UpdateDirectory ([IO.DirectoryInfo]::new($folder)) $guards
+  try { [IO.Directory]::Move($folder, $moved) } catch [IO.IOException] {} catch [UnauthorizedAccessException] {}
+  if (![IO.Directory]::Exists($folder)) { throw 'The staged path moved while locked.' }
+} finally { foreach ($guard in $guards) { $guard.Dispose() } }
+[IO.Directory]::Move($folder, $moved)
+`;
+  await run(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(probe, "utf16le").toString("base64"),
+    ],
+    { env: { ...process.env, T3_SMOKE_STAGE: folder } },
+  );
+  expect(await NodeFSP.stat(folder + "-moved").then((entry) => entry.isDirectory())).toBe(true);
 });
 
 it.runIf(NodePath.sep === "/")(

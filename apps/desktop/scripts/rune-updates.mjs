@@ -10,6 +10,7 @@ import * as DesktopUpdatePolicy from "../src/updates/DesktopUpdatePolicy.ts";
 import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
 import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
 import { installedMacPackage, installMacPackage } from "./rune-mac-update.mjs";
+import { handOffWindowsInstaller, installedWindowsPackage } from "./rune-windows-update.mjs";
 import { configuredDisableAutoUpdate } from "../src/app/DesktopConfig.ts";
 import { checkRuneRelease, decodeReleaseSource } from "../src/native/releases.ts";
 
@@ -122,15 +123,31 @@ export function runeUpdates({
         previous.sha512 === release.sha512 &&
         previous.size === release.size
       ) {
-        const target = await installed;
+        const target =
+          platform === "win32" && resources
+            ? await installedWindowsPackage(
+                resources,
+                Effect.runSync(HostProcess.Environment),
+                process.ppid,
+                Effect.runSync(HostProcess.Architecture),
+                AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+              ).catch(() => undefined)
+            : await installed;
+        if (install && !target) throw new Error("Could not verify the current installation.");
         if (install && directory && target?.format === source?.format) {
+          const cached = NodePath.join(directory, release.filename);
+          if (target.format === "exe") {
+            await handOffWindowsInstaller(
+              target,
+              release,
+              cached,
+              AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+            );
+            publish({ type: "quitforupdate" });
+            return;
+          }
           const apply = target.format === "zip" ? installMacPackage : installLinuxPackage;
-          const executable = await apply(
-            target,
-            release,
-            NodePath.join(directory, release.filename),
-            signal,
-          );
+          const executable = await apply(target, release, cached, signal);
           publish({ type: "restartupdated", executable });
           return;
         }
