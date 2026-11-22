@@ -88,7 +88,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
       AuthTerminalOperateScope,
     ],
     clientMetadata: { label: "T3 Code Desktop", deviceType: "desktop" },
-  });
+  }).pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }));
   const scopes = parseOAuthScope(session.scope) ?? [];
   return {
     environmentId: descriptor.environmentId,

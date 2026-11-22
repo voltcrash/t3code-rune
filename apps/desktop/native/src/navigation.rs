@@ -293,7 +293,20 @@ mod tests {
             )
         };
         let mut app = open(true);
+        app.environment = Some("Original workspace".into());
+        app.request_id = app.next_request_id();
+        app.pending = true;
+        app.pairing = true;
         finish(&mut app);
+        assert!(app.pending);
+        app.receive(super::super::WorkerMessage {
+            id: Some(app.request_id),
+            reply: super::super::Reply::Error {
+                message: "Pairing link expired".into(),
+            },
+        });
+        assert!(!app.pending && !app.pairing);
+        assert_eq!(app.environment.as_deref(), Some("Original workspace"));
         assert_eq!(app.history.current, Page::NewThread("p".into()));
         assert!(!app.history.available(false));
         app.environment = Some("Test".into());
