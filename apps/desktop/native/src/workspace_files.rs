@@ -39,18 +39,31 @@ pub(crate) struct Preview {
     error: Option<String>,
 }
 
+const SOURCE_ROW_BYTES: usize = 4096;
+
 struct Source {
     contents: String,
     lines: Vec<usize>,
+    continuations: Vec<usize>,
     highlights: Rc<[syntax::Highlight]>,
     truncated: bool,
 }
 
 impl Source {
     fn new(path: &str, contents: String, truncated: bool, attachment: bool) -> Self {
-        let lines: Vec<_> = std::iter::once(0)
-            .chain(contents.match_indices('\n').map(|(offset, _)| offset + 1))
-            .collect();
+        let mut lines = Vec::new();
+        let mut continuations = Vec::new();
+        let mut start = 0;
+        for line in contents.split('\n') {
+            lines.push(start);
+            let mut offset = 0;
+            while attachment && line.len() - offset > SOURCE_ROW_BYTES {
+                offset = line.floor_char_boundary(offset + SOURCE_ROW_BYTES);
+                continuations.push(lines.len());
+                lines.push(start + offset);
+            }
+            start += line.len() + 1;
+        }
         let highlights = if !attachment || Self::rich_text_fits(contents.len(), lines.len()) {
             syntax::highlight(syntax::lang_for_path(path), &contents)
         } else {
@@ -59,6 +72,7 @@ impl Source {
         Self {
             contents,
             lines,
+            continuations,
             highlights,
             truncated,
         }
@@ -78,9 +92,22 @@ impl Source {
         let end = self
             .lines
             .get(index + 1)
-            .map_or(self.contents.len(), |n| n - 1);
-        let line = &self.contents[start..end];
+            .copied()
+            .unwrap_or(self.contents.len());
+        if self.continuations.binary_search(&(index + 1)).is_ok() {
+            return start..end;
+        }
+        let line = self.contents[start..end]
+            .strip_suffix('\n')
+            .unwrap_or(&self.contents[start..end]);
         start..(start + line.strip_suffix('\r').unwrap_or(line).len())
+    }
+
+    fn line_number(&self, row: usize) -> Option<usize> {
+        self.continuations
+            .binary_search(&row)
+            .err()
+            .map(|preceding| row + 1 - preceding)
     }
 
     fn spans(&self, line: Range<usize>, theme: &syntax::SyntaxTheme) -> Vec<Span> {
@@ -440,10 +467,17 @@ fn source_view(app: &Desktop, preview: &Preview, theme: &tok::Theme, kit: &Kit) 
                     .h(20.)
                     .gap(8.)
                     .child(
-                        label(&(i + 1).to_string(), 12., 400., colors.text_secondary)
-                            .w(gutter)
-                            .pl(8.)
-                            .a11y_hidden(),
+                        label(
+                            &source
+                                .line_number(i)
+                                .map_or_else(String::new, |n| n.to_string()),
+                            12.,
+                            400.,
+                            colors.text_secondary,
+                        )
+                        .w(gutter)
+                        .pl(8.)
+                        .a11y_hidden(),
                     )
                     .child(line)
             },
@@ -496,12 +530,31 @@ mod tests {
             size: "600 KB".into(),
             kind: "markdown".into(),
         });
-        for text in ["a\n\n".repeat(200_000), "long paragraph ".repeat(8_000)] {
+        for text in ["a\n\n".repeat(200_000), "é中🎨".repeat(100_000)] {
             app.workspace.file_preview.as_mut().unwrap().rendered = true;
             app.receive_file_source(12, Some(text), false, None);
             let p = app.workspace.file_preview.as_ref().unwrap();
             assert!(!p.rendered);
-            assert!(p.source.is_some());
+            let source = p.source.as_ref().unwrap();
+            for index in 0..source.lines.len() {
+                assert!(
+                    source.line(index).len() <= 4096,
+                    "source row exceeds shaping budget"
+                );
+            }
+            if !source.contents.contains('\n') {
+                let reconstructed = (0..source.lines.len())
+                    .map(|i| &source.contents[source.line(i)])
+                    .collect::<String>();
+                assert_eq!(reconstructed, source.contents);
+                assert_eq!(source.line_number(0), Some(1));
+                assert_eq!(source.line_number(1), None);
+            }
         }
+        let text = format!("{}\r\nend", "🎨".repeat(1100));
+        let source = Source::new("note.txt", text, false, true);
+        assert_eq!(source.line_number(1), None);
+        assert_eq!(source.line_number(2), Some(2));
+        assert_eq!(&source.contents[source.line(2)], "end");
     }
 }
