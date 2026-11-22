@@ -1,0 +1,182 @@
+name: Verify Windows desktop
+
+on:
+  workflow_call:
+    inputs:
+      verify_runner:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      native_windows:
+        required: true
+        type: boolean
+      release_channel:
+        required: true
+        type: string
+      windows_baseline:
+        type: string
+        required: false
+      previous_desktop_tag:
+        required: true
+        type: string
+      is_prerelease:
+        required: true
+        type: boolean
+      cli_archive:
+        required: true
+        type: boolean
+permissions:
+  actions: read
+  contents: read
+
+env:
+  UNPACKED_DIR: win-${{ inputs.arch != 'x64' && format('{0}-', inputs.arch) || '' }}unpacked
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ${{ inputs.verify_runner }}
+    timeout-minutes: ${{ inputs.native_windows && inputs.release_channel != 'preview' && 30 || 15 }}
+    steps:
+      - name: Download verification inputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verify-win-${{ inputs.arch }}
+          path: verify
+
+      - name: Download CLI archive
+        if: inputs.cli_archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cli-win-${{ inputs.arch }}
+          path: release-cli
+
+      - name: Download Windows Rune packages
+        if: inputs.native_windows
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-win-${{ inputs.arch }}
+          path: release
+
+      - name: Download the verified channel manifest
+        if: inputs.native_windows && inputs.release_channel != 'preview'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-update-feed
+          path: release
+
+      - name: Download first-release Rune upgrade baseline
+        if: inputs.windows_baseline == 'Rune' && inputs.previous_desktop_tag == ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-rune-baseline-${{ inputs.arch }}
+          path: ${{ runner.temp }}/previous-desktop
+
+      - name: Verify packaged natives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE: ${{ inputs.windows_baseline }}
+          PREVIOUS_TAG: ${{ inputs.previous_desktop_tag }}
+        run: |
+          set -euo pipefail
+          app_dir="$PWD/verify/$UNPACKED_DIR"
+          args=()
+          if [[ "${{ inputs.native_windows }}" == true ]]; then
+            if [[ "${{ inputs.release_channel }}" == preview ]]; then
+              mkdir verify/preview
+              archive=(release/*.zip)
+              system_tar="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
+              "$system_tar" -C verify/preview -xf "${archive[0]}"
+              apps=(verify/preview/*/)
+              [[ ${#apps[@]} == 1 && -d "${apps[0]}" ]]
+              app_dir="$PWD/${apps[0]%/}"
+              product=$(basename "$app_dir")
+              installed="$(cygpath -u "$LOCALAPPDATA")/Programs/$product Rune/app"
+              installer=(release/*.exe)
+              MSYS2_ARG_CONV_EXCL='*' "${installer[0]}" /S
+              for payload in "$app_dir" "$installed"; do
+                cmp verify/wsl.sha256 "$payload/resources/wsl-runtime.tar.gz.sha256"
+                echo "$(cat verify/wsl.sha256)  $payload/resources/wsl-runtime.tar.gz" | sha256sum -c -
+                python verify/scripts/smoke-rune-desktop.py --executable "$(cygpath -w "$payload/$product.exe")"
+              done
+            else
+              baseline=()
+              if [[ -n "$PREVIOUS_TAG" ]]; then
+                old_version="${PREVIOUS_TAG#nightly-}"
+                old_exe="T3-Code-${old_version#v}-${{ inputs.arch }}.exe"
+                gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$old_exe" --dir "$RUNNER_TEMP/previous-desktop"
+                baseline+=(--previous "$RUNNER_TEMP/previous-desktop/$old_exe")
+              elif [[ "$BASELINE" == Rune ]]; then
+                baseline+=(--previous "$RUNNER_TEMP"/previous-desktop/*.exe)
+              fi
+              python verify/scripts/smoke-rune-windows-upgrade.py "${baseline[@]}" \
+                --baseline "$BASELINE" --installer release/*.exe --manifest "release/${{ inputs.release_channel == 'nightly' && 'nightly' || 'latest' }}.yml" --version "${{ inputs.version }}" \
+                --channel "${{ inputs.release_channel }}" --prerelease "${{ inputs.is_prerelease }}" --arch "${{ inputs.arch }}" \
+                --app-path-file "$RUNNER_TEMP/native-app-path.txt"
+              app_dir=$(cygpath -u "$(cat "$RUNNER_TEMP/native-app-path.txt")")
+              cmp verify/wsl.sha256 "$app_dir/resources/wsl-runtime.tar.gz.sha256"
+              echo "$(cat verify/wsl.sha256)  $app_dir/resources/wsl-runtime.tar.gz" | sha256sum -c -
+            fi
+            args+=(--rune)
+            echo "MONITOR=$(cygpath -w "$app_dir/resources/server/dist/resource-monitor/t3-resource-monitor.exe")" >> "$GITHUB_ENV"
+          else
+            tar -C verify -xf verify/unpacked.tar
+            echo "MONITOR=$(cygpath -w "$app_dir/resources/resource-monitor/t3-resource-monitor.exe")" >> "$GITHUB_ENV"
+          fi
+          node verify/verify-windows-desktop-artifact.mjs \
+            --app-dir "$(cygpath -w "$app_dir")" \
+            --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --verbose "${args[@]}"
+
+      - name: Smoke-test CLI archive
+        if: inputs.cli_archive
+        shell: bash
+        run: node verify/smoke-cli-archive.mjs --archive release-cli/* --expect-version "${{ inputs.version }}"
+
+      # cargo-xwin links this binary on Linux, and nothing else runs it before users do.
+      # Node rather than pwsh: PowerShell on Windows ARM crashes intermittently
+      # (https://github.com/dotnet/runtime/issues/131636), which is why this
+      # target stopped building on Windows.
+      - name: Smoke-test resource monitor
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { spawn } from "node:child_process";
+          const monitor = spawn(process.env.MONITOR, { stdio: ["pipe", "pipe", "inherit"] });
+          monitor.stdout.setEncoding("utf8");
+          let output = "";
+          const exited = new Promise((resolve) => monitor.on("close", resolve));
+          const hello = await new Promise((resolve, reject) => {
+            monitor.on("error", reject);
+            monitor.on("close", () => reject(new Error(`Resource monitor exited before hello: ${output}`)));
+            monitor.stdout.on("data", (chunk) => {
+              output += chunk;
+              const end = output.indexOf("\n");
+              if (end !== -1) resolve(JSON.parse(output.slice(0, end)));
+            });
+          });
+          if (hello.type !== "hello" || hello.arch !== process.env.EXPECTED_ARCH) {
+            throw new Error(`Unexpected hello: ${JSON.stringify(hello)}`);
+          }
+          const send = (message) => monitor.stdin.write(`${JSON.stringify({ version: hello.version, ...message })}\n`);
+          send({ type: "configure", rootPid: process.pid, sampleIntervalMs: 1000 });
+          send({ type: "sampleNow", requestId: "verify" });
+          monitor.stdin.end();
+          const exitCode = await exited;
+          const sample = output
+            .split("\n")
+            .filter((line) => line.trim())
+            .map((line) => JSON.parse(line))
+            .find((message) => message.requestId === "verify");
+          if (exitCode !== 0 || sample?.type !== "snapshot" || !sample.processes.some((p) => p.pid === process.pid)) {
+            throw new Error(`Resource monitor exited ${exitCode} with: ${output}`);
+          }
+          console.log(`Resource monitor sampled ${sample.scannedProcessCount} processes.`);
+          EOF

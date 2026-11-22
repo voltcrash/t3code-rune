@@ -26,6 +26,7 @@ const { values } = NodeUtil.parseArgs({
     app: { type: "string" },
     "artifacts-dir": { type: "string" },
     "install-update": { type: "string" },
+    "existing-home": { type: "string" },
   },
 });
 const executable = values.executable;
@@ -36,9 +37,11 @@ if (!executable)
 const artifactsDir = NodePath.resolve(values["artifacts-dir"] ?? "desktop-launch-check");
 
 const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launch-"));
-const t3Home = NodePath.join(home, "t3");
-NodeFS.mkdirSync(NodePath.join(t3Home, "userdata"), { recursive: true });
-NodeFS.copyFileSync(FIXTURE_DB, NodePath.join(t3Home, "userdata/statev2.sqlite"));
+const t3Home = values["existing-home"] ?? NodePath.join(home, "t3");
+if (!values["existing-home"]) {
+  NodeFS.mkdirSync(NodePath.join(t3Home, "userdata"), { recursive: true });
+  NodeFS.copyFileSync(FIXTURE_DB, NodePath.join(t3Home, "userdata/statev2.sqlite"));
+}
 
 let step = "launching the app";
 let app: ElectronApplication | undefined;

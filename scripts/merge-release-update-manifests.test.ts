@@ -15,35 +15,44 @@ releaseDate: '2026-10-22T00:00:00.000Z'
 `;
 
 it.layer(NodeServices.layer)("merge release update manifests", (it) => {
-  it.effect("merges complete macOS and Windows architecture pairs", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const releaseAssetsDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "merge-release-update-manifests-",
-      });
-      const fixtures = {
-        "latest-mac.yml": manifest("T3-Code-1.2.3-arm64.zip"),
-        "latest-mac-x64.yml": manifest("T3-Code-1.2.3-x64.zip"),
-        "latest-win-arm64.yml": manifest("T3-Code-1.2.3-arm64.exe"),
-        "latest-win-x64.yml": manifest("T3-Code-1.2.3-x64.exe"),
-      };
-      yield* Effect.forEach(Object.entries(fixtures), ([fileName, contents]) =>
-        fs.writeFileString(path.join(releaseAssetsDir, fileName), contents),
-      );
+  it.effect.each([false, true])(
+    "merges complete pairs with preverified Windows feed = %s",
+    (verified) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const releaseAssetsDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "merge-release-update-manifests-",
+        });
+        const fixtures = {
+          "latest-mac.yml": manifest("T3-Code-1.2.3-arm64.zip"),
+          "latest-mac-x64.yml": manifest("T3-Code-1.2.3-x64.zip"),
+          "latest-win-arm64.yml": manifest("T3-Code-1.2.3-arm64.exe"),
+          "latest-win-x64.yml": manifest("T3-Code-1.2.3-x64.exe"),
+        };
+        yield* Effect.forEach(Object.entries(fixtures), ([fileName, contents]) =>
+          fs.writeFileString(path.join(releaseAssetsDir, fileName), contents),
+        );
 
-      yield* mergeReleaseUpdateManifestFiles(releaseAssetsDir);
+        const feedDir = yield* fs.makeTempDirectoryScoped();
+        const canonical = manifest("T3-Code-1.2.3-x64.exe").replace(
+          "releaseDate:",
+          "  - url: T3-Code-1.2.3-arm64.exe\n    sha512: arm-sha\n    size: 456\nreleaseDate:",
+        );
+        if (verified) yield* fs.writeFileString(path.join(feedDir, "latest.yml"), canonical);
+        yield* mergeReleaseUpdateManifestFiles(releaseAssetsDir, verified ? feedDir : undefined);
 
-      const mac = yield* fs.readFileString(path.join(releaseAssetsDir, "latest-mac.yml"));
-      const win = yield* fs.readFileString(path.join(releaseAssetsDir, "latest.yml"));
-      assert.include(mac, "T3-Code-1.2.3-arm64.zip");
-      assert.include(mac, "T3-Code-1.2.3-x64.zip");
-      assert.include(win, "T3-Code-1.2.3-arm64.exe");
-      assert.include(win, "T3-Code-1.2.3-x64.exe");
-      assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-mac-x64.yml")));
-      assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-win-arm64.yml")));
-      assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-win-x64.yml")));
-    }),
+        const mac = yield* fs.readFileString(path.join(releaseAssetsDir, "latest-mac.yml"));
+        const win = yield* fs.readFileString(path.join(releaseAssetsDir, "latest.yml"));
+        if (verified) assert.equal(win, canonical);
+        assert.include(mac, "T3-Code-1.2.3-arm64.zip");
+        assert.include(mac, "T3-Code-1.2.3-x64.zip");
+        assert.include(win, "T3-Code-1.2.3-arm64.exe");
+        assert.include(win, "T3-Code-1.2.3-x64.exe");
+        assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-mac-x64.yml")));
+        assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-win-arm64.yml")));
+        assert.isFalse(yield* fs.exists(path.join(releaseAssetsDir, "latest-win-x64.yml")));
+      }),
   );
 
   it.effect.each([

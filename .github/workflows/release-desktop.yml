@@ -99,6 +99,13 @@ on:
         required: false
         default: false
         type: boolean
+      windows_fixture_version:
+        required: false
+        type: string
+      native_windows:
+        required: false
+        default: false
+        type: boolean
       previous_desktop_tag:
         required: false
         default: ""
@@ -255,7 +262,7 @@ jobs:
           fi
 
       - name: Setup Rust
-        if: inputs.untrusted_bundle || contains(inputs.target, ',') || steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
+        if: inputs.untrusted_bundle || inputs.native_windows || contains(inputs.target, ',') || steps.resource_monitor_cache.outputs.cache-hit != 'true' || (inputs.platform == 'linux' && steps.capture_helper_cache.outputs.cache-hit != 'true')
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -289,8 +296,8 @@ jobs:
           name: js-bundle
           path: apps
 
-      - name: Install Windows preview packaging tools
-        if: inputs.target == 'nsis,zip'
+      - name: Install Windows Rune packaging tools
+        if: inputs.native_windows
         shell: bash
         run: |
           set -euo pipefail
@@ -308,7 +315,7 @@ jobs:
           fi
 
       - name: Install cargo-xwin
-        if: inputs.platform == 'win' && inputs.target != 'nsis,zip' && steps.resource_monitor_cache.outputs.cache-hit != 'true'
+        if: inputs.platform == 'win' && !inputs.native_windows && steps.resource_monitor_cache.outputs.cache-hit != 'true'
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-xwin@0.23.1
@@ -318,7 +325,7 @@ jobs:
       - name: Build resource monitor
         if: steps.resource_monitor_cache.outputs.cache-hit != 'true'
         shell: bash
-        run: cargo ${{ inputs.platform == 'win' && inputs.target != 'nsis,zip' && 'xwin build' || 'build' }} --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ inputs.rust_target }}"
+        run: cargo ${{ inputs.platform == 'win' && !inputs.native_windows && 'xwin build' || 'build' }} --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ inputs.rust_target }}"
 
       # Off Windows, scripts/lib/windows-jsign.ts signs through jsign instead of
       # the TrustedSigning PowerShell module.
@@ -402,7 +409,7 @@ jobs:
           mkdir -p "$dest"
           (cd "$dir" && grep " $name.zip\$" SHASUMS256.txt | sha256sum -c -)
           unzip -p "$dir/$name.zip" "$name/node.exe" > "$dest/node.exe"
-          if [[ "${{ inputs.target }}" == 'nsis,zip' ]]; then
+          if [[ "${{ inputs.native_windows }}" == true ]]; then
             unzip -q "$dir/$name.zip" "$name/node.exe" "$name/LICENSE" -d "$RUNNER_TEMP"
             echo "T3CODE_WINDOWS_NODE_DIR=$RUNNER_TEMP/$name" >> "$GITHUB_ENV"
           fi
@@ -688,6 +695,7 @@ jobs:
           pnpm_config_prefer_offline: "true"
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: true
           T3CODE_DESKTOP_REUSE_LINUX_CAPTURE_HELPERS: ${{ steps.capture_helper_cache.outputs.cache-hit == 'true' }}
+          FIXTURE_VERSION: ${{ inputs.windows_fixture_version }}
           T3CODE_DESKTOP_UNTRUSTED_BUNDLE: ${{ inputs.untrusted_bundle }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -713,7 +721,7 @@ jobs:
             --skip-build
             --verbose
           )
-          if [[ -n "${{ inputs.verify_runner }}" && "${{ inputs.target }}" != nsis,zip ]]; then
+          if [[ -n "${{ inputs.verify_runner }}" && "${{ inputs.native_windows }}" != true ]]; then
             args+=(--keep-stage)
           fi
 
@@ -763,17 +771,37 @@ jobs:
               echo "Windows signing enabled (Azure Trusted Signing)."
               args+=(--signed)
             else
+              if [[ "${{ inputs.native_windows }}" == true && "${{ inputs.release_channel }}" != preview ]]; then
+                echo "Official Windows updates require Azure Trusted Signing." >&2
+                exit 1
+              fi
               echo "Windows signing disabled (missing one or more Azure Trusted Signing secrets)."
             fi
           else
             echo "Signing disabled for ${{ inputs.platform }}."
           fi
 
-          if [[ "${{ inputs.target }}" == 'nsis,zip' ]]; then
+          if [[ "${{ inputs.native_windows }}" == true ]]; then
+            if [[ "${{ inputs.release_channel }}" != preview ]]; then args+=(--update-feed); fi
             vp run dist:desktop:rune "${args[@]}" --windows-node-dir "$T3CODE_WINDOWS_NODE_DIR"
+            if [[ -n "$FIXTURE_VERSION" ]]; then
+              APP_VERSION="$FIXTURE_VERSION" node apps/desktop/scripts/bundle-rune-worker.mjs
+              vp run dist:desktop:rune --platform win --target nsis --arch "${{ inputs.arch }}" --build-version "$FIXTURE_VERSION" \
+                --windows-node-dir "$T3CODE_WINDOWS_NODE_DIR" --skip-build --signed --update-feed --output-dir "$RUNNER_TEMP/windows-baseline"
+            fi
           else
             node scripts/build-desktop-artifact.ts "${args[@]}"
           fi
+
+      - name: Upload first-release Rune upgrade baseline
+        if: inputs.windows_fixture_version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-rune-baseline-${{ inputs.arch }}
+          path: ${{ runner.temp }}/windows-baseline/*.exe
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
       # The CLI was submitted without waiting so Apple reviews it while the
       # desktop builds. Notarization does not change the archive bytes, but
@@ -934,10 +962,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verify
-          if [[ "${{ inputs.target }}" == 'nsis,zip' ]]; then
+          if [[ "${{ inputs.native_windows }}" == true ]]; then
             mkdir -p verify/scripts/fixtures/desktop-launch
             cp scripts/fixtures/desktop-launch/statev2.sqlite verify/scripts/fixtures/desktop-launch/
             cp scripts/smoke-rune-desktop.py verify/scripts/
+            if [[ "${{ inputs.release_channel }}" != preview ]]; then
+              cp scripts/smoke-rune-windows-upgrade.py verify/scripts/
+              scripts/node_modules/.bin/esbuild scripts/smoke-desktop-app.ts --platform=node --format=esm --target=node22 \
+                --outfile=verify/scripts/smoke-desktop-app.mjs
+              cp scripts/fixtures/desktop-launch/{update-feed.js,drive-windows-update.ps1} verify/scripts/fixtures/desktop-launch/
+              mkdir -p verify/node_modules
+              cp -RL scripts/node_modules/playwright-core verify/node_modules/
+            fi
             sha256sum wsl-runtime/t3-*-linux-${{ inputs.arch }}.tar.gz | cut -d' ' -f1 > verify/wsl.sha256
           else
             unpacked=$(ls -d "${TMPDIR:-/tmp}"/t3code-desktop-${{ inputs.platform }}-stage-*/app/dist/"$UNPACKED_DIR")
@@ -1001,12 +1037,20 @@ jobs:
           # arm64 jobs would upload the same name. Suffix each per-arch copy;
           # the release job merges them back into one manifest per channel.
           # builder-debug.yml is electron-builder's config dump, not a feed.
-          if [[ "${{ inputs.platform }}" == "win" ]]; then
+          if [[ "${{ inputs.platform }}" == "win" && "${{ inputs.native_windows }}" != true ]]; then
             for manifest in release-publish/*.yml; do
               [[ "$manifest" == */builder-debug.yml ]] && continue
               mv "$manifest" "${manifest%.yml}-win-${{ inputs.arch }}.yml"
             done
           fi
+
+      - name: Upload the Windows architecture manifest
+        if: inputs.native_windows && inputs.release_channel != 'preview'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-feed-${{ inputs.arch }}
+          path: release-publish/*-win-${{ inputs.arch }}.yml
+          if-no-files-found: error
 
       - name: Collect resource monitor
         shell: bash
@@ -1038,109 +1082,15 @@ jobs:
           if-no-files-found: error
 
   verify:
-    name: Verify
     needs: [build]
-    if: inputs.verify_runner != ''
-    runs-on: ${{ inputs.verify_runner }}
-    timeout-minutes: 15
-    steps:
-      - name: Download verification inputs
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: verify-${{ inputs.platform }}-${{ inputs.arch }}
-          path: verify
-
-      - name: Download CLI archive
-        if: inputs.cli_archive
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: cli-${{ inputs.platform }}-${{ inputs.arch }}
-          path: release-cli
-
-      - name: Download Windows preview
-        if: inputs.target == 'nsis,zip'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: desktop-${{ inputs.platform }}-${{ inputs.arch }}
-          path: release
-
-      - name: Verify packaged natives
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_dir="$PWD/verify/$UNPACKED_DIR"
-          args=()
-          if [[ "${{ inputs.target }}" == 'nsis,zip' ]]; then
-            mkdir verify/preview
-            archive=(release/*.zip)
-            system_tar="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
-            "$system_tar" -C verify/preview -xf "${archive[0]}"
-            apps=(verify/preview/*/)
-            [[ ${#apps[@]} == 1 && -d "${apps[0]}" ]]
-            app_dir="$PWD/${apps[0]%/}"
-            product=$(basename "$app_dir")
-            installed="$(cygpath -u "$LOCALAPPDATA")/Programs/$product Rune/app"
-            installer=(release/*.exe)
-            MSYS2_ARG_CONV_EXCL='*' "${installer[0]}" /S
-            for payload in "$app_dir" "$installed"; do
-              cmp verify/wsl.sha256 "$payload/resources/wsl-runtime.tar.gz.sha256"
-              echo "$(cat verify/wsl.sha256)  $payload/resources/wsl-runtime.tar.gz" | sha256sum -c -
-              python verify/scripts/smoke-rune-desktop.py --executable "$(cygpath -w "$payload/$product.exe")"
-            done
-            args+=(--rune)
-            echo "MONITOR=$(cygpath -w "$app_dir/resources/server/dist/resource-monitor/t3-resource-monitor.exe")" >> "$GITHUB_ENV"
-          else
-            tar -C verify -xf verify/unpacked.tar
-            echo "MONITOR=$(cygpath -w "$app_dir/resources/resource-monitor/t3-resource-monitor.exe")" >> "$GITHUB_ENV"
-          fi
-          node verify/verify-windows-desktop-artifact.mjs \
-            --app-dir "$(cygpath -w "$app_dir")" \
-            --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --verbose "${args[@]}"
-
-      - name: Smoke-test CLI archive
-        if: inputs.cli_archive
-        shell: bash
-        run: node verify/smoke-cli-archive.mjs --archive release-cli/* --expect-version "${{ inputs.version }}"
-
-      # cargo-xwin links this binary on Linux, and nothing else runs it before users do.
-      # Node rather than pwsh: PowerShell on Windows ARM crashes intermittently
-      # (https://github.com/dotnet/runtime/issues/131636), which is why this
-      # target stopped building on Windows.
-      - name: Smoke-test resource monitor
-        shell: bash
-        env:
-          EXPECTED_ARCH: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { spawn } from "node:child_process";
-          const monitor = spawn(process.env.MONITOR, { stdio: ["pipe", "pipe", "inherit"] });
-          monitor.stdout.setEncoding("utf8");
-          let output = "";
-          const exited = new Promise((resolve) => monitor.on("close", resolve));
-          const hello = await new Promise((resolve, reject) => {
-            monitor.on("error", reject);
-            monitor.on("close", () => reject(new Error(`Resource monitor exited before hello: ${output}`)));
-            monitor.stdout.on("data", (chunk) => {
-              output += chunk;
-              const end = output.indexOf("\n");
-              if (end !== -1) resolve(JSON.parse(output.slice(0, end)));
-            });
-          });
-          if (hello.type !== "hello" || hello.arch !== process.env.EXPECTED_ARCH) {
-            throw new Error(`Unexpected hello: ${JSON.stringify(hello)}`);
-          }
-          const send = (message) => monitor.stdin.write(`${JSON.stringify({ version: hello.version, ...message })}\n`);
-          send({ type: "configure", rootPid: process.pid, sampleIntervalMs: 1000 });
-          send({ type: "sampleNow", requestId: "verify" });
-          monitor.stdin.end();
-          const exitCode = await exited;
-          const sample = output
-            .split("\n")
-            .filter((line) => line.trim())
-            .map((line) => JSON.parse(line))
-            .find((message) => message.requestId === "verify");
-          if (exitCode !== 0 || sample?.type !== "snapshot" || !sample.processes.some((p) => p.pid === process.pid)) {
-            throw new Error(`Resource monitor exited ${exitCode} with: ${output}`);
-          }
-          console.log(`Resource monitor sampled ${sample.scannedProcessCount} processes.`);
-          EOF
+    if: inputs.verify_runner != '' && (!inputs.native_windows || inputs.release_channel == 'preview')
+    uses: ./.github/workflows/release-windows-verify.yml
+    with:
+      verify_runner: ${{ inputs.verify_runner }}
+      arch: ${{ inputs.arch }}
+      version: ${{ inputs.version }}
+      native_windows: ${{ inputs.native_windows }}
+      release_channel: ${{ inputs.release_channel }}
+      previous_desktop_tag: ${{ inputs.previous_desktop_tag }}
+      is_prerelease: ${{ inputs.is_prerelease }}
+      cli_archive: ${{ inputs.cli_archive }}

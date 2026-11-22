@@ -4,8 +4,9 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import { Argument, Command } from "effect/cli";
+import { Argument, Command, Flag } from "effect/cli";
 
 import { mergeUpdateManifestFiles, type UpdateManifestPlatform } from "./merge-update-manifests.ts";
 
@@ -90,7 +91,7 @@ function planReleaseUpdateManifestMerges(
 }
 
 export const mergeReleaseUpdateManifestFiles = Effect.fn("mergeReleaseUpdateManifestFiles")(
-  function* (releaseAssetsDirArg: string) {
+  function* (releaseAssetsDirArg: string, verifiedWindowsDirectory?: string) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const releaseAssetsDir = path.resolve(releaseAssetsDirArg);
@@ -102,7 +103,11 @@ export const mergeReleaseUpdateManifestFiles = Effect.fn("mergeReleaseUpdateMani
         const primary = path.join(releaseAssetsDir, plan.primary);
         const secondary = path.join(releaseAssetsDir, plan.secondary);
         const output = path.join(releaseAssetsDir, plan.output);
-        return mergeUpdateManifestFiles(plan.platform, primary, secondary, output).pipe(
+        const writeManifest =
+          plan.platform === "win" && verifiedWindowsDirectory !== undefined
+            ? fs.copyFile(path.join(verifiedWindowsDirectory, plan.output), output)
+            : mergeUpdateManifestFiles(plan.platform, primary, secondary, output);
+        return writeManifest.pipe(
           Effect.andThen(
             Effect.forEach(
               [primary, secondary].filter((source) => source !== output),
@@ -123,8 +128,15 @@ export const mergeReleaseUpdateManifestsCommand = Command.make(
     releaseAssetsDir: Argument.String("release-assets-dir").pipe(
       Argument.withDescription("Directory containing every desktop release artifact."),
     ),
+    verifiedWindows: Flag.String("verified-windows").pipe(
+      Flag.withDescription(
+        "Directory containing the Windows feeds exercised by the upgrade checks.",
+      ),
+      Flag.optional,
+    ),
   },
-  ({ releaseAssetsDir }) => mergeReleaseUpdateManifestFiles(releaseAssetsDir),
+  ({ releaseAssetsDir, verifiedWindows }) =>
+    mergeReleaseUpdateManifestFiles(releaseAssetsDir, Option.getOrUndefined(verifiedWindows)),
 ).pipe(
   Command.withDescription("Require and merge complete arm64/x64 desktop updater manifest pairs."),
 );
