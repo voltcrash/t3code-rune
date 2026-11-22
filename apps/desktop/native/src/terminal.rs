@@ -584,7 +584,11 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
             }
         });
     let mut drawer = col().key("thread-terminal").w_full().h(shown).child(resize);
-    if panel.sessions.len() > 1 {
+    if panel
+        .sessions
+        .iter()
+        .any(|s| Some(s.id.as_str()) != panel.active.as_deref())
+    {
         let mut tabs = row()
             .key("thread-terminal-tabs")
             .role("radiogroup")
