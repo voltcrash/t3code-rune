@@ -1530,7 +1530,7 @@ try {
       ) {
         void feed.scripts
           .save(request.project, request.key, request.input, feed.activeRpc, feed.controller.signal)
-          .then(() => reply({ type: "projectscriptsaved", watch: request.watch }))
+          .then((warning) => reply({ type: "projectscriptsaved", watch: request.watch, warning }))
           .catch((error) =>
             reply({
               type: "projectscriptsaved",

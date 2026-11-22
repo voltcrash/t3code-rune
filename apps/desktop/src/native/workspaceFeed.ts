@@ -89,12 +89,15 @@ export function watchWorkspace(
   const threads = rowsById(initial.view.threads);
   let configLoaded = initial.configLoaded;
   let legacyScripts = initial.legacyScripts;
-  const scripts = watchProjectScripts((id) => {
-    const project = projects.get(id);
-    return project && !project.archived && !project.scratch
-      ? (legacyScripts.get(id) ?? [])
-      : undefined;
-  });
+  const scripts = watchProjectScripts(
+    (id) => {
+      const project = projects.get(id);
+      return project && !project.archived && !project.scratch
+        ? (legacyScripts.get(id) ?? [])
+        : undefined;
+    },
+    () => legacyScripts,
+  );
   const git = watchWorkspaceGit(signal, session, (target) => {
     const thread = target.draft ? undefined : threads.get(target.target);
     const project = projects.get(target.draft ? target.target : (thread?.project ?? ""));

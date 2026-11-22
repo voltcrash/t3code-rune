@@ -1,24 +1,8 @@
-import { SCRIPT_RUN_COMMAND_PATTERN, type KeybindingCommand } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
-const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
-
-export function commandForProjectScript(scriptId: string): KeybindingCommand | null {
-  const command = `script.${scriptId}.run`;
-  return isScriptRunCommand(command) ? command : null;
-}
-
-export function projectScriptIdFromCommand(command: string): string | null {
-  const trimmed = command.trim();
-  if (!isScriptRunCommand(trimmed)) {
-    return null;
-  }
-  const [prefix, , suffix] = SCRIPT_RUN_COMMAND_PATTERN.parts;
-  return trimmed.slice(prefix.literal.length, -suffix.literal.length);
-}
-
 export {
   type ProjectScriptInput,
   buildProjectScript,
+  commandForProjectScript,
+  projectScriptIdFromCommand,
   releaseClaimedRoles,
   nextProjectScriptId,
   primaryProjectScript,

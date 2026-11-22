@@ -67,5 +67,6 @@
   "a86bc9608800b415": "Delete action",
   "2207c69b042b2e37": "This action cannot be undone.",
   "fc422bee601c7fc6": "Actions",
-  "3f11b46bf68f15b4": "Delete"
+  "3f11b46bf68f15b4": "Delete",
+  "096ed987f49a8b6a": "The action was deleted, but its keyboard shortcut could not be removed."
 }

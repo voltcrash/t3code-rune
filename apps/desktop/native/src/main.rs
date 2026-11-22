@@ -242,6 +242,7 @@ enum Reply {
     },
     ProjectScriptSaved {
         watch: u64,
+        warning: Option<String>,
         error: Option<String>,
     },
     ProjectScripts {
@@ -1055,8 +1056,13 @@ impl Desktop {
             self.receive_scripts(watch, &project, message.id, available, rows);
             return;
         }
-        if let Reply::ProjectScriptSaved { watch, error } = message.reply {
-            self.script_saved(watch, message.id, error);
+        if let Reply::ProjectScriptSaved {
+            watch,
+            error,
+            warning,
+        } = message.reply
+        {
+            self.script_saved(watch, message.id, error, warning);
             return;
         }
         if let Reply::Terminal {

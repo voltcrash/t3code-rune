@@ -1,8 +1,11 @@
 import { ProjectId, WS_METHODS, type ProjectScript, type ServerSettings } from "@t3tools/contracts";
-import { primaryProjectScript, resolveProjectScripts } from "@t3tools/shared/projectScripts";
-import type { ProjectScriptInput } from "@t3tools/shared/projectScripts";
+import {
+  primaryProjectScript,
+  resolveProjectScripts,
+  type ProjectScriptInput,
+} from "@t3tools/shared/projectScripts";
 import type { openEnvironmentRpc } from "./environmentRpc.ts";
-import { scriptSettingsPatch } from "./scriptMutations.ts";
+import { obsoleteScriptShortcuts, scriptSettingsPatch } from "./scriptMutations.ts";
 import * as Effect from "effect/Effect";
 import * as NodeUtil from "node:util";
 
@@ -14,13 +17,13 @@ type ScriptRow = {
   key: string;
   edit: string;
   run: string;
-
   primary: boolean;
   script: ProjectScript;
 };
 
 export function watchProjectScripts(
   projectScripts: (project: string) => readonly ProjectScript[] | undefined,
+  legacyProjects: () => ReadonlyMap<string, readonly ProjectScript[]>,
 ) {
   let settings: ServerSettings | undefined;
   let selected:
@@ -40,17 +43,21 @@ export function watchProjectScripts(
         : null;
     if (NodeUtil.isDeepStrictEqual(previous, scripts)) return;
     previous = scripts;
+    const prior = new Map([...byKey].map(([key, script]) => [script.id, { key, script }]));
     byKey.clear();
     const primary = primaryProjectScript(scripts ?? []);
     const rows = (scripts ?? []).map((script) => {
-      const key = String(++nextScriptKey);
+      const retained = prior.get(script.id);
+      const key =
+        retained && NodeUtil.isDeepStrictEqual(retained.script, script)
+          ? retained.key
+          : String(++nextScriptKey);
       byKey.set(key, script);
       return {
         key,
         script,
         edit: m(msg("Edit {name}", { name: script.name })),
         run: m(msg("Run {name}", { name: script.name })),
-
         primary: script === primary,
       };
     });
@@ -58,6 +65,7 @@ export function watchProjectScripts(
   }
   return {
     select(project: string, emit: NonNullable<typeof selected>["emit"]) {
+      byKey.clear();
       selected = { project, emit };
       previous = undefined;
       publish();
@@ -96,15 +104,30 @@ export function watchProjectScripts(
       }
       const patch = scriptSettingsPatch(
         config.settings,
-        config.environment.capabilities.projectSettingsOverrides === true,
         { id: ProjectId.make(project), scripts: legacy },
         original,
         input,
       );
-      await Effect.runPromise(
+      const saved = await Effect.runPromise(
         rpc[WS_METHODS.serverUpdateSettings]({ patch }).pipe(Effect.timeout("20 seconds")),
         { signal },
       );
+      if (input || !original) return;
+      for (const rule of obsoleteScriptShortcuts(
+        saved,
+        legacyProjects(),
+        config.keybindings,
+        original.id,
+      )) {
+        try {
+          await Effect.runPromise(
+            rpc[WS_METHODS.serverRemoveKeybinding](rule).pipe(Effect.timeout("20 seconds")),
+            { signal },
+          );
+        } catch {
+          return m(msg("The action was deleted, but its keyboard shortcut could not be removed."));
+        }
+      }
     },
     lookup(project: string, key: string) {
       return selected?.project === project ? byKey.get(key) : undefined;

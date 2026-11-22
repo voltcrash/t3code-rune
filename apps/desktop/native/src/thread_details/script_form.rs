@@ -45,6 +45,7 @@ pub(crate) struct Input {
 
 pub(in crate::workspace::thread_details) struct Form {
     key: Option<String>,
+    stored_name: String,
     name: TextEdit,
     command: TextEdit,
     preview: TextEdit,
@@ -59,6 +60,7 @@ impl Form {
     fn new(key: Option<&str>, stored: &Stored) -> Self {
         Self {
             key: key.map(str::to_owned),
+            stored_name: stored.name.clone(),
             name: TextEdit::new(&stored.name),
             command: TextEdit::new(&stored.command),
             preview: TextEdit::new(&stored.preview_url),
@@ -157,7 +159,13 @@ impl Desktop {
             f.error = None;
         }
     }
-    pub(crate) fn script_saved(&mut self, watch: u64, id: Option<u64>, error: Option<String>) {
+    pub(crate) fn script_saved(
+        &mut self,
+        watch: u64,
+        id: Option<u64>,
+        error: Option<String>,
+        warning: Option<String>,
+    ) {
         if self.workspace.feed != Some(watch) || id.is_none() {
             return;
         }
@@ -176,6 +184,9 @@ impl Desktop {
             form.confirming = false;
         } else {
             self.workspace.details.script_form = None;
+            if warning.is_some() {
+                self.error = warning;
+            }
         }
     }
 }
@@ -242,13 +253,14 @@ pub(crate) fn overlay(
     if f.confirming {
         dialog = dialog.child(
             label(
-                &format!("{} — {}", f.name.text, l.confirm),
+                &format!("{} — {}", f.stored_name, l.confirm),
                 14.,
                 400.,
                 theme.text_secondary,
             )
             .px(16.)
-            .wrap(),
+            .max_h((height - 170.).clamp(32., 92.))
+            .truncate(),
         );
     } else {
         dialog = dialog.child(
@@ -388,10 +400,15 @@ pub(crate) fn overlay(
                     ),
             );
         }
-        if let Some(err) = &f.error {
-            body = body.child(label(err, 13., 400., kit.c.danger.fg).wrap())
-        }
         dialog = dialog.child(body);
+    }
+    if let Some(error) = &f.error {
+        dialog = dialog.child(
+            label(error, 13., 400., kit.c.danger.fg)
+                .px(16.)
+                .max_h(42.)
+                .wrap(),
+        );
     }
     let mut footer = row().w_full().padding(16.).gap(8.);
     if f.key.is_some() && !f.confirming {

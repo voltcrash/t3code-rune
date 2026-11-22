@@ -1,11 +1,18 @@
-import { ProjectId, ProjectScript, type ServerSettings } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ProjectScript,
+  type ResolvedKeybindingsConfig,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import {
   buildProjectScript,
+  commandForProjectScript,
   nextProjectScriptId,
   releaseClaimedRoles,
   resolveProjectScripts,
   type ProjectScriptInput,
 } from "@t3tools/shared/projectScripts";
+import { keybindingValueForCommand } from "@t3tools/shared/keybindings";
 import * as Schema from "effect/Schema";
 import * as NodeUtil from "node:util";
 import { msg } from "gt-i18n";
@@ -15,7 +22,6 @@ const isProjectScript = Schema.is(ProjectScript);
 
 export function scriptSettingsPatch(
   settings: ServerSettings,
-  supportsOverrides: boolean,
   project: { id: ProjectId; scripts: readonly ProjectScript[] },
   original: ProjectScript | undefined,
   input: ProjectScriptInput | null,
@@ -51,14 +57,43 @@ export function scriptSettingsPatch(
   } else {
     updated = scripts.filter((s) => s.id !== original?.id);
   }
-  return supportsOverrides
-    ? {
-        projectSettingsOverrides: {
-          [project.id]: {
-            ...settings.projectSettingsOverrides[project.id],
-            defaultProjectScripts: updated,
-          },
-        },
-      }
-    : { projectScriptOverrides: { [project.id]: updated } };
+  // The server merges this field into the current project override under its settings lock.
+  return { projectScriptOverrides: { [project.id]: updated } };
+}
+
+export function obsoleteScriptShortcuts(
+  settings: ServerSettings,
+  legacy: ReadonlyMap<string, readonly ProjectScript[]>,
+  bindings: ResolvedKeybindingsConfig,
+  id: string,
+) {
+  const command = commandForProjectScript(id);
+  if (!command || !bindings.some((rule) => rule.command === command && !rule.whenAst)) return [];
+  const usesId = (scripts: readonly ProjectScript[]) => scripts.some((s) => s.id === id);
+  if (
+    usesId(settings.defaultProjectScripts) ||
+    Object.values(settings.projectSettingsOverrides).some((entry) =>
+      usesId(entry.defaultProjectScripts ?? []),
+    )
+  )
+    return [];
+  if (!settings.projectSettingsFolded) {
+    const ids = new Set([...legacy.keys(), ...Object.keys(settings.projectScriptOverrides)]);
+    for (const project of ids) {
+      if (
+        usesId(
+          resolveProjectScripts(settings, {
+            id: ProjectId.make(project),
+            scripts: legacy.get(project) ?? [],
+          }),
+        )
+      )
+        return [];
+    }
+  }
+  return bindings.flatMap((rule) => {
+    if (rule.command !== command || rule.whenAst) return [];
+    const key = keybindingValueForCommand([rule], command);
+    return key ? [{ key, command }] : [];
+  });
 }

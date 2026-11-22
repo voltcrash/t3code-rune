@@ -2,7 +2,6 @@ import {
   KeybindingRule as KeybindingRuleSchema,
   type KeybindingCommand,
   type KeybindingRule,
-  type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { msg } from "gt-react";
@@ -41,29 +40,4 @@ export function decodeProjectScriptKeybindingRule(input: {
   return decoded.value;
 }
 
-export function keybindingValueForCommand(
-  keybindings: ResolvedKeybindingsConfig,
-  command: KeybindingCommand | null,
-): string | null {
-  if (command === null) return null;
-  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
-    const binding = keybindings[index];
-    if (!binding || binding.command !== command) continue;
-
-    const parts: string[] = [];
-    if (binding.shortcut.modKey) parts.push("mod");
-    if (binding.shortcut.ctrlKey) parts.push("ctrl");
-    if (binding.shortcut.metaKey) parts.push("meta");
-    if (binding.shortcut.altKey) parts.push("alt");
-    if (binding.shortcut.shiftKey) parts.push("shift");
-    const keyToken =
-      binding.shortcut.key === " "
-        ? "space"
-        : binding.shortcut.key === "escape"
-          ? "esc"
-          : binding.shortcut.key;
-    parts.push(keyToken);
-    return parts.join("+");
-  }
-  return null;
-}
+export { keybindingValueForCommand } from "@t3tools/shared/keybindings";
