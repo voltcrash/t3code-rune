@@ -57,7 +57,8 @@ impl Source {
         for line in contents.split('\n') {
             lines.push(start);
             let mut offset = 0;
-            while attachment && line.len() - offset > SOURCE_ROW_BYTES {
+            let visible = line.strip_suffix('\r').unwrap_or(line);
+            while attachment && visible.len() - offset > SOURCE_ROW_BYTES {
                 offset = line.floor_char_boundary(offset + SOURCE_ROW_BYTES);
                 continuations.push(lines.len());
                 lines.push(start + offset);
@@ -551,6 +552,11 @@ mod tests {
                 assert_eq!(source.line_number(1), None);
             }
         }
+        let boundary = format!("{}\r\nend", "🎨".repeat(1024));
+        let source = Source::new("note.txt", boundary.clone(), false, true);
+        assert_eq!(source.contents, boundary);
+        assert_eq!(source.lines.len(), 2);
+        assert_eq!(source.line(0).len(), SOURCE_ROW_BYTES);
         let text = format!("{}\r\nend", "🎨".repeat(1100));
         let source = Source::new("note.txt", text, false, true);
         assert_eq!(source.line_number(1), None);
