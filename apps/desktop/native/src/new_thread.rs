@@ -343,7 +343,8 @@ pub(super) fn view(
     overlays: &mut Vec<El>,
 ) -> El {
     let (project, title, scratch) = (record.id.as_str(), record.title.as_str(), record.scratch);
-    let kit = &s.contrast.kit(s.dark(cx));
+    let dark = s.dark(cx);
+    let kit = &s.contrast.kit(dark);
     let width = cx
         .layout_size("thread-titlebar")
         .map_or(840., |size| size[0]);
@@ -456,7 +457,9 @@ pub(super) fn view(
         ));
     }
     controls = controls.child(spacer());
-    controls = controls.child(model).child(composer::send_button(
+    controls = controls.child(model).child(s.send_button(
+        cx,
+        theme,
         if draft.uncertain {
             "Retry launch"
         } else {
@@ -554,10 +557,9 @@ pub(super) fn view(
     }
     let list = target.list(&draft.files, theme, locked);
     let surface = composer::surface(
-        s.chat_width.lane(col()).key("composer-new-thread"),
+        s.composer_card(theme, dark).key("composer-new-thread"),
         field,
         controls,
-        theme,
         list,
         Some(footer),
         lane,

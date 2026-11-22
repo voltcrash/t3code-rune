@@ -1,6 +1,9 @@
 use super::workspace::Conversation;
 use super::{Desktop, Request, Workspace};
-use rune::{El, TextEdit, TextStyle, auto_grow, col, el, row, spacer, text, text_input, tok};
+use rune::{
+    Color, Cx, El, Icon, Shadow, TextEdit, TextStyle, auto_grow, col, el, icon, row, spacer,
+    text_input, tok,
+};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -269,7 +272,9 @@ pub(super) fn view(
         .expect("composer has a conversation");
     let guarded = matches!(pane.stop_feedback, Some(StopFeedback::Landed(_)));
     let empty = draft.editor.text.trim().is_empty() && draft.files.is_empty();
-    let send = send_button(
+    let send = s.send_button(
+        cx,
+        theme,
         "Send message",
         !s.pending && !empty && !guarded,
         Desktop::send_message,
@@ -345,10 +350,9 @@ pub(super) fn view(
     };
     target.drop_area(
         surface(
-            s.chat_width.lane(col()).key(format!("composer-{id}")),
+            s.composer_card(theme, dark).key(format!("composer-{id}")),
             field,
             controls,
-            theme,
             list,
             None,
             lane,
@@ -357,25 +361,87 @@ pub(super) fn view(
     )
 }
 
-pub(super) fn send_button(caption: &str, enabled: bool, run: fn(&mut Desktop)) -> El {
-    let send = el()
-        .key("send-message")
-        .label(caption)
-        .role("button")
-        .help(caption)
-        .size(32.0, 32.0)
-        .radius(16.0)
-        .center()
-        .fill(rune::oklch(0.56, 0.19, 259.0))
-        .child(
-            text("↑")
-                .font(TextStyle::new(18.0, 600.0))
-                .color(rune::Color::WHITE),
-        );
-    if !enabled {
-        send.disabled(true).opacity(0.5)
-    } else {
-        send.focusable(true).on_press(run)
+const SEND_ARROW: Icon = Icon {
+    name: "submit-message",
+    view: 14.,
+    body: r#"<path d="M7 11.5v-9m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+impl Desktop {
+    pub(super) fn send_button(
+        &self,
+        cx: &Cx<Self>,
+        theme: &tok::Theme,
+        caption: &str,
+        enabled: bool,
+        run: fn(&mut Desktop),
+    ) -> El {
+        let dark = self.dark(cx);
+        let size = if cx
+            .layout_size("workspace")
+            .is_some_and(|[width, _]| width < 640.)
+        {
+            36.
+        } else {
+            32.
+        };
+        let button = el()
+            .key("send-message")
+            .label(caption)
+            .role("button")
+            .help(caption)
+            .size(size, size)
+            .radius(size / 2.)
+            .center()
+            .child(icon(&SEND_ARROW, 14.).color(if enabled {
+                Color::WHITE
+            } else {
+                theme.text_secondary
+            }));
+        if !enabled {
+            return button.disabled(true).fill(theme.text.alpha(0.12));
+        }
+        let accent = if dark {
+            rune::oklch(0.571, 0.21, 264.)
+        } else {
+            rune::oklch(0.488, 0.217, 264.)
+        };
+        button
+            .fill(accent)
+            .hover(accent.mix(theme.bg, 0.1))
+            .shadow(1., 2., accent.alpha(0.24))
+            .box_shadow(Shadow {
+                y: 1.,
+                inset: true,
+                color: Color::WHITE.alpha(0.16),
+                ..Shadow::default()
+            })
+            .focusable(true)
+            .on_press(run)
+    }
+
+    pub(super) fn composer_card(&self, theme: &tok::Theme, dark: bool) -> El {
+        let card = self.chat_width.lane(col()).radius(16.);
+        if dark {
+            card.fill(rune::color::hex("#111111").unwrap().alpha(0.8))
+                .border(
+                    1.,
+                    self.contrast.border(Color::WHITE.alpha(0.05), theme.text),
+                )
+                .box_shadow(Shadow {
+                    y: 1.,
+                    inset: true,
+                    color: Color::WHITE.alpha(0.03),
+                    ..Shadow::default()
+                })
+        } else {
+            card.fill(Color::WHITE.alpha(0.8))
+                .border(
+                    1.,
+                    self.contrast.border(Color::BLACK.alpha(0.08), theme.text),
+                )
+                .shadow(1., 2., Color::BLACK.alpha(0.05))
+        }
     }
 }
 
@@ -383,21 +449,22 @@ pub(super) fn surface(
     column: El,
     field: El,
     controls: El,
-    theme: &tok::Theme,
     list: Option<El>,
     footer: Option<El>,
     lane: crate::workspace::thread_details::Lane,
 ) -> El {
+    let input = auto_grow(field.padding(4.).min_h(53.5), 2, 7)
+        .w_full()
+        .px(4.)
+        .min_h(53.5)
+        .max_h(144.);
     let surface = column
-        .radius(16.0)
-        .border(1.0, theme.separator)
-        .fill(theme.text.alpha(0.055))
-        .px(12.0)
-        .pt(14.0)
-        .pb(8.0)
-        .gap(7.0)
-        .children(list)
-        .child(auto_grow(field, 2, 7).w_full().min_h(46.0).max_h(144.0))
+        .px(9.)
+        .pt(13.)
+        .pb(9.)
+        .gap(4.)
+        .children(list.map(|files| files.px(3.)))
+        .child(input)
         .child(controls);
     lane.pad(col().w_full())
         .pt(8.0)
