@@ -1,5 +1,7 @@
 import {
+  EnvironmentAuthorizationError,
   EnvironmentId,
+  UsageReadError,
   USAGE_CONTRACT_VERSION,
   WS_METHODS,
   type UsageSummary,
@@ -83,5 +85,34 @@ it("shows restricted usage without reading diagnostics or refreshing rates", () 
     expect(read).not.toHaveBeenCalled();
   } finally {
     signal.abort();
+  }
+});
+
+it("distinguishes retryable read failures from a server denying diagnostics after reconnect", async () => {
+  const lifetime = new AbortController();
+  type Reply = Parameters<Parameters<typeof watchUsageTotals>[2]>[0];
+  let result = Promise.withResolvers<Reply>();
+  const feed = watchUsageTotals(owner, lifetime.signal, (reply) => {
+    if (!reply.loading) result.resolve(reply);
+  });
+  const connect = (error: UsageReadError | EnvironmentAuthorizationError) =>
+    feed.configure(settings, {
+      [WS_METHODS.serverGetUsageSummary]: () => Effect.fail(error),
+      [WS_METHODS.serverRefreshUsageRates]: () => Effect.never,
+    });
+  try {
+    feed.select(1, 7);
+    connect(new UsageReadError({ reason: "scanFailed", detail: "Temporary failure" }));
+    expect(await result.promise).toMatchObject({ selection: 1, retryable: true });
+    feed.configure(undefined, undefined);
+    result = Promise.withResolvers<Reply>();
+    connect(
+      new EnvironmentAuthorizationError({ message: "Denied", requiredScope: "diagnostics:read" }),
+    );
+    const denied = await result.promise;
+    expect(denied.restricted).toBe(true);
+    expect(denied.retryable).toBeUndefined();
+  } finally {
+    lifetime.abort();
   }
 });

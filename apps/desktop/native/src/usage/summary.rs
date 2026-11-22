@@ -123,6 +123,8 @@ pub(crate) struct Reply {
     loading: bool,
     #[serde(default)]
     restricted: bool,
+    #[serde(default)]
+    retryable: bool,
     data: Option<Totals>,
     error: Option<String>,
 }
@@ -207,7 +209,10 @@ impl Summary {
                 data.models.sort_by(|a, b| b.price.total_cmp(&a.price));
             }
         }
-        if reply.data.is_none() && reply.loading && !reply.restricted && reply.error.is_none() {
+        if reply.data.is_none()
+            && !reply.restricted
+            && (reply.retryable || (reply.loading && reply.error.is_none()))
+        {
             reply.data = self.reply.as_mut().and_then(|r| r.data.take());
         }
         self.reply = Some(reply);
@@ -833,6 +838,19 @@ mod tests {
         publish(&mut desktop, waiting.clone());
         assert!(has_data(&desktop));
         assert!(!desktop.workspace.usage.summary.ready());
+
+        let failed =
+            json!({"selection":0, "loading":false, "retryable":true, "error":"Read failed"});
+        publish(&mut desktop, failed);
+        assert!(
+            has_data(&desktop),
+            "a failed read after reconnect keeps the chart"
+        );
+        publish(&mut desktop, waiting.clone());
+        assert!(
+            has_data(&desktop),
+            "the same chart survives a second disconnect"
+        );
 
         desktop.select_usage_period(1);
         publish(&mut desktop, waiting.clone());

@@ -2,6 +2,7 @@ import * as NodeUtil from "node:util";
 import { getProviderClient } from "@t3tools/client-runtime/provider-clients";
 import { usageSummaryInput } from "@t3tools/client-runtime/state/usage";
 import {
+  EnvironmentAuthorizationError,
   USAGE_CONTRACT_VERSION,
   WS_METHODS,
   type ServerConfig,
@@ -25,10 +26,13 @@ import { formatUsageContractMismatch, usageSourceMessages } from "@t3tools/share
 import { isModelCostUnknown, mergeUsage } from "@t3tools/shared/usageMerge";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { msg } from "gt-i18n";
 import { currentLanguage, m, onLocaleChange } from "../i18n/catalog.ts";
 import type { openEnvironmentRpc } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
+
+const isAuthorizationError = Schema.is(EnvironmentAuthorizationError);
 
 type EnvironmentRpc = Effect.Success<ReturnType<typeof openEnvironmentRpc>>;
 type Rpc = Pick<EnvironmentRpc, typeof WS_METHODS.serverRefreshUsageRates> & {
@@ -208,6 +212,7 @@ export function watchUsageTotals(
     error?: string;
     loading: boolean;
     restricted?: boolean;
+    retryable?: boolean;
   }) => void,
 ) {
   let rpc: Rpc | undefined;
@@ -219,17 +224,21 @@ export function watchUsageTotals(
     request?.abort();
     request = undefined;
   };
+  const restrict = (selection: number) => {
+    last = undefined;
+    emit({
+      selection,
+      loading: false,
+      restricted: true,
+      error: m(msg("This connection does not have access to diagnostics and usage.")),
+    });
+  };
   const read = async (refresh: boolean) => {
     stop();
     if (!selected || lifetime.aborted) return;
     const selection = selected.id;
     if (!owner.canReadDiagnostics) {
-      emit({
-        selection,
-        loading: false,
-        restricted: true,
-        error: m(msg("This connection does not have access to diagnostics and usage.")),
-      });
+      restrict(selection);
       return;
     }
     const connected = rpc;
@@ -265,8 +274,9 @@ export function watchUsageTotals(
       if (!refresh) {
         try {
           value = await get({ provisional: true });
-        } catch {
+        } catch (error) {
           if (!fresh()) return;
+          if (isAuthorizationError(error)) throw error;
         }
       }
       if (!fresh()) return;
@@ -281,14 +291,19 @@ export function watchUsageTotals(
         last = { summary: value, window };
         emit({ selection, loading: false, ...totals(owner, last) });
       }
-    } catch {
-      if (fresh())
-        emit({
-          selection,
-          loading: false,
-          ...(last && totals(owner, last)),
-          error: m(msg("Couldn’t load usage. Try again.")),
-        });
+    } catch (error) {
+      if (!fresh()) return;
+      if (isAuthorizationError(error)) {
+        restrict(selection);
+        return;
+      }
+      emit({
+        selection,
+        loading: false,
+        retryable: !last,
+        ...(last && totals(owner, last)),
+        error: m(msg("Couldn’t load usage. Try again.")),
+      });
     } finally {
       if (request === job) request = undefined;
     }
