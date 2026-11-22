@@ -54,23 +54,25 @@ const readImageBytes = Effect.fn("nativeDesktop.readImageBytes")(function* (
   return Buffer.concat(chunks, size).toString("base64");
 });
 
-export const readRegistryIcon = Effect.fn("nativeDesktop.readRegistryIcon")(function* (
-  url: string,
-) {
-  if (resolveOfficialAcpRegistryIconUrl(url) !== url) return null;
-  const client = yield* HttpClient.HttpClient;
-  const response = yield* client.get(url).pipe(
-    Effect.provideService(FetchHttpClient.RequestInit, {
-      redirect: "error",
-      credentials: "omit",
-      referrerPolicy: "no-referrer",
-    }),
-  );
-  if (
-    response.status < 200 ||
-    response.status >= 300 ||
-    !response.headers["content-type"]?.toLowerCase().startsWith("image/")
-  )
-    return null;
-  return yield* readImageBytes(response, 512 * 1024);
-}, Effect.provide(FetchHttpClient.layer));
+export const readRegistryIcon = Effect.fn("nativeDesktop.readRegistryIcon")(
+  function* (url: string) {
+    if (resolveOfficialAcpRegistryIconUrl(url) !== url) return null;
+    const client = HttpClient.withScope(yield* HttpClient.HttpClient);
+    const response = yield* client.get(url).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, {
+        redirect: "error",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+      }),
+    );
+    if (
+      response.status < 200 ||
+      response.status >= 300 ||
+      !response.headers["content-type"]?.toLowerCase().startsWith("image/")
+    )
+      return null;
+    return yield* readImageBytes(response, 512 * 1024);
+  },
+  Effect.scoped,
+  Effect.provide(FetchHttpClient.layer),
+);

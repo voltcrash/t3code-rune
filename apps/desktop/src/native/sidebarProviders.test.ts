@@ -43,3 +43,21 @@ it.effect("limits an icon whose response omits its size", () =>
     expect(result._tag).toBe("ImageTooLarge");
   }),
 );
+
+it.effect("releases rejected responses before returning the image transfer slot", () =>
+  Effect.gen(function* () {
+    for (const init of [
+      { status: 404, headers: { "content-type": "image/png" } },
+      { headers: { "content-type": "text/plain" } },
+      { headers: { "content-type": "image/png", "content-length": "524289" } },
+    ]) {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(new ReadableStream(), init));
+      yield* Effect.result(readRegistryIcon(url)).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, request),
+      );
+      expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    }
+  }),
+);
