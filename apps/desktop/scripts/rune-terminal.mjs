@@ -341,7 +341,7 @@ export function openTerminal(watch, request, write, resolveScript) {
     },
     { once: true },
   );
-  const resume = !request.script && Boolean(rememberedId);
+  const discover = !request.script && (!operable || Boolean(rememberedId));
   const firstSnapshot = Promise.withResolvers();
   const metadata = Effect.gen(function* () {
     if (!owner.canReadTerminal) return;
@@ -369,12 +369,11 @@ export function openTerminal(watch, request, write, resolveScript) {
           rows.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
           if (
             !published &&
-            (!operable || resume) &&
+            discover &&
             !request.terminalId &&
-            rows.length &&
             !rows.some((row) => row.id === id.terminalId)
           )
-            id.terminalId = rows[0].id;
+            id.terminalId = rows[0]?.id ?? DEFAULT_TERMINAL_ID;
           if (watch.lastTerminal && !rows.some((row) => row.id === watch.lastTerminal))
             watch.lastTerminal = undefined;
           firstSnapshot.resolve();
@@ -396,7 +395,7 @@ export function openTerminal(watch, request, write, resolveScript) {
       send(data, true),
     );
     selection = new GhosttySelection(core);
-    if (!operable || resume) yield* Effect.promise(() => firstSnapshot.promise);
+    if (discover) yield* Effect.promise(() => firstSnapshot.promise);
     if (request.terminalId && !watch.sessions?.some((s) => s.terminalId === request.terminalId)) {
       status = "closed";
       invalidate();
@@ -412,6 +411,8 @@ export function openTerminal(watch, request, write, resolveScript) {
       invalidate();
       return;
     }
+    const resume =
+      !request.script && (Boolean(request.terminalId) || id.terminalId !== DEFAULT_TERMINAL_ID);
     const stream = operable
       ? rpc[WS_METHODS.terminalAttach]({
           ...id,

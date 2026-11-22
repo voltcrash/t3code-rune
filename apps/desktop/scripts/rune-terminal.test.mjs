@@ -96,3 +96,27 @@ it("reopens a remembered script terminal with its exit status and scrollback", a
     exited.history,
   );
 });
+
+it.each([
+  ["term-1", ["term-1"]],
+  ["term-2", []],
+])("opens a usable default shell when reopening %s with sessions %j", async (lastTerminal, ids) => {
+  const attached = Promise.withResolvers();
+  using panel = drawer(
+    {
+      [WS_METHODS.subscribeTerminalMetadata]: () =>
+        Stream.make({
+          type: "snapshot",
+          terminals: ids.map((terminalId) => ({ threadId: "thread", terminalId, label: "Shell" })),
+        }).pipe(Stream.concat(Stream.never)),
+      [WS_METHODS.terminalAttach]: (input) => {
+        attached.resolve(input);
+        return Stream.never;
+      },
+    },
+    true,
+  );
+  panel.watch.lastTerminal = lastTerminal;
+  panel.open(() => {});
+  expect(await attached.promise).toMatchObject({ terminalId: "term-1", restartIfNotRunning: true });
+});
