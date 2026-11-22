@@ -52,6 +52,9 @@ enum Reply {
         #[serde(flatten)]
         result: updates::Result,
     },
+    SystemAppearance {
+        dark: bool,
+    },
     WindowZoom {
         factor: f64,
     },
@@ -513,6 +516,7 @@ struct Desktop {
     zoom: window_zoom::WindowZoom,
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
+    system_dark: Option<bool>,
     font_smoothing: Option<bool>,
     saving_client_appearance: bool,
     chat_width: appearance::ChatWidth,
@@ -563,6 +567,7 @@ impl Desktop {
             sidebar_layout: Default::default(),
             answer_advance: None,
             appearance: Default::default(),
+            system_dark: cfg!(target_os = "linux").then_some(false),
             font_smoothing: None,
             saving_client_appearance: false,
             chat_width: Default::default(),
@@ -612,6 +617,7 @@ impl Desktop {
             request_id: self.request_id,
             sidebar_layout: self.sidebar_layout,
             appearance: self.appearance,
+            system_dark: self.system_dark,
             font_smoothing: self.font_smoothing,
             saving_client_appearance: self.saving_client_appearance,
             chat_width: self.chat_width,
@@ -628,6 +634,8 @@ impl Desktop {
         *self = Self {
             #[cfg(target_os = "linux")]
             frame: self.frame,
+            system_dark: self.system_dark,
+            appearance: self.appearance,
             ..Self::new()
         };
     }
@@ -807,6 +815,10 @@ impl Desktop {
         }
         if let Reply::WindowZoom { factor } = message.reply {
             self.zoom.restore(factor);
+            return;
+        }
+        if let Reply::SystemAppearance { dark } = message.reply {
+            self.system_dark = Some(dark);
             return;
         }
         if let Reply::Appearance { mode, error } = message.reply {
@@ -1150,6 +1162,7 @@ impl Desktop {
             | Reply::PairingOffer { .. }
             | Reply::ReleaseCheck { .. }
             | Reply::WindowZoom { .. }
+            | Reply::SystemAppearance { .. }
             | Reply::Appearance { .. }
             | Reply::RefreshFavicons { .. }
             | Reply::WorkspacePaused { .. }

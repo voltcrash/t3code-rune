@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { vi } from "vite-plus/test";
 
-import type { LinuxColorScheme } from "./LinuxColorScheme.ts";
+import type { LinuxColorScheme } from "../app/LinuxColorScheme.ts";
 
 const { nativeTheme } = vi.hoisted(() => ({
   nativeTheme: { themeSource: "system" as "system" | "light" | "dark" },

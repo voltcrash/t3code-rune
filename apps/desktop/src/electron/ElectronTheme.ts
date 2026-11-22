@@ -8,7 +8,7 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
-import { watchLinuxColorScheme, type LinuxColorScheme } from "./LinuxColorScheme.ts";
+import { watchLinuxColorScheme, type LinuxColorScheme } from "../app/LinuxColorScheme.ts";
 
 export class ElectronThemeSetSourceError extends Schema.TaggedError<ElectronThemeSetSourceError>()(
   "ElectronThemeSetSourceError",
