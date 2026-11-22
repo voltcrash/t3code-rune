@@ -89,7 +89,8 @@ and `aarch64-pc-windows-gnullvm`.
 
 The installed app opens the existing T3 home in `~/.t3`. If only an earlier Rune package has
 a `userdata` directory, it continues using `~/.t3/rune`. Set `T3CODE_HOME` to open a specific
-profile when both exist. With the default home, the app also reads earlier Rune desktop settings
+profile when both exist. Quit the installed Windows app before switching homes so browser links
+open in the running profile. With the default home, the app also reads earlier Rune desktop settings
 if the selected profile has no desktop settings file. Quit the server currently using that profile before starting the app,
 or paste a pairing link to use the running server. Source builds keep using checkout-local data.
 
