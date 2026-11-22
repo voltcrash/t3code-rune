@@ -19,6 +19,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopAssets from "./DesktopAssets.ts";
+import { renderUrlHandlerDesktopEntry } from "./linuxDesktopEntry.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 
 interface RecordedRegistration {
@@ -185,10 +186,10 @@ const emptyRecording = (): RecordedRegistration => ({
 
 describe("DesktopLinuxUrlHandler", () => {
   it("renders a scheme-handler desktop entry with freedesktop Exec quoting", () => {
-    const entry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+    const entry = renderUrlHandlerDesktopEntry({
       displayName: "T3 Code (Nightly)",
       execTarget: '/home/al ice/Apps/T3 "100%" $HOME\\x.AppImage',
-      scheme: "t3code",
+      schemes: ["t3code", "t3code-dev"],
       iconPath: "/home/al ice/icons/T3\\x.png",
     });
 
@@ -196,11 +197,11 @@ describe("DesktopLinuxUrlHandler", () => {
     assert.include(entry, "Name=T3 Code (Nightly)");
     assert.include(
       entry,
-      'Exec="/home/al ice/Apps/T3 \\\\"100%%\\\\" \\\\$HOME\\\\\\\\x.AppImage" %U',
+      'Exec=/usr/bin/env -- "/home/al ice/Apps/T3 \\\\"100%%\\\\" \\\\$HOME\\\\\\\\x.AppImage" %U',
     );
     assert.include(entry, "NoDisplay=true");
     assert.notInclude(entry, "StartupWMClass=");
-    assert.include(entry, "MimeType=x-scheme-handler/t3code;");
+    assert.include(entry, "MimeType=x-scheme-handler/t3code;x-scheme-handler/t3code-dev;");
     assert.include(entry, "Icon=/home/al ice/icons/T3\\\\x.png");
   });
 
@@ -218,10 +219,10 @@ describe("DesktopLinuxUrlHandler", () => {
   ])("finds the launch path an update from $from to $to removed", ({ from, to, restored }) => {
     for (const dir of ["/home/alice/Applications", '/home/al ice/My "100%" $Apps\\x']) {
       const previous = dir + "/" + from;
-      const previousEntry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+      const previousEntry = renderUrlHandlerDesktopEntry({
         displayName: "T3 Code (Beta)",
         execTarget: previous,
-        scheme: "t3code",
+        schemes: ["t3code"],
       });
       assert.equal(
         DesktopLinuxUrlHandler.replacedVersionedAppImagePath({
@@ -274,10 +275,10 @@ describe("DesktopLinuxUrlHandler", () => {
 
       assert.include(
         recorded.files[0]?.content,
-        DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+        renderUrlHandlerDesktopEntry({
           displayName: "T3 Code (Alpha)",
           execTarget: process.execPath,
-          scheme: "t3code",
+          schemes: ["t3code"],
           iconPath: "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png",
         }),
       );
@@ -301,10 +302,10 @@ describe("DesktopLinuxUrlHandler", () => {
 
     return Effect.gen(function* () {
       yield* runRegister(recorded, {
-        existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+        existingEntry: renderUrlHandlerDesktopEntry({
           displayName: "T3 Code (Alpha)",
           execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
+          schemes: ["t3code"],
           iconPath: "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png",
         }),
       });
@@ -330,10 +331,10 @@ describe("DesktopLinuxUrlHandler", () => {
     return Effect.gen(function* () {
       yield* runRegister(recorded, {
         iconSource: "/tmp/.mount_T3/resources/icon.png",
-        existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+        existingEntry: renderUrlHandlerDesktopEntry({
           displayName: "T3 Code (Alpha)",
           execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
+          schemes: ["t3code"],
           iconPath,
         }),
       });

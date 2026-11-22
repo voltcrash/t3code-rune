@@ -563,7 +563,12 @@ async function buildRunePackage() {
       NodePath.join(app, entry),
       desktopEntry
         .replace(/^Name=.*$/m, `Name=${product}`)
-        .replace(/^Exec=.*$/m, `Exec=${binaryName}`)
+        .replace(
+          /^Exec=.*$/m,
+          linuxUpdate
+            ? `Exec=${binaryName} %U\nMimeType=x-scheme-handler/t3code;x-scheme-handler/t3code-dev;`
+            : `Exec=${binaryName}`,
+        )
         .replace(/^Icon=.*$/m, `Icon=${desktopId}`)
         .replace(
           /^StartupWMClass=.*$/m,

@@ -40,6 +40,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 rustix = { version = "1", features = ["fs"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+blake3 = "1"
 close_fds = "0.3"
 x11rb = { version = "0.13.2", features = ["cursor", "xinput"] }
 

@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ThreadId,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
@@ -56,6 +57,11 @@ import {
 
 const packaged = process.argv[2] === "--packaged";
 const sourceBuild = process.argv[2] === "--source-build";
+if (packaged && process.env.APPIMAGE && Effect.runSync(HostProcess.Platform) === "linux") {
+  void import("./rune-appimage-links.mjs")
+    .then(({ registerAppImageLinks }) => registerAppImageLinks(import.meta.dirname, process.env))
+    .catch(() => process.stderr.write("Couldn’t register AppImage pairing links.\n"));
+}
 const currentVersion = import.meta.t3codeVersion ?? desktopPackage.version;
 const buildStage = resolveDesktopAppStageLabel({
   isDevelopment: !packaged && !sourceBuild,

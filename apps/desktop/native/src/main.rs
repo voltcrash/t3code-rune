@@ -1345,6 +1345,27 @@ fn product_name() -> &'static str {
     option_env!("T3CODE_RUNE_PRODUCT_NAME").unwrap_or("T3 Code")
 }
 
+#[cfg(target_os = "linux")]
+fn claim_linux_instance() -> io::Result<bool> {
+    let mut id = format!("com.t3tools.T3Code.{}", product_name());
+    let home = std::env::var("T3CODE_HOME").unwrap_or_default();
+    if !home.trim().is_empty() {
+        // Match the worker's path.resolve, including .. through a nonexistent directory.
+        let mut path = std::path::PathBuf::new();
+        for component in std::path::absolute(home.trim())?.components() {
+            if component == std::path::Component::ParentDir {
+                path.pop();
+            } else {
+                path.push(component);
+            }
+        }
+        let hash = blake3::hash(path.as_os_str().as_encoded_bytes()).to_hex();
+        id.push('-');
+        id.push_str(&hash[..16]);
+    }
+    Ok(rune::single_instance(&id))
+}
+
 fn packaged_runtime() -> io::Result<Option<(std::path::PathBuf, std::path::PathBuf)>> {
     #[cfg(target_os = "macos")]
     let package = {
@@ -1492,6 +1513,15 @@ fn start() -> io::Result<()> {
         close_fds::set_fds_cloexec(3, &[]);
     }
     let launch_check = launch_check::LaunchCheck::requested()?;
+    #[cfg(target_os = "linux")]
+    if launch_check.is_none()
+        && package
+            .as_ref()
+            .is_some_and(|(_, resources)| resources.join("rune-release.json").is_file())
+        && !claim_linux_instance()?
+    {
+        return Ok(());
+    }
     let mut worker = worker_command(mode, package)?;
     #[cfg(target_os = "windows")]
     {
@@ -1726,6 +1756,10 @@ fn start() -> io::Result<()> {
                 handle.close();
                 continue;
             }
+            #[cfg(target_os = "linux")]
+            if matches!(&reply.reply, Reply::PairingOffer { .. }) {
+                handle.open();
+            }
             handle.update(move |s, tx| {
                 #[cfg(target_os = "linux")]
                 if let Reply::MenuAction { action } = reply.reply {
@@ -1825,6 +1859,8 @@ fn start() -> io::Result<()> {
     let (status, restart) = reader
         .join()
         .map_err(|_| io::Error::other("The desktop worker reader stopped unexpectedly."))??;
+    #[cfg(target_os = "linux")]
+    rune::release_instance();
     result.map_err(io::Error::other)?;
     if !status.success() {
         return Err(io::Error::other(format!(

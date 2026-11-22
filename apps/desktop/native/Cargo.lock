@@ -3377,6 +3377,7 @@ version = "0.1.0"
 dependencies = [
  "avif-rust",
  "base64",
+ "blake3",
  "close_fds",
  "ctrlc",
  "fontique",
