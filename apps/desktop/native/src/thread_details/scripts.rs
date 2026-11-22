@@ -1,23 +1,122 @@
-use super::{ContextAction, Desktop, El, Menu, MenuItem, glyphs, label};
+use super::{ContextAction, Desktop, El, Menu, MenuItem, Request, glyphs, label};
 use rune::{Tx, el, icon, row, tok};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub(crate) struct Script {
     key: String,
-    name: String,
+    edit: String,
     run: String,
     primary: bool,
+    script: Stored,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Stored {
+    name: String,
+    command: String,
     icon: String,
+    preview_url: String,
+    run_on_worktree_create: bool,
+    run_on_settle: bool,
+    stop_on_settle: bool,
+    r#async: Option<bool>,
+    auto_open_preview: bool,
+}
+
+pub(super) struct Catalog {
+    watch: u64,
+    project: String,
+    request: u64,
+    available: bool,
+    rows: Vec<Script>,
 }
 
 impl Desktop {
+    fn script_target(&self) -> Option<(u64, &str)> {
+        self.workspace
+            .details
+            .settings
+            .as_ref()
+            .filter(|s| s.scripts)?;
+        let (draft, target) = self.details_target()?;
+        let project = self.workspace.project(if draft {
+            target
+        } else {
+            &self.workspace.visible_thread()?.project
+        })?;
+        (!project.scratch).then_some((self.workspace.feed?, &project.id))
+    }
+    pub(crate) fn sync_project_scripts(&mut self) -> bool {
+        let next = self.script_target();
+        let old = self.workspace.details.scripts.as_ref();
+        if next == old.map(|c| (c.watch, c.project.as_str())) {
+            return false;
+        }
+        let next = next.map(|(w, p)| (w, p.to_owned()));
+        let previous = old.map(|c| c.watch);
+        self.workspace.details.script_form = None;
+        self.workspace.details.scripts = None;
+        if let Some((watch, project)) = next {
+            let request = self.next_request_id();
+            if self.write_request(
+                Some(request),
+                Request::WatchProjectScripts {
+                    watch,
+                    project: Some(&project),
+                },
+            ) {
+                self.workspace.details.scripts = Some(Catalog {
+                    watch,
+                    project,
+                    request,
+                    available: false,
+                    rows: vec![],
+                });
+            }
+        } else if let Some(watch) = previous {
+            self.write_request(
+                None,
+                Request::WatchProjectScripts {
+                    watch,
+                    project: None,
+                },
+            );
+        }
+        true
+    }
+    pub(crate) fn receive_scripts(
+        &mut self,
+        watch: u64,
+        project: &str,
+        id: Option<u64>,
+        available: bool,
+        rows: Vec<Script>,
+    ) {
+        if let Some(c) = self.workspace.details.scripts.as_mut()
+            && c.watch == watch
+            && c.project == project
+            && Some(c.request) == id
+        {
+            c.rows = rows;
+            c.available = available;
+        }
+    }
     fn current_scripts(&self) -> Option<&[Script]> {
-        let (watch, rows) = self.workspace.details.scripts.as_ref()?;
-        (self.workspace.terminal_watch() == Some(*watch)
-            && self.details_target().is_some_and(|(draft, _)| !draft)
-            && !rows.is_empty())
-        .then_some(rows.as_slice())
+        let c = self.workspace.details.scripts.as_ref()?;
+        (self.script_target() == Some((c.watch, c.project.as_str()))
+            && c.available
+            && (!c.rows.is_empty() || self.can_edit_scripts()))
+        .then_some(&c.rows)
+    }
+    fn can_edit_scripts(&self) -> bool {
+        self.workspace
+            .details
+            .settings
+            .as_ref()
+            .is_some_and(|s| s.script_write)
+            && !self.workspace.paused
     }
 
     pub(super) fn has_scripts(&self) -> bool {
@@ -25,7 +124,8 @@ impl Desktop {
     }
 
     fn can_run_project_script(&self) -> bool {
-        self.terminal_write
+        self.new_threads.active.is_none()
+            && self.terminal_write
             && self.terminal_available()
             && !self.workspace.paused
             && self
@@ -52,6 +152,25 @@ pub(super) fn controls(s: &Desktop, theme: &tok::Theme) -> Option<El> {
     let scripts = s.current_scripts()?;
     let primary = scripts.iter().find(|s| s.primary);
     let labels = &s.workspace.details.settings.as_ref()?.labels;
+    if scripts.is_empty() {
+        return Some(
+            row()
+                .key("choose-project-script")
+                .role("button")
+                .focusable(true)
+                .label(&labels.form.add)
+                .w_full()
+                .h(32.)
+                .px(10.)
+                .gap(10.)
+                .center_y()
+                .radius(8.)
+                .hover(theme.hover)
+                .child(icon(&super::super::ADD_ICON, 16.).color(theme.text_secondary))
+                .child(label(&labels.form.add, 13., 500., theme.text.alpha(0.8)))
+                .on_press_tx(|s: &mut Desktop, tx| s.edit_script(None, tx)),
+        );
+    }
     let mut run = row()
         .key("run-project-script")
         .role("button")
@@ -70,9 +189,9 @@ pub(super) fn controls(s: &Desktop, theme: &tok::Theme) -> Option<El> {
             .label(&script.run)
             .help(&script.run)
             .disabled(!s.can_run_project_script())
-            .child(icon(script_icon(&script.icon), 16.).color(theme.text_secondary))
+            .child(icon(script_icon(&script.script.icon), 16.).color(theme.text_secondary))
             .child(
-                label(&script.name, 13., 500., theme.text.alpha(0.8))
+                label(&script.script.name, 13., 500., theme.text.alpha(0.8))
                     .truncate()
                     .shrink(),
             )
@@ -115,10 +234,25 @@ pub(super) fn menu(s: &Desktop) -> Option<Menu> {
     for script in scripts {
         let key = script.key.clone();
         menu = menu.item(
-            MenuItem::new(&script.name)
-                .icon(script_icon(&script.icon))
+            MenuItem::new(&script.script.name)
+                .icon(script_icon(&script.script.icon))
                 .disabled(!s.can_run_project_script())
                 .on_select_tx(move |s: &mut Desktop, tx| s.launch_project_script(&key, tx)),
+        );
+        if s.can_edit_scripts() {
+            let key = script.key.clone();
+            menu = menu.item(
+                MenuItem::new(&script.edit)
+                    .on_select_tx(move |s: &mut Desktop, tx| s.edit_script(Some(&key), tx)),
+            );
+        }
+    }
+    if s.can_edit_scripts() {
+        let form = &s.workspace.details.settings.as_ref()?.labels.form;
+        menu = menu.item(
+            MenuItem::new(&form.add)
+                .icon(&super::super::ADD_ICON)
+                .on_select_tx(|s: &mut Desktop, tx| s.edit_script(None, tx)),
         );
     }
     Some(menu)
@@ -158,3 +292,9 @@ fn script_icon(kind: &str) -> &'static rune::Icon {
         },
     }
 }
+
+#[path = "script_form.rs"]
+mod form;
+pub(crate) use form::Input;
+pub(crate) use form::overlay;
+pub(super) use form::{Form, Labels};
