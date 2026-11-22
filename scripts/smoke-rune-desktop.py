@@ -113,6 +113,13 @@ def visible_message(node):
 def painted_message(node):
     if not visible_message(node):
         return False
+    # The provider diagnostic can cover the first messages when CI has no coding agent installed.
+    dismiss = next((item for item in descendants(node.get_application())
+                    if item.get_accessible_id() == "dismiss-provider"), None)
+    if dismiss is not None:
+        if not dismiss.do_action(0):
+            raise RuntimeError("Could not dismiss the provider diagnostic above the fixture")
+        return False
     rect = node.get_extents(Atspi.CoordType.SCREEN)
     if rect.width <= 0 or rect.height <= 0 or rect.x < 0 or rect.y < 0:
         return False
