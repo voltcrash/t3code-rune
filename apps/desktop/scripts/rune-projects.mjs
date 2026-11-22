@@ -1108,6 +1108,11 @@ async function handleWorkspaceRequest(request, reply) {
       reply({
         type: "connected",
         label: session.label,
+        attachment_labels: {
+          close: m(msg("Close image preview")),
+          preview: m(msg("Preview {name}", { name: "{name}" })),
+          remove: m(msg("Remove {name}", { name: "{name}" })),
+        },
         details: {
           hidden: hiddenDetails,
           machine: initialWorkspace.machine,

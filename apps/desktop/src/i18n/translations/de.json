@@ -71,5 +71,8 @@
   "924d4b8e011c9127": "Aktion konnte nicht importiert werden.",
   "8b4c89c1e1343190": "Projektaktion wählen",
   "7240fae7f40fdaff": "Aus t3.json importieren",
-  "0421f870f82997bc": "Importieren"
+  "0421f870f82997bc": "Importieren",
+  "601807baf4e25b94": "Vorschau von {name}",
+  "2ffc366d6a7f88db": "{name} entfernen",
+  "62d0c453f5803180": "Bildvorschau schließen"
 }

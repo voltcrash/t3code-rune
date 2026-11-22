@@ -147,6 +147,8 @@ enum Reply {
     },
     Connected {
         label: String,
+        #[serde(default)]
+        attachment_labels: attachments::Labels,
         details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
@@ -644,6 +646,7 @@ struct Desktop {
     update: updates::Panel,
     appearance_error: Option<String>,
     output: Option<std::process::ChildStdin>,
+    image_jobs: Option<image_decode::LocalQueue>,
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
     pairing_offers: std::collections::VecDeque<pairing_link::Offer>,
@@ -681,6 +684,7 @@ impl Desktop {
             #[cfg(target_os = "linux")]
             frame: Default::default(),
             output: None,
+            image_jobs: None,
             zoom: Default::default(),
             sidebar_layout: Default::default(),
             answer_advance: None,
@@ -734,6 +738,7 @@ impl Desktop {
             frame: self.frame,
             provider_status: self.provider_status.for_new_connection(),
             output: self.output.take(),
+            image_jobs: self.image_jobs.clone(),
             last_id: self.last_id,
             request_id: self.request_id,
             clipboard_uploads: std::mem::take(&mut self.clipboard_uploads),
@@ -1218,6 +1223,7 @@ impl Desktop {
             }
             Reply::Connected {
                 label,
+                attachment_labels,
                 details,
                 stage,
                 local,
@@ -1243,6 +1249,7 @@ impl Desktop {
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
                 self.workspace.details.settings = details;
+                self.workspace.attachment_labels = attachment_labels;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -1788,6 +1795,8 @@ fn start() -> io::Result<()> {
         .spawn()?;
     let output = child.stdin.take();
     let input = BufReader::new(child.stdout.take().unwrap());
+    let (images, image_requests) = std::sync::mpsc::channel();
+    let (composer_images, composer_requests) = std::sync::mpsc::sync_channel(16);
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
@@ -1987,6 +1996,7 @@ fn start() -> io::Result<()> {
         .init(move || {
             let mut desktop = Desktop {
                 output,
+                image_jobs: Some(composer_images),
                 ..Desktop::new()
             };
             desktop.send(Request::Local);
@@ -2002,7 +2012,8 @@ fn start() -> io::Result<()> {
             owner.close();
         });
     }
-    let images = image_decode::start(handle.clone());
+    image_decode::start(handle.clone(), image_requests);
+    image_decode::start_local(handle.clone(), composer_requests);
     let source_build = mode == Some("--source-build");
     let reader = std::thread::spawn(move || {
         let mut received_response = false;
@@ -2263,6 +2274,7 @@ mod tests {
         desktop.receive(WorkerMessage {
             id: Some(5),
             reply: Reply::Connected {
+                attachment_labels: Default::default(),
                 label: "This computer".into(),
                 details: None,
                 stage: stage::Stage::Dev,

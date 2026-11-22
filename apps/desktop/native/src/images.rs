@@ -156,6 +156,9 @@ impl Desktop {
     }
 
     pub(crate) fn close_image(&mut self) -> bool {
+        if self.workspace.draft_image.get_mut().take().is_some() {
+            return true;
+        }
         if let Some(pane) = self.workspace.conversation.as_mut()
             && let Some(preview) = pane.images.expanded.take()
         {
@@ -285,31 +288,45 @@ pub(super) fn overlay(app: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>)
             s.expand_image(watch, key.clone(), name.clone())
         }));
     }
-    let close = action("Close image preview", theme, true, |s| {
+    overlays.push(dialog(
+        name,
+        image,
+        controls,
+        &app.workspace.attachment_labels.close,
+        theme,
+    ));
+}
+
+pub(crate) fn dialog(
+    name: &str,
+    image: &Image,
+    controls: El,
+    close_label: &str,
+    theme: &tok::Theme,
+) -> El {
+    let close = action(close_label, theme, true, |s| {
         s.close_image();
     });
-    overlays.push(
-        col()
-            .absolute(0., 0.)
-            .w_full()
-            .h_full()
-            .padding(20.)
-            .gap(10.)
-            .key("image-preview")
-            .label(name)
-            .role("dialog")
-            .fill(theme.bg.alpha(0.96))
-            .child(controls.child(close))
-            .child(
-                el().grow(1.)
-                    .min_h(0.)
-                    .w_full()
-                    .label(name)
-                    .role("image")
-                    .pixels_fit(image.pixels(), rune::SurfaceFit::Fit),
-            )
-            .modal(true, |s: &mut Desktop| {
-                s.close_image();
-            }),
-    );
+    col()
+        .absolute(0., 0.)
+        .w_full()
+        .h_full()
+        .padding(20.)
+        .gap(10.)
+        .key("image-preview")
+        .label(name)
+        .role("dialog")
+        .fill(theme.bg.alpha(0.96))
+        .child(controls.child(close))
+        .child(
+            el().grow(1.)
+                .min_h(0.)
+                .w_full()
+                .label(name)
+                .role("image")
+                .pixels_fit(image.pixels(), rune::SurfaceFit::Fit),
+        )
+        .modal(true, |s: &mut Desktop| {
+            s.close_image();
+        })
 }

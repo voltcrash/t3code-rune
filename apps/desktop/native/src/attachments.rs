@@ -1,9 +1,28 @@
+mod preview;
 use crate::Desktop;
+pub(crate) use preview::Preview;
 use rune::{El, FileDialogOptions, Icon, TextStyle, col, el, icon, row, text, tok};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tempfile::TempPath;
+
+#[derive(serde::Deserialize)]
+pub(crate) struct Labels {
+    preview: String,
+    remove: String,
+    pub(crate) close: String,
+}
+
+impl Default for Labels {
+    fn default() -> Self {
+        Self {
+            preview: "Preview {name}".into(),
+            remove: "Remove {name}".into(),
+            close: "Close image preview".into(),
+        }
+    }
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(transparent)]
@@ -11,6 +30,8 @@ pub(super) struct Selection {
     pub(super) path: String,
     #[serde(skip)]
     clipboard_file: Option<Rc<TempPath>>,
+    #[serde(skip)]
+    thumbnail: Option<preview::Thumbnail>,
 }
 
 impl Selection {
@@ -18,6 +39,7 @@ impl Selection {
         Self {
             path: path.to_owned(),
             clipboard_file: None,
+            thumbnail: preview::Thumbnail::for_path(Path::new(path)),
         }
     }
 
@@ -30,8 +52,8 @@ impl Selection {
         let file = file.into_temp_path();
         let path = file.to_str().ok_or(io::ErrorKind::InvalidData)?.to_owned();
         Ok(Self {
-            path,
             clipboard_file: Some(Rc::new(file)),
+            ..Self::local(&path)
         })
     }
 }
@@ -210,58 +232,92 @@ impl Target {
         }
     }
 
-    pub(super) fn list(&self, files: &[Selection], theme: &tok::Theme, locked: bool) -> Option<El> {
+    pub(super) fn list(
+        &self,
+        files: &[Selection],
+        theme: &tok::Theme,
+        locked: bool,
+        app: &Desktop,
+        dialog: &mut Option<El>,
+    ) -> Option<El> {
         if files.is_empty() {
             return None;
         }
-        let mut list = col()
-            .key("composer-files")
+        let workspace = &app.workspace;
+        *dialog = workspace
+            .draft_image
+            .borrow()
+            .as_ref()
+            .and_then(|p| p.dialog(files, app, theme));
+        // A keyed group keeps scrolled tiles under one accessible parent.
+        let mut tiles = row()
+            .key("composer-image-grid")
             .w_full()
-            .h((files.len().min(4) * 28) as f32)
-            .scroll(rune::ScrollSpec {
-                stick_bottom: false,
-            });
+            .flex_wrap()
+            .gap(8.);
+        let mut rows = col().key("composer-file-rows").w_full();
+        let mut documents = 0;
         for file in files {
             let path = &file.path;
             let name = Path::new(path)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(path);
-            let remove = format!("Remove {name}");
-            let path = path.clone();
+            let caption = workspace.attachment_labels.remove.replace("{name}", name);
             let target = self.clone();
-            list = list.child(
-                row()
-                    .w_full()
-                    .h(28.)
-                    .gap(8.)
-                    .center_y()
-                    .child(icon(&rune_kit::glyphs::FILE_TEXT, 16.).color(theme.text_secondary))
-                    .child(
-                        text(name)
-                            .font(TextStyle::new(14., 400.))
-                            .color(theme.text)
-                            .min_w(0.)
-                            .grow(1.)
-                            .truncate(),
-                    )
-                    .child(
-                        el().key(format!("remove-file-{path}"))
-                            .role("button")
-                            .label(&remove)
-                            .help(&remove)
-                            .size(22., 22.)
-                            .radius(5.)
-                            .center()
-                            .hover(theme.text.alpha(0.08))
-                            .child(icon(&REMOVE, 14.).color(theme.text_secondary))
-                            .disabled(locked)
-                            .focusable(!locked)
-                            .on_press(move |app: &mut Desktop| {
-                                target.edit(app, |files| files.retain(|f| f.path != path));
-                            }),
-                    ),
-            );
+            let remove_path = path.clone();
+            let remove = el()
+                .key(format!("remove-file-{path}"))
+                .role("button")
+                .label(&caption)
+                .help(&caption)
+                .size(22., 22.)
+                .radius(5.)
+                .center()
+                .hover(theme.text.alpha(0.08))
+                .child(icon(&REMOVE, 14.).color(theme.text_secondary))
+                .disabled(locked)
+                .focusable(!locked)
+                .on_press(move |app: &mut Desktop| {
+                    target.edit(app, |files| files.retain(|f| f.path != remove_path))
+                });
+            if let Some(thumb) = &file.thumbnail {
+                tiles = tiles.child(thumb.tile(path, name, theme, app, remove));
+            } else {
+                documents += 1;
+                rows = rows.child(
+                    row()
+                        .w_full()
+                        .h(28.)
+                        .gap(8.)
+                        .center_y()
+                        .child(icon(&rune_kit::glyphs::FILE_TEXT, 16.).color(theme.text_secondary))
+                        .child(
+                            text(name)
+                                .font(TextStyle::new(14., 400.))
+                                .color(theme.text)
+                                .min_w(0.)
+                                .grow(1.)
+                                .truncate(),
+                        )
+                        .child(remove),
+                );
+            }
+        }
+        let mut list = col()
+            .key("composer-files")
+            .drawn_rect_into(&workspace.attachment_viewport)
+            .w_full()
+            .max_h(if documents == files.len() { 112. } else { 136. })
+            .gap(4.)
+            .scroll(rune::ScrollSpec {
+                stick_bottom: false,
+            });
+        if documents < files.len() {
+            list = list.child(tiles);
+        }
+        if documents > 0 {
+            list = list.child(rows);
         }
         Some(list)
     }

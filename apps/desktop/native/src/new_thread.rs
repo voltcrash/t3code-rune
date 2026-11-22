@@ -342,6 +342,7 @@ pub(super) fn view(
     cx: &rune::Cx<Desktop>,
     lane: crate::workspace::thread_details::Lane,
     overlays: &mut Vec<El>,
+    draft_preview: &mut Option<El>,
 ) -> El {
     let (project, title, scratch) = (record.id.as_str(), record.title.as_str(), record.scratch);
     let dark = s.dark(cx);
@@ -558,7 +559,7 @@ pub(super) fn view(
             Desktop::prepare_scratch,
         ));
     }
-    let list = target.list(&draft.files, theme, locked);
+    let list = target.list(&draft.files, theme, locked, s, draft_preview);
     let surface = composer::surface(
         s.composer_card(theme, dark).key("composer-new-thread"),
         field,
