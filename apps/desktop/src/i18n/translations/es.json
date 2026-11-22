@@ -138,5 +138,13 @@
   "65b5018ac22b546c": "Descartar el aviso de {provider} listo",
   "6e796ec1045abb1a": "Actualizar el estado del proveedor {provider}",
   "eaa6c91a05d95ce7": "Actualizar",
-  "af3785d7e40b2523": "Actualizando..."
+  "af3785d7e40b2523": "Actualizando...",
+  "a81e2642e49609ee": "No se pudo guardar la visibilidad de los detalles del hilo.",
+  "e58a1d884fa1d8f2": "Detalles del hilo",
+  "8413f3e7f703f14e": "Mostrar u ocultar el panel de detalles del hilo",
+  "44ad5a6f7fd4f644": "Contexto de ejecución: {context}",
+  "eb9abdcd6098fa3b": "Checkout actual",
+  "bc90899d284f2b0a": "Checkout local",
+  "c7fe4313def0ef2f": "Nuevo worktree",
+  "854ac9752dd178d6": "Copiar ruta completa"
 }

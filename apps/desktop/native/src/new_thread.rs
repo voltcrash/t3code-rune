@@ -49,6 +49,17 @@ impl NewThreads {
             .displayed_choice()
             .map(|c| c.instance.as_str())
     }
+    pub(crate) fn details_checkout(&self) -> (bool, bool) {
+        self.active
+            .as_ref()
+            .and_then(|id| self.drafts.get(id))
+            .map_or((false, false), |d| (d.worktree, !d.uncertain))
+    }
+    pub(crate) fn set_details_checkout(&mut self, worktree: bool) {
+        if self.details_checkout().1 {
+            self.current().worktree = worktree;
+        }
+    }
     pub(super) fn has_draft(&self, project: &str) -> bool {
         self.drafts.contains_key(project)
     }
@@ -325,21 +336,20 @@ impl Desktop {
 
 pub(super) fn view(
     s: &Desktop,
-    project: &str,
-    title: &str,
-    scratch: bool,
+    record: &crate::workspace::Project,
     theme: &tok::Theme,
     cx: &rune::Cx<Desktop>,
+    lane: crate::workspace::thread_details::Lane,
     overlays: &mut Vec<El>,
 ) -> El {
+    let (project, title, scratch) = (record.id.as_str(), record.title.as_str(), record.scratch);
     let kit = &s.contrast.kit(s.dark(cx));
     let width = cx
         .layout_size("thread-titlebar")
         .map_or(840., |size| size[0]);
     let [viewport_width, viewport_height] = cx.layout_size("workspace").unwrap_or([1100., 780.]);
-    let lane_inset = super::workspace::chat_lane_inset(viewport_width);
-    let heading_width =
-        (width - 2. * lane_inset).clamp(0., s.chat_width.limit().unwrap_or(1024.).min(1024.));
+    let heading_width = (width - lane.left - lane.right)
+        .clamp(0., s.chat_width.limit().unwrap_or(1024.).min(1024.));
     let compact = width < 404.;
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
@@ -550,7 +560,7 @@ pub(super) fn view(
         theme,
         list,
         Some(footer),
-        lane_inset,
+        lane,
     )
     .pt(0.)
     .pb(28.);
@@ -559,7 +569,7 @@ pub(super) fn view(
         .grow(1.)
         .justify_end()
         .items_center()
-        .child(heading.pb(16.));
+        .child(lane.pad(row().w_full().justify_center().child(heading.pb(16.))));
     let mut content = col()
         .key("new-thread-body")
         .w_full()

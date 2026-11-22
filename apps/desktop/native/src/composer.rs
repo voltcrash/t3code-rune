@@ -234,7 +234,7 @@ pub(super) fn view(
     theme: &tok::Theme,
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
-    lane_inset: f32,
+    lane: crate::workspace::thread_details::Lane,
 ) -> El {
     let dark = s.dark(cx);
     let id = thread.id.as_str();
@@ -351,7 +351,7 @@ pub(super) fn view(
             theme,
             list,
             None,
-            lane_inset,
+            lane,
         ),
         asking || s.pending,
     )
@@ -386,7 +386,7 @@ pub(super) fn surface(
     theme: &tok::Theme,
     list: Option<El>,
     footer: Option<El>,
-    lane_inset: f32,
+    lane: crate::workspace::thread_details::Lane,
 ) -> El {
     let surface = column
         .radius(16.0)
@@ -399,9 +399,7 @@ pub(super) fn surface(
         .children(list)
         .child(auto_grow(field, 2, 7).w_full().min_h(46.0).max_h(144.0))
         .child(controls);
-    col()
-        .w_full()
-        .px(lane_inset)
+    lane.pad(col().w_full())
         .pt(8.0)
         .pb(20.0)
         .gap(4.)

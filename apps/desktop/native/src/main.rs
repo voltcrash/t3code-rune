@@ -113,8 +113,13 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    DetailsSaveError {
+        watch: u64,
+        error: String,
+    },
     Connected {
         label: String,
+        details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
         local: bool,
@@ -334,6 +339,12 @@ enum Request<'a> {
     },
     SetSidebarWidth {
         width: Option<u32>,
+    },
+    SetDetailsVisible {
+        watch: u64,
+        draft: bool,
+        target: &'a str,
+        visible: bool,
     },
     SetSidebarOpen {
         open: bool,
@@ -755,6 +766,12 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::DetailsSaveError { watch, error } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.error = Some(error);
+            }
+            return;
+        }
         if let Reply::ProviderStatus { watch, banner } = message.reply {
             self.receive_provider_status(message.id, watch, banner);
             return;
@@ -1052,6 +1069,7 @@ impl Desktop {
             }
             Reply::Connected {
                 label,
+                details,
                 stage,
                 local,
                 can_operate,
@@ -1075,6 +1093,7 @@ impl Desktop {
                 self.can_pin = can_operate && can_pin;
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
+                self.workspace.details.settings = details;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -1187,6 +1206,7 @@ impl Desktop {
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
+            | Reply::DetailsSaveError { .. }
             | Reply::SidebarLayout { .. }
             | Reply::ClientAppearance { .. }
             | Reply::RestartUpdated { .. }
@@ -1607,12 +1627,20 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_draft_model_watch();
             let banner = s.sync_provider_status();
+            let details = s.reconcile_details();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
             let contrast = s.contrast.cancel_unfocused_drag(tx);
-            s.poll_answer(tx) || stop || clock || renamed || resized || contrast || banner
+            s.poll_answer(tx)
+                || stop
+                || clock
+                || renamed
+                || resized
+                || contrast
+                || banner
+                || details
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             #[cfg(target_os = "linux")]
@@ -1668,6 +1696,20 @@ fn start() -> io::Result<()> {
             {
                 if !tx.key_repeat() {
                     s.go(ev.is_command(']'));
+                }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.dismiss_details(tx) {
+                return true;
+            }
+            if ev.mods.shift
+                && !ev.mods.alt
+                && ev.is_command('b')
+                && tx.focused() != Some("thread-terminal-grid")
+                && s.can_show_details()
+            {
+                if !tx.key_repeat() {
+                    s.toggle_details(tx);
                 }
                 return true;
             }
@@ -2027,6 +2069,7 @@ mod tests {
             id: Some(5),
             reply: Reply::Connected {
                 label: "This computer".into(),
+                details: None,
                 stage: stage::Stage::Dev,
                 local: true,
                 can_operate: true,

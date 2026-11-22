@@ -138,5 +138,13 @@
   "65b5018ac22b546c": "Bereitschaftshinweis des Anbieters {provider} schließen",
   "6e796ec1045abb1a": "Status des Anbieters {provider} aktualisieren",
   "eaa6c91a05d95ce7": "Aktualisieren",
-  "af3785d7e40b2523": "Wird aktualisiert..."
+  "af3785d7e40b2523": "Wird aktualisiert...",
+  "a81e2642e49609ee": "Die Sichtbarkeit der Thread-Details konnte nicht gespeichert werden.",
+  "e58a1d884fa1d8f2": "Thread-Details",
+  "8413f3e7f703f14e": "Thread-Detailpanel umschalten",
+  "44ad5a6f7fd4f644": "Ausführungskontext: {context}",
+  "eb9abdcd6098fa3b": "Aktueller Checkout",
+  "bc90899d284f2b0a": "Lokaler Checkout",
+  "c7fe4313def0ef2f": "Neuer Worktree",
+  "854ac9752dd178d6": "Vollständigen Pfad kopieren"
 }

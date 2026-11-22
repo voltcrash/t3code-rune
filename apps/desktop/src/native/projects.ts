@@ -27,6 +27,7 @@ import {
   makeEnvironmentHttpApiGroupClient,
 } from "@t3tools/client-runtime/rpc";
 import {
+  resolveEnvironmentMachineKind,
   AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
   AuthFilesystemReadScope,
@@ -93,6 +94,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   return {
     environmentId: descriptor.environmentId,
     label: descriptor.label,
+    machine: descriptor.platform.machine,
     serverVersion: descriptor.serverVersion,
     tracksClones: descriptor.capabilities.projectCloneTracking === true,
     canPin: descriptor.capabilities.threadPinning === true,
@@ -261,16 +263,19 @@ export const sampleDesktopConfig = Effect.fn("nativeDesktop.sampleConfig")(funct
 ) {
   const requestedAtMs = yield* Clock.currentTimeMillis;
   const config = yield* rpc[WS_METHODS.serverGetConfig]({});
+  const workspace = {
+    scratchRoot: config.scratchWorkspaceRoot,
+    machine: resolveEnvironmentMachineKind(config),
+  };
   const serverTimeMs = Date.parse(config.serverTime ?? "");
-  if (!Number.isFinite(serverTimeMs))
-    return { scratchRoot: config.scratchWorkspaceRoot, clockOffset: undefined };
+  if (!Number.isFinite(serverTimeMs)) return { ...workspace, clockOffset: undefined };
   recordServerClock(session.environmentId, {
     requestedAtMs,
     receivedAtMs: yield* Clock.currentTimeMillis,
     serverTimeMs,
   });
   return {
-    scratchRoot: config.scratchWorkspaceRoot,
+    ...workspace,
     clockOffset: toServerClock(session.environmentId, 0),
   };
 });
@@ -299,6 +304,7 @@ export const loadWorkspace = Effect.fn("nativeDesktop.workspace")(function* (ses
     sequence: snapshot.snapshotSequence,
     identities: snapshot.projectIdentities,
     scratchRoot: config?.scratchRoot,
+    machine: config?.machine ?? session.machine,
     clockOffset: config?.clockOffset,
     ...workspaceRows(snapshot, session, config?.scratchRoot),
   };
