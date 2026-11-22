@@ -113,6 +113,18 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    WorkspaceEditors {
+        watch: u64,
+        catalog: workspace::thread_details::editor::Catalog,
+    },
+    EditorOpened {
+        watch: u64,
+        message: String,
+    },
+    EditorError {
+        watch: u64,
+        error: String,
+    },
     DetailsSaveError {
         watch: u64,
         error: String,
@@ -153,6 +165,7 @@ enum Reply {
     },
     Workspace {
         watch: u64,
+        editors: Option<workspace::thread_details::editor::Catalog>,
         #[serde(default)]
         sequence: u64,
         #[serde(default)]
@@ -339,6 +352,15 @@ enum Request<'a> {
     },
     SetSidebarWidth {
         width: Option<u32>,
+    },
+    OpenEditor {
+        watch: u64,
+        editor: &'a str,
+        cwd: &'a str,
+    },
+    ChooseEditor {
+        watch: u64,
+        editor: &'a str,
     },
     SetDetailsVisible {
         watch: u64,
@@ -766,7 +788,13 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
-        if let Reply::DetailsSaveError { watch, error } = message.reply {
+        if let Reply::WorkspaceEditors { watch, catalog } = message.reply {
+            self.update_editors(watch, catalog);
+            return;
+        }
+        if let Reply::DetailsSaveError { watch, error } | Reply::EditorError { watch, error } =
+            message.reply
+        {
             if self.workspace.feed == Some(watch) {
                 self.error = Some(error);
             }
@@ -1099,6 +1127,7 @@ impl Desktop {
             }
             Reply::Workspace {
                 watch,
+                editors,
                 sequence,
                 projects,
                 threads,
@@ -1111,6 +1140,7 @@ impl Desktop {
                 }
                 self.workspace.sequence = sequence;
                 self.workspace.feed = Some(watch);
+                self.workspace.details.editor = editors;
                 self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
                 self.replace_workspace(projects, threads);
@@ -1206,6 +1236,9 @@ impl Desktop {
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
+            | Reply::WorkspaceEditors { .. }
+            | Reply::EditorError { .. }
+            | Reply::EditorOpened { .. }
             | Reply::DetailsSaveError { .. }
             | Reply::SidebarLayout { .. }
             | Reply::ClientAppearance { .. }
@@ -1713,6 +1746,17 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
+            if !ev.mods.shift
+                && !ev.mods.alt
+                && ev.is_command('o')
+                && s.can_open_editor()
+                && tx.focused() != Some("thread-terminal-grid")
+            {
+                if !tx.key_repeat() {
+                    s.open_editor();
+                }
+                return true;
+            }
             if s.thread_action_shortcut(ev, tx)
                 || s.model_shortcut(ev, tx)
                 || s.permission_shortcut(ev, tx)
@@ -1875,6 +1919,12 @@ fn start() -> io::Result<()> {
                 #[cfg(target_os = "linux")]
                 if let Reply::MenuAction { action } = reply.reply {
                     action.activate(s, tx);
+                    return;
+                }
+                if let Reply::EditorOpened { watch, message } = reply.reply {
+                    if s.workspace.feed == Some(watch) {
+                        tx.announce(message, rune::LiveRegion::Polite);
+                    }
                     return;
                 }
                 if let Reply::ClientAppearance {

@@ -146,5 +146,16 @@
   "eb9abdcd6098fa3b": "Aktuell utcheckning",
   "bc90899d284f2b0a": "Lokal utcheckning",
   "c7fe4313def0ef2f": "Ny worktree",
-  "854ac9752dd178d6": "Kopiera fullständig sökväg"
+  "854ac9752dd178d6": "Kopiera fullständig sökväg",
+  "4cccab9851a403bc": "Det gick inte att spara den föredragna redigeraren.",
+  "c819cdbc9c17bd58": "Det gick inte att öppna arbetsytan i den valda redigeraren.",
+  "6d5a8b471a561b9d": "Utforskaren",
+  "83a174f9e78fe2f1": "Filer",
+  "2efbbd9bb89efd31": "Öppna i {editor}",
+  "c3b46a31a4d3999b": "Öppna i redigerare",
+  "3dc681f293a3d077": "Välj redigerare",
+  "64a9a7f137f4715b": "Ingen SSH-rutt till {environment}",
+  "b99f09d2d9df18ad": "Inga installerade redigerare hittades",
+  "392611fdc89f2809": "Öppnades i {editor}",
+  "c77307f0c52b5031": "Öppnas via SSH. Kräver din nyckel på {environment}"
 }

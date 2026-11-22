@@ -79,11 +79,17 @@ export function watchWorkspace(
   onClock: (offset: number) => void,
   refreshFavicons: (projects?: string[]) => void,
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
+  onEditorConfig: Parameters<typeof watchDraftModels>[3],
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
-  const draftModels = watchDraftModels(signal, (id) => projects.get(id), session.environmentId);
+  const draftModels = watchDraftModels(
+    signal,
+    (id) => projects.get(id),
+    session.environmentId,
+    onEditorConfig,
+  );
   const dirtyProjects = new Set<string>();
   const dirtyThreads = new Set<string>();
   function pickLandingProject() {

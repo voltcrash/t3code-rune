@@ -18,6 +18,7 @@ import { runeUpdates } from "./rune-updates.mjs";
 import { selectLanguage, m } from "../src/i18n/catalog.ts";
 import { msg } from "gt-i18n";
 import { handleCodexAuthLink } from "./rune-codex-auth.mjs";
+import { workspaceEditors } from "./rune-editors.mjs";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
@@ -137,6 +138,16 @@ function startWorkspaceFeed(owner, initial, watch) {
   stopWorkspaceFeed();
   const controller = new AbortController();
   const signal = AbortSignal.any([owner.signal, controller.signal]);
+  const editors = workspaceEditors({
+    local: owner === localSession,
+    session: owner,
+    signal,
+    preferred: readPreference("desktop-editor"),
+    sshHintSeen: readPreference("desktop-remote-editor-hint") === "true",
+    markSshHintSeen: () => savePreference("desktop-remote-editor-hint", true),
+    save: (id) => savePreference("desktop-editor", id),
+    publish: (catalog) => write({ type: "workspaceeditors", watch, catalog }),
+  });
   const feed = watchWorkspace(
     owner,
     initial,
@@ -152,8 +163,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     (offset) => write({ type: "workspaceclock", watch, offset }),
     (projects) => write({ type: "refreshfavicons", watch, projects }),
     () => activeVisit,
+    editors.configure,
   );
-  workspaceFeed = { watch, controller, ...feed };
+  workspaceFeed = { watch, controller, editors, ...feed };
   if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
 }
 
@@ -426,6 +438,38 @@ function inspectDetail(request) {
   else if (detail) record.tools.set(request.key, detail);
   else record.tools.delete(request.key);
   if (detail) refreshDetail(record, detail);
+}
+
+async function handleEditor(request, reply) {
+  const feed = workspaceFeed;
+  if (!feed || feed.watch !== request.watch) return;
+  const choose = request.type === "chooseeditor";
+  try {
+    const ok = choose
+      ? feed.editors.choose(request.editor)
+      : await feed.editors.open(request.editor, request.cwd);
+    if (ok) {
+      if (!choose && workspaceFeed === feed) {
+        const editor = feed.editors.catalog().editors.find((e) => e.id === request.editor);
+        if (editor)
+          reply({
+            type: "editoropened",
+            watch: request.watch,
+            message: m(msg("Opened in {editor}", { editor: editor.label })),
+          });
+      }
+      return;
+    }
+  } catch {}
+  if (workspaceFeed === feed) {
+    reply({
+      type: "editorerror",
+      watch: request.watch,
+      error: choose
+        ? m(msg("Couldn’t save the preferred editor."))
+        : m(msg("Couldn’t open the workspace in the selected editor.")),
+    });
+  }
 }
 
 async function refreshProvider(request, reply) {
@@ -1036,6 +1080,7 @@ async function handleWorkspaceRequest(request, reply) {
           machine: initialWorkspace.machine,
           windows: session.platform === "windows",
           environment: clientSettings.threadDetailsItems.environment !== false,
+          openIn: clientSettings.threadDetailsItems.openIn !== false,
           labels: threadDetailsLabels(),
         },
         local: localSession?.sameFilesystem ?? false,
@@ -1294,6 +1339,7 @@ async function handleWorkspaceRequest(request, reply) {
       startWorkspaceFeed(reading, workspace, request.id);
       reply({
         type: "workspace",
+        editors: workspaceFeed.editors.catalog(),
         landing_project: workspaceFeed.initialLanding,
         watch: request.id,
         clock_offset: workspace.clockOffset,
@@ -1391,6 +1437,8 @@ try {
       request?.type === "setcontrast"
     ) {
       clientSettingsWrites = clientSettingsWrites.then(() => setClientAppearance(request));
+    } else if (request?.type === "openeditor" || request?.type === "chooseeditor") {
+      void handleEditor(request, reply);
     } else if (request?.type === "setdetailsvisible") {
       if (session && workspaceFeed?.watch === request.watch) {
         const { watch, target, draft, visible } = request;

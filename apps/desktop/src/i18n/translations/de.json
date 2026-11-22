@@ -146,5 +146,16 @@
   "eb9abdcd6098fa3b": "Aktueller Checkout",
   "bc90899d284f2b0a": "Lokaler Checkout",
   "c7fe4313def0ef2f": "Neuer Worktree",
-  "854ac9752dd178d6": "Vollständigen Pfad kopieren"
+  "854ac9752dd178d6": "Vollständigen Pfad kopieren",
+  "4cccab9851a403bc": "Der bevorzugte Editor konnte nicht gespeichert werden.",
+  "c819cdbc9c17bd58": "Der Arbeitsbereich konnte nicht im ausgewählten Editor geöffnet werden.",
+  "6d5a8b471a561b9d": "Explorer",
+  "83a174f9e78fe2f1": "Dateien",
+  "2efbbd9bb89efd31": "In {editor} öffnen",
+  "c3b46a31a4d3999b": "Im Editor öffnen",
+  "3dc681f293a3d077": "Editor wählen",
+  "64a9a7f137f4715b": "Keine SSH-Route zu {environment}",
+  "b99f09d2d9df18ad": "Keine installierten Editoren gefunden",
+  "392611fdc89f2809": "In {editor} geöffnet",
+  "c77307f0c52b5031": "Öffnet über SSH. Braucht deinen Schlüssel auf {environment}"
 }

@@ -5,19 +5,16 @@ import {
   DesktopEnvironmentBootstrapSchema,
   DesktopMediaReadSchema,
   DesktopThemeSchema,
-  EDITORS,
   EditorId,
   PickedThemeFileSchema,
   PickFolderOptionsSchema,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
-  REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
   type DesktopEnvironmentBootstrap,
   type PickedThemeFile,
 } from "@t3tools/contracts";
 import { PROJECT_FAVICON_EXTENSIONS } from "@t3tools/shared/projectFavicon";
-import { resolveEditorCommand } from "@t3tools/shared/editor";
-import { withPathDirectoryListings } from "@t3tools/shared/shell";
+import { findRemoteEditors } from "../../app/remoteEditors.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isRelayTracingEnabled } from "@t3tools/shared/otelEnvironment";
 import * as FileSystem from "effect/FileSystem";
@@ -438,26 +435,12 @@ export const openSystemSettings = DesktopIpc.makeIpcMethod({
   }),
 });
 
-const REMOTE_EDITOR_PROBE_CONCURRENCY = 8;
-
 export const probeRemoteEditors = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL,
   payload: Schema.Undefined,
   result: Schema.Array(EditorId),
   handler: Effect.fn("desktop.ipc.window.probeRemoteEditors")(function* () {
-    const env = yield* HostProcess.Environment;
-    // Shared listings stop each editor re-stating every PATH entry x PATHEXT candidate on Windows.
-    const resolved = yield* Effect.forEach(
-      REMOTE_CAPABLE_EDITOR_IDS,
-      (editorId) => {
-        const editor = EDITORS.find((editor) => editor.id === editorId);
-        return editor
-          ? resolveEditorCommand(editor, env).pipe(Effect.map(Option.isSome))
-          : Effect.succeed(false);
-      },
-      { concurrency: REMOTE_EDITOR_PROBE_CONCURRENCY },
-    ).pipe(withPathDirectoryListings);
-    return REMOTE_CAPABLE_EDITOR_IDS.filter((_, index) => resolved[index]);
+    return yield* findRemoteEditors();
   }),
 });
 

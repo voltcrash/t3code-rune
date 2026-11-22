@@ -4,6 +4,7 @@
   "src": [
     "src/**/*.ts",
     "scripts/rune-projects.mjs",
+    "scripts/rune-editors.mjs",
     "../../packages/client-runtime/src/state/providerStatus.ts",
     "!**/*.test.ts"
   ],
