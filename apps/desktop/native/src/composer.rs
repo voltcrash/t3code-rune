@@ -390,6 +390,7 @@ impl Desktop {
         };
         let button = el()
             .key("send-message")
+            .keeps_text_selection()
             .label(caption)
             .role("button")
             .help(caption)

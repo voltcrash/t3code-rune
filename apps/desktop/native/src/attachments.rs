@@ -191,9 +191,7 @@ impl Target {
                         return;
                     };
                     if content.text().is_empty() {
-                        if !target.paste(app, content) {
-                            return;
-                        }
+                        target.paste(app, content);
                     } else {
                         tx.paste_text(content.text());
                     }
