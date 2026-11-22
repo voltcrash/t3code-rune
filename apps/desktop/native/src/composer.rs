@@ -349,12 +349,7 @@ pub(super) fn view(
     let list = if asking {
         None
     } else {
-        target.list(
-            &draft.files,
-            theme,
-            s.pending,
-            &s.workspace.attachment_viewport,
-        )
+        target.list(&draft.files, theme, s.pending, &s.workspace)
     };
     target.drop_area(
         surface(

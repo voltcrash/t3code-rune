@@ -558,12 +558,7 @@ pub(super) fn view(
             Desktop::prepare_scratch,
         ));
     }
-    let list = target.list(
-        &draft.files,
-        theme,
-        locked,
-        &s.workspace.attachment_viewport,
-    );
+    let list = target.list(&draft.files, theme, locked, &s.workspace);
     let surface = composer::surface(
         s.composer_card(theme, dark).key("composer-new-thread"),
         field,

@@ -147,6 +147,8 @@ enum Reply {
     },
     Connected {
         label: String,
+        #[serde(default)]
+        attachment_labels: attachments::Labels,
         details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
@@ -1221,6 +1223,7 @@ impl Desktop {
             }
             Reply::Connected {
                 label,
+                attachment_labels,
                 details,
                 stage,
                 local,
@@ -1246,6 +1249,7 @@ impl Desktop {
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
                 self.workspace.details.settings = details;
+                self.workspace.attachment_labels = attachment_labels;
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -2269,6 +2273,7 @@ mod tests {
         desktop.receive(WorkerMessage {
             id: Some(5),
             reply: Reply::Connected {
+                attachment_labels: Default::default(),
                 label: "This computer".into(),
                 details: None,
                 stage: stage::Stage::Dev,

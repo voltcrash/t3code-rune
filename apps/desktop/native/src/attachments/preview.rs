@@ -1,5 +1,5 @@
 use crate::{Desktop, image_decode};
-use rune::{El, Live, SurfaceFit, el, icon, row, tok};
+use rune::{El, SurfaceFit, el, icon, row, tok};
 use std::{
     cell::OnceCell,
     path::{Path, PathBuf},
@@ -27,7 +27,7 @@ impl Thumbnail {
         path: &str,
         name: &str,
         theme: &tok::Theme,
-        viewport: &Live<[f32; 4]>,
+        workspace: &crate::Workspace,
         remove: El,
     ) -> El {
         let mut tile = el()
@@ -47,7 +47,7 @@ impl Thumbnail {
                 .pixels_fit(image.pixels(), SurfaceFit::Fill)
                 .role("button")
                 .focusable(true)
-                .label(format!("Preview {name}"))
+                .label(workspace.attachment_labels.preview.replace("{name}", &name))
                 .on_press(move |s: &mut Desktop| {
                     if let Some(sender) = &s.image_jobs {
                         s.workspace.draft_image = Some(Preview {
@@ -64,7 +64,7 @@ impl Thumbnail {
                 .child(icon(&rune_kit::glyphs::FILE_TEXT, 16.).color(theme.text_secondary));
             if self.0.get().is_none() {
                 let slot = self.0.clone();
-                let viewport = viewport.clone();
+                let viewport = workspace.attachment_viewport.clone();
                 let path = PathBuf::from(path);
                 tile = tile.on_drawn_layout_tx(move |s: &mut Desktop, [x, y, w, h], tx| {
                     let [left, top, width, height] = viewport.get();

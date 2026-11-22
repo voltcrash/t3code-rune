@@ -7,6 +7,21 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tempfile::TempPath;
 
+#[derive(serde::Deserialize)]
+pub(crate) struct Labels {
+    preview: String,
+    remove: String,
+}
+
+impl Default for Labels {
+    fn default() -> Self {
+        Self {
+            preview: "Preview {name}".into(),
+            remove: "Remove {name}".into(),
+        }
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(transparent)]
 pub(super) struct Selection {
@@ -220,13 +235,18 @@ impl Target {
         files: &[Selection],
         theme: &tok::Theme,
         locked: bool,
-        viewport: &rune::Live<[f32; 4]>,
+        workspace: &crate::Workspace,
     ) -> Option<El> {
         if files.is_empty() {
             return None;
         }
-        let mut tiles = row().w_full().flex_wrap().gap(8.);
-        let mut rows = col().w_full();
+        // A keyed group keeps scrolled tiles under one accessible parent.
+        let mut tiles = row()
+            .key("composer-image-grid")
+            .w_full()
+            .flex_wrap()
+            .gap(8.);
+        let mut rows = col().key("composer-file-rows").w_full();
         let mut documents = 0;
         for file in files {
             let path = &file.path;
@@ -234,7 +254,7 @@ impl Target {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(path);
-            let caption = format!("Remove {name}");
+            let caption = workspace.attachment_labels.remove.replace("{name}", name);
             let target = self.clone();
             let remove_path = path.clone();
             let remove = el()
@@ -253,7 +273,7 @@ impl Target {
                     target.edit(app, |files| files.retain(|f| f.path != remove_path))
                 });
             if let Some(thumb) = &file.thumbnail {
-                tiles = tiles.child(thumb.tile(path, name, theme, viewport, remove));
+                tiles = tiles.child(thumb.tile(path, name, theme, workspace, remove));
             } else {
                 documents += 1;
                 rows = rows.child(
@@ -277,7 +297,7 @@ impl Target {
         }
         let mut list = col()
             .key("composer-files")
-            .drawn_rect_into(viewport)
+            .drawn_rect_into(&workspace.attachment_viewport)
             .w_full()
             .max_h(136.)
             .gap(4.)
