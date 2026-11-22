@@ -13,6 +13,11 @@ import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
 
 let nextScriptKey = 0;
+
+function scriptIdentity(script: ProjectScript) {
+  return JSON.stringify(script, Object.keys(script).sort());
+}
+
 type ScriptRow = {
   key: string;
   edit: string;
@@ -43,13 +48,16 @@ export function watchProjectScripts(
         : null;
     if (NodeUtil.isDeepStrictEqual(previous, scripts)) return;
     previous = scripts;
-    const prior = Map.groupBy(byKey, ([, script]) => script.id);
+    const actions = scripts ?? [];
+    const identities = actions.map(scriptIdentity);
+    const prior = Map.groupBy(byKey, ([, script]) => scriptIdentity(script));
+    for (const [identity, matches] of Map.groupBy(identities, (id) => id)) {
+      if (prior.get(identity)?.length !== matches.length) prior.delete(identity);
+    }
     byKey.clear();
-    const primary = primaryProjectScript(scripts ?? []);
-    const rows = (scripts ?? []).map((script) => {
-      const candidates = prior.get(script.id) ?? [];
-      const match = candidates.findIndex(([, old]) => NodeUtil.isDeepStrictEqual(old, script));
-      const key = match >= 0 ? candidates.splice(match, 1)[0]![0] : String(++nextScriptKey);
+    const primary = primaryProjectScript(actions);
+    const rows = actions.map((script, index) => {
+      const key = prior.get(identities[index]!)?.shift()?.[0] ?? String(++nextScriptKey);
       byKey.set(key, script);
       return {
         key,
@@ -92,19 +100,22 @@ export function watchProjectScripts(
       if (!rpc || !settings || target?.project !== project || (key && !original)) {
         throw new Error(m(msg("Failed to save action.")));
       }
-      let occurrence = 0;
-      if (original) {
-        for (const [rowKey, script] of byKey) {
-          if (rowKey === key) break;
-          if (NodeUtil.isDeepStrictEqual(script, original)) occurrence++;
-        }
-      }
+      const matches = original
+        ? [...byKey].filter(([, script]) => NodeUtil.isDeepStrictEqual(script, original))
+        : [];
+      const occurrence = matches.findIndex(([rowKey]) => rowKey === key);
       const config = await Effect.runPromise(
         rpc[WS_METHODS.serverGetConfig]({}).pipe(Effect.timeout("20 seconds")),
         { signal },
       );
       const legacy = projectScripts(project);
-      if (!legacy || !settings || activeRpc() !== rpc || target !== selected) {
+      if (
+        !legacy ||
+        !settings ||
+        activeRpc() !== rpc ||
+        target !== selected ||
+        (key && !byKey.has(key))
+      ) {
         throw new Error(m(msg("Failed to save action.")));
       }
       const patch = scriptSettingsPatch(
@@ -113,6 +124,7 @@ export function watchProjectScripts(
         original,
         input,
         occurrence,
+        matches.length,
       );
       const saved = await Effect.runPromise(
         rpc[WS_METHODS.serverUpdateSettings]({ patch }).pipe(Effect.timeout("20 seconds")),

@@ -26,12 +26,17 @@ export function scriptSettingsPatch(
   original: ProjectScript | undefined,
   input: ProjectScriptInput | null,
   occurrence = 0,
+  expectedCount = 1,
 ) {
   const scripts = resolveProjectScripts(settings, project);
-  const index = original
-    ? scripts.findIndex((s) => NodeUtil.isDeepStrictEqual(s, original) && occurrence-- === 0)
-    : -1;
-  if ((!original && !input) || (original && index < 0)) {
+  const matches = original
+    ? scripts.flatMap((s, index) => (NodeUtil.isDeepStrictEqual(s, original) ? [index] : []))
+    : [];
+  const index = matches[occurrence];
+  if (
+    (!original && !input) ||
+    (original && (index === undefined || matches.length !== expectedCount))
+  ) {
     throw new Error(m(msg("Script not found.")));
   }
   let updated: readonly ProjectScript[];
