@@ -5,6 +5,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { FetchHttpClient } from "effect/http";
 import { downloadAttachment, downloadDestination, downloadQueueKey } from "./downloadAttachment.ts";
+import { FILE_TEXT_PREVIEW_MAX_BYTES } from "@t3tools/shared/filePreview";
+import { readAttachmentPreview } from "./attachmentPreview.ts";
 
 it.effect("replaces the chosen file only after receiving the complete attachment", () =>
   Effect.gen(function* () {
@@ -52,4 +54,27 @@ it.effect("replaces the chosen file only after receiving the complete attachment
     yield* save("pdf");
     expect(yield* fs.readFileString(path)).toBe("pdf");
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("limits text previews when an asset server ignores the byte range", () =>
+  Effect.gen(function* () {
+    const max = FILE_TEXT_PREVIEW_MAX_BYTES;
+    let range: string | null = null;
+    const bytes = new Uint8Array(max + 4).fill(97);
+    bytes.set([0xe2, 0x82, 0xac], max - 1);
+    const result = yield* readAttachmentPreview(
+      "https://paired.example.test",
+      "/asset",
+      bytes.length,
+    ).pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.Fetch, (_url, init) => {
+        range = new Headers(init?.headers).get("Range");
+        return Promise.resolve(new Response(bytes));
+      }),
+    );
+    expect(range).toBe(`bytes=0-${max}`);
+    expect(result.truncated).toBe(true);
+    expect(result.text.length).toBe(max - 1);
+  }),
 );

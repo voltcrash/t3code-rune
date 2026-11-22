@@ -36,6 +36,7 @@ import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
+import { readAttachmentPreview } from "../src/native/attachmentPreview.ts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import {
   downloadAttachment,
@@ -1054,11 +1055,68 @@ async function prepareLanding(project, reply) {
   }
 }
 
+function timelineFile(request) {
+  const record = watching;
+  if (!record || record.id !== request.watch || record.owner !== session) return;
+  const row = record.state.rows[record.state.indices.get(request.key)];
+  return row?.attachments.find((a) => a.file?.id === request.attachment)?.file;
+}
+
+async function previewAttachment(request, reply) {
+  const record = watching;
+  const result = { type: "filesource", operation: request.operation };
+  if (!record || record.id !== request.watch) {
+    if (!request.cancel) reply({ ...result, error: m(msg("The attachment is unavailable.")) });
+    return;
+  }
+  if (request.cancel) {
+    if (record.attachmentPreview?.operation === request.operation)
+      record.attachmentPreview.controller.abort();
+    return;
+  }
+  record.attachmentPreview?.controller.abort();
+  const file = timelineFile(request);
+  if (!file) return reply({ ...result, error: m(msg("The attachment is unavailable.")) });
+  const controller = new AbortController();
+  record.attachmentPreview = { operation: request.operation, controller };
+  const signal = AbortSignal.any([
+    record.controller.signal,
+    record.owner.signal,
+    controller.signal,
+  ]);
+  try {
+    const source = await Effect.runPromise(
+      openEnvironmentRpc(record.owner).pipe(
+        Effect.flatMap((rpc) =>
+          rpc[WS_METHODS.assetsCreateUrl]({
+            resource: { _tag: "attachment", attachmentId: file.id, disposition: "inline" },
+          }),
+        ),
+        Effect.flatMap(({ relativeUrl }) =>
+          readAttachmentPreview(record.owner.httpBaseUrl, relativeUrl, file.bytes),
+        ),
+        Effect.scoped,
+        Effect.timeout("30 seconds"),
+        Effect.provide(record.owner.http),
+      ),
+      { signal },
+    );
+    if (!signal.aborted && timelineFile(request)?.id === file.id)
+      reply({ ...result, contents: source.text, truncated: source.truncated });
+    else if (!controller.signal.aborted)
+      reply({ ...result, error: m(msg("The attachment is unavailable.")) });
+  } catch {
+    if (!controller.signal.aborted)
+      reply({ ...result, error: m(msg("Could not load this file.")) });
+  } finally {
+    if (record.attachmentPreview?.controller === controller) record.attachmentPreview = undefined;
+  }
+}
+
 function attachmentSave(request) {
   const record = watching;
-  const row = record?.state.rows[record.state.indices.get(request.key)];
-  const file = row?.attachments.find((a) => a.file?.id === request.attachment)?.file;
-  if (!file || record.id !== request.watch || record.owner !== session) return;
+  const file = timelineFile(request);
+  if (!file) return;
   const owner = record.owner;
   return (request, reply) => saveAttachment(owner, file, request.path, reply);
 }
@@ -1191,6 +1249,17 @@ async function handleWorkspaceRequest(request, reply) {
         type: "connected",
         label: session.label,
         attachment_labels: {
+          attachment: m(msg("Attachment")),
+          copy: m(msg("Copy contents")),
+          copy_preview: m(msg("Copy preview")),
+          source: m(msg("Show source")),
+          rendered: m(msg("Show rendered markdown")),
+          no_preview: m(msg("No preview for this file")),
+          loading: m(msg("Loading file")),
+          file_close: m(msg("Close")),
+          truncated: m(msg("Preview limited to the first 1 MB. Save the file to read it in full.")),
+          retry: m(msg("Try again")),
+
           download: m(msg("Download {label}", { label: "{label}" })),
           pasted: m(msg("Pasted text")),
           file: m(msg("File", { $context: "file type badge when the name has no extension" })),
@@ -1818,6 +1887,8 @@ try {
       inspectDetail(request);
     } else if (request?.type === "workspacefiles") {
       void workspaceFiles(request, reply);
+    } else if (request?.type === "previewattachment") {
+      void previewAttachment(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
     } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {

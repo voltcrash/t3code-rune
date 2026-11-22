@@ -173,5 +173,15 @@
   "dc429ef6ac7de65e": "Impossible d’enregistrer le fichier",
   "d4864819331ed9fc": "Télécharger {label}",
   "87f63288c0f1ca07": "Texte collé",
-  "c336d59042368fd6": "Fichier"
+  "c336d59042368fd6": "Fichier",
+  "bacac727c7de559b": "Impossible de charger ce fichier.",
+  "4f00cfe133e762ce": "Pièce jointe",
+  "be81d23df7815697": "Copier le contenu",
+  "8786460a01af7046": "Copier l’aperçu",
+  "e1ba587e45a0e779": "Afficher la source",
+  "cb93b10c61d3cc72": "Afficher le Markdown rendu",
+  "144d46d5ec50e5bc": "Aucun aperçu pour ce fichier",
+  "40d67da2e98bb2ff": "Chargement du fichier",
+  "c83a38913b99b42b": "Aperçu limité au premier Mo. Enregistrez le fichier pour le lire en entier.",
+  "fe8ed6127f1d8a28": "Réessayer"
 }

@@ -159,7 +159,7 @@ enum Reply {
     Connected {
         label: String,
         #[serde(default)]
-        attachment_labels: attachments::Labels,
+        attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
         usage_preferences: Option<usage::summary::Preferences>,
@@ -581,6 +581,13 @@ enum Request<'a> {
         key: String,
         operation: String,
         open: bool,
+    },
+    PreviewAttachment {
+        watch: u64,
+        key: String,
+        attachment: String,
+        operation: u64,
+        cancel: bool,
     },
     DownloadAttachment {
         watch: u64,
@@ -1294,7 +1301,7 @@ impl Desktop {
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
                 self.workspace.details.settings = details;
-                self.workspace.attachment_labels = attachment_labels;
+                self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.workspace.usage.summary.restore(usage_preferences);

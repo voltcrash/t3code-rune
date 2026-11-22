@@ -8,30 +8,15 @@ const DOWNLOAD: rune::Icon = rune::Icon {
     body: r#"<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-fn file_card(
+pub(super) fn download_button(
     s: &Desktop,
-    message: &MessageRow,
+    watch: Option<u64>,
+    key: &str,
+    id: &str,
     name: &str,
-    file: &images::FileCard,
+    download: String,
     theme: &tok::Theme,
-    surface: Color,
 ) -> El {
-    let labels = &s.workspace.attachment_labels;
-    let title = if file.pasted {
-        labels.pasted.as_str()
-    } else {
-        name
-    };
-    let metadata = if file.pasted {
-        file.size.clone()
-    } else {
-        format!(
-            "{} · {}",
-            file.extension.as_deref().unwrap_or(&labels.file),
-            file.size
-        )
-    };
-    let download = labels.download.replace("{label}", title);
     let mut button = el()
         .size(28., 28.)
         .center()
@@ -40,13 +25,13 @@ fn file_card(
         .label(&download)
         .help(&download)
         .child(icon(&DOWNLOAD, 14.).color(theme.text_secondary));
-    if let Some(watch) = s.workspace.conversation.as_ref().and_then(|p| p.watch) {
-        let key = message.key.clone();
-        let id = file.id.clone();
+    if let Some(watch) = watch {
+        let key = key.to_owned();
+        let id = id.to_owned();
         let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
         let safe: String = name.chars().filter(|c| !c.is_control()).collect();
         let filename = if safe.is_empty() || safe == "." || safe == ".." {
-            labels.file.clone()
+            s.workspace.attachment_labels.file.clone()
         } else {
             safe
         };
@@ -83,6 +68,52 @@ fn file_card(
     } else {
         button = button.disabled(true);
     }
+    button.no_window_drag()
+}
+
+fn file_card(
+    s: &Desktop,
+    message: &MessageRow,
+    name: &str,
+    file: &images::FileCard,
+    theme: &tok::Theme,
+    surface: Color,
+) -> El {
+    let labels = &s.workspace.attachment_labels;
+    let title = if file.pasted {
+        labels.pasted.as_str()
+    } else {
+        name
+    };
+    let metadata = if file.pasted {
+        file.size.clone()
+    } else {
+        format!(
+            "{} · {}",
+            file.extension.as_deref().unwrap_or(&labels.file),
+            file.size
+        )
+    };
+    let download = labels.download.replace("{label}", title);
+    let watch = s.workspace.conversation.as_ref().and_then(|p| p.watch);
+    let save = download_button(s, watch, &message.key, &file.id, name, download, theme);
+    let trigger = super::workspace_files::attachment_trigger(&message.key, &file.id);
+    let mut identity = row().grow(1.).min_w(0.).gap(8.).center_y().radius(8.);
+    if let Some(watch) = watch.filter(|_| !s.pending) {
+        let key = message.key.clone();
+        let id = file.id.clone();
+        let caption = labels.preview.replace("{name}", title);
+        identity = identity
+            .key(trigger)
+            .role("button")
+            .label(&caption)
+            .help(&caption)
+            .hover(theme.hover)
+            .focusable(true)
+            .on_press_tx(move |s: &mut Desktop, tx| {
+                s.open_attachment_preview(watch, &key, &id, tx);
+            });
+    }
     row()
         .w_full()
         .max_w(256.)
@@ -94,21 +125,24 @@ fn file_card(
         .fill(surface)
         .center_y()
         .child(
-            el().size(36., 36.)
-                .center()
-                .radius(8.)
-                .fill(theme.bg.alpha(0.6))
-                .child(icon(rune_kit::file_icon(name), 18.).color(theme.text_secondary)),
+            identity
+                .child(
+                    el().size(36., 36.)
+                        .center()
+                        .radius(8.)
+                        .fill(theme.bg.alpha(0.6))
+                        .child(icon(rune_kit::file_icon(name), 18.).color(theme.text_secondary)),
+                )
+                .child(
+                    col()
+                        .min_w(0.)
+                        .grow(1.)
+                        .gap(2.)
+                        .child(label(title, 14., 500., theme.text).truncate())
+                        .child(label(&metadata, 12., 400., theme.text_secondary).truncate()),
+                ),
         )
-        .child(
-            col()
-                .min_w(0.)
-                .grow(1.)
-                .gap(2.)
-                .child(label(title, 14., 500., theme.text).truncate())
-                .child(label(&metadata, 12., 400., theme.text_secondary).truncate()),
-        )
-        .child(button)
+        .child(save)
 }
 
 fn copy_prompt(pane: &Conversation, message: &MessageRow, theme: &tok::Theme) -> El {
