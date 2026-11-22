@@ -5,6 +5,7 @@ import {
   MAX_SCRIPT_ID_LENGTH,
   type ProjectId,
   type ProjectScript,
+  type T3ProjectFileScript,
   type ServerSettings,
 } from "@t3tools/contracts";
 
@@ -173,4 +174,27 @@ export function projectScriptIdFromCommand(command: string): string | null {
   }
   const [prefix, , suffix] = SCRIPT_RUN_COMMAND_PATTERN.parts;
   return trimmed.slice(prefix.literal.length, -suffix.literal.length);
+}
+
+export function importableProjectScripts(
+  file: readonly T3ProjectFileScript[],
+  configured: readonly ProjectScript[],
+) {
+  const names = new Set(configured.map((s) => s.name.toLowerCase()));
+  const commands = new Set(configured.map((s) => s.command));
+  return file.filter((s) => !names.has(s.name.toLowerCase()) && !commands.has(s.command));
+}
+
+export function projectFileScriptInput(script: T3ProjectFileScript): ProjectScriptInput {
+  return {
+    name: script.name,
+    command: script.command,
+    icon: script.icon ?? "play",
+    runOnWorktreeCreate: script.runOnWorktreeCreate ?? false,
+    waitForSetup: script.runOnWorktreeCreate === true && script.async === false,
+    runOnSettle: script.runOnSettle ?? false,
+    stopOnSettle: script.stopOnSettle ?? false,
+    previewUrl: script.previewUrl ?? null,
+    autoOpenPreview: Boolean(script.previewUrl && script.autoOpenPreview),
+  };
 }

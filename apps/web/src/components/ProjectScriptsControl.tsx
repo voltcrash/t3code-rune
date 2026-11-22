@@ -1,3 +1,4 @@
+import { importableProjectScripts, projectFileScriptInput } from "@t3tools/shared/projectScripts";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
@@ -114,14 +115,7 @@ export default function ProjectScriptsControl({
   const primaryScript =
     (preferredScriptId ? scripts.find((script) => script.id === preferredScriptId) : undefined) ??
     primaryProjectScript(scripts);
-  const importableScripts = fileScripts.filter(
-    (fileScript) =>
-      !scripts.some(
-        (script) =>
-          script.command === fileScript.command ||
-          script.name.toLowerCase() === fileScript.name.toLowerCase(),
-      ),
-  );
+  const importableScripts = importableProjectScripts(fileScripts, scripts);
 
   const openAddDialog = () => {
     editorRequestIdRef.current += 1;
@@ -141,16 +135,8 @@ export default function ProjectScriptsControl({
   const importFileScript = async (fileScript: T3ProjectFileScript) => {
     const requestId = ++editorRequestIdRef.current;
     const payload: NewProjectScriptInput = {
-      name: fileScript.name,
-      command: fileScript.command,
-      icon: fileScript.icon ?? "play",
-      runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
-      waitForSetup: fileScript.runOnWorktreeCreate === true && fileScript.async === false,
-      runOnSettle: fileScript.runOnSettle ?? false,
-      stopOnSettle: fileScript.stopOnSettle ?? false,
+      ...projectFileScriptInput(fileScript),
       ...(readEnvironmentScope(environmentId, AuthSettingsWriteScope) ? { keybinding: null } : {}),
-      previewUrl: fileScript.previewUrl ?? null,
-      autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
     };
     const result = await onAddScript(payload);
     if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;

@@ -108,6 +108,15 @@ impl Desktop {
         self.workspace.details.script_form = Some(form);
         tx.focus_when_shown("script-name", true);
     }
+    pub(super) fn import_script(&mut self, script: &Stored, tx: &mut Tx) {
+        if !self.can_edit_scripts() {
+            return;
+        }
+        self.workspace.details.menu = None;
+        self.workspace.details.script_form = Some(Form::new(None, script));
+        self.persist_script_form(true);
+        tx.focus_when_shown("script-name", true);
+    }
     fn close_script_form(&mut self) {
         let Some(form) = self.workspace.details.script_form.as_mut() else {
             return;
@@ -122,10 +131,13 @@ impl Desktop {
         }
     }
     fn save_script_form(&mut self) {
+        self.persist_script_form(false);
+    }
+    fn persist_script_form(&mut self, from_file: bool) {
         if !self.can_edit_scripts() {
             return;
         }
-        let Some((watch, project)) = self.script_target() else {
+        let Some((watch, project, _)) = self.script_target() else {
             return;
         };
         let project = project.to_owned();
@@ -152,6 +164,7 @@ impl Desktop {
                 project: &project,
                 key: key.as_deref(),
                 input: input.as_ref(),
+                from_file,
             },
         ) && let Some(f) = self.workspace.details.script_form.as_mut()
         {

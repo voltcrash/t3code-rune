@@ -1,3 +1,4 @@
+import { projectFileScriptInput, buildProjectScript } from "@t3tools/shared/projectScripts";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -207,4 +208,94 @@ it("edits the project's effective scripts without replacing other project settin
   expect(obsoleteScriptShortcuts(cleared, new Map(), bindings, "setup")).toEqual([
     { key: "mod+b", command: "script.setup.run" },
   ]);
+});
+
+it("offers checkout actions once and rejects stale imports against the current file and settings", async () => {
+  const offered = {
+    name: "Preview",
+    command: "pnpm dev",
+    previewUrl: "http://localhost:3100",
+    autoOpenPreview: true,
+  };
+  const alternate = { name: "Check", command: "test" };
+  const input = projectFileScriptInput(offered);
+  const existing = buildProjectScript("preview", { ...input, name: "PREVIEW", command: "other" });
+  let configured = DEFAULT_SERVER_SETTINGS;
+  let writes = 0;
+  const scripts = watchProjectScripts(
+    () => [],
+    () => new Map(),
+  );
+  let visible: string[] = [];
+  scripts.select("p", (_rows, _available, imports) => {
+    visible = imports.map((s) => s.name);
+  });
+  scripts.configure(configured);
+  scripts.setFileActions([offered, alternate]);
+  expect(visible).toEqual(["Preview", "Check"]);
+  let saved: readonly ProjectScript[] = [];
+  const rpc = {
+    [WS_METHODS.serverGetConfig]: () => Effect.succeed({ settings: configured, keybindings: [] }),
+    [WS_METHODS.serverUpdateSettings]: ({
+      patch,
+    }: {
+      patch: ReturnType<typeof scriptSettingsPatch>;
+    }) => {
+      saved = patch.projectScriptOverrides.p ?? [];
+      writes++;
+      return Effect.succeed(configured);
+    },
+  } as unknown as NonNullable<ReturnType<Parameters<typeof scripts.save>[3]>>;
+  const save = (candidate: typeof offered) =>
+    scripts.save(
+      "p",
+      null,
+      input,
+      () => rpc,
+      new AbortController().signal,
+      async () => ({ scripts: [candidate], isCurrent: () => true }),
+    );
+  await expect(save({ ...offered, command: "changed" })).rejects.toThrow();
+  configured = { ...configured, defaultProjectScripts: [existing] };
+  await expect(save(offered)).rejects.toThrow();
+  scripts.configure(configured);
+  expect(visible).toEqual(["Check"]);
+  configured = {
+    ...configured,
+    defaultProjectScripts: [{ ...existing, name: "Other", command: "test" }],
+  };
+  scripts.configure(configured);
+  expect(visible).toEqual(["Preview"]);
+  expect(writes).toBe(0);
+  await expect(
+    scripts.save(
+      "p",
+      null,
+      input,
+      () => rpc,
+      new AbortController().signal,
+      async () => ({ scripts: [offered], isCurrent: () => false }),
+    ),
+  ).rejects.toThrow();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const pending = scripts.save(
+    "p",
+    null,
+    input,
+    () => rpc,
+    new AbortController().signal,
+    async () => {
+      started.resolve();
+      await release.promise;
+      return { scripts: [offered], isCurrent: () => true };
+    },
+  );
+  await started.promise;
+  const added = { ...existing, id: "added", name: "Concurrent edit", command: "echo edit" };
+  configured = { ...configured, defaultProjectScripts: [added] };
+  release.resolve();
+  await pending;
+  expect(saved.map((s) => s.name)).toEqual([added.name, offered.name]);
+  expect(writes).toBe(1);
 });

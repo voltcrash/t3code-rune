@@ -1,3 +1,4 @@
+import { watchProjectFileActions } from "./projectFile.ts";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
@@ -98,6 +99,27 @@ export function watchWorkspace(
     },
     () => legacyScripts,
   );
+  let activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined;
+  let scriptTarget: { project: string; thread: string | null } | undefined;
+  const fileActions = watchProjectFileActions(
+    signal,
+    () => {
+      if (
+        !activeRpc ||
+        !scriptTarget ||
+        !session.canBrowse ||
+        !session.canOperate ||
+        !session.canWriteSettings
+      )
+        return;
+      const project = projects.get(scriptTarget.project);
+      if (!project || project.archived || project.scratch) return;
+      const thread = scriptTarget.thread === null ? undefined : threads.get(scriptTarget.thread);
+      if (scriptTarget.thread !== null && thread?.project !== project.id) return;
+      return { rpc: activeRpc, cwd: thread?.worktree ?? project.path };
+    },
+    scripts.setFileActions,
+  );
   const git = watchWorkspaceGit(signal, session, (target) => {
     const thread = target.draft ? undefined : threads.get(target.target);
     const project = projects.get(target.draft ? target.target : (thread?.project ?? ""));
@@ -195,6 +217,7 @@ export function watchWorkspace(
     legacyScripts = fresh.legacyScripts;
     reconcileRows(projects, dirtyProjects, view.projects);
     reconcileRows(threads, dirtyThreads, view.threads);
+    fileActions.reconcile();
     scripts.publish();
     scratchChanged ||= view.scratch_available !== scratchAvailable;
     scratchAvailable = view.scratch_available;
@@ -215,7 +238,6 @@ export function watchWorkspace(
   let needSnapshot = false;
   let retryFavicons = false;
   let completedClones = new Map<string, string>();
-  let activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined;
   const subscribe = Effect.fn("nativeDesktop.followWorkspace")(function* () {
     if (needSnapshot) {
       const fresh = yield* loadWorkspace(session).pipe(Effect.timeout("20 seconds"));
@@ -229,6 +251,7 @@ export function watchWorkspace(
         git.connect(undefined);
         draftModels.connect(undefined);
         activeRpc = undefined;
+        fileActions.reconcile();
         retryFavicons = true;
       }),
     );
@@ -286,6 +309,7 @@ export function watchWorkspace(
             if (retryFavicons) refreshFavicons();
             retryFavicons = false;
             activeRpc = rpc;
+            fileActions.reconcile();
             git.connect(rpc);
             currentVisit()?.reconnect();
             failures = 0;
@@ -337,6 +361,7 @@ export function watchWorkspace(
             legacyScripts.delete(item.projectId);
             scripts.publish();
           }
+          fileActions.reconcile();
           flush();
         }),
       ),
@@ -359,6 +384,11 @@ export function watchWorkspace(
     selectBanner: draftModels.selectBanner,
     git,
     scripts,
+    fileActions,
+    selectScriptTarget(target: typeof scriptTarget) {
+      scriptTarget = target;
+      fileActions.reconcile();
+    },
     refreshProvider: draftModels.refreshProvider,
     draftConfig: draftModels.config,
     activeRpc: () => activeRpc,

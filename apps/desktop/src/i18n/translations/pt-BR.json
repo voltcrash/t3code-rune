@@ -46,7 +46,6 @@
   "b165c3d7e9875f63": "Script não encontrado.",
   "904dbe3e472aa364": "O nome é obrigatório.",
   "334b12915d27dbf8": "O comando é obrigatório.",
-  "66b6769d2ae085a0": "Scripts do projeto",
   "ecb748ae62a9a0b8": "Adicionar script do projeto",
   "b02400e51788f2fb": "Adicionar ação",
   "a80ccb590dc09033": "Editar ação",
@@ -68,5 +67,9 @@
   "2207c69b042b2e37": "Esta ação não pode ser desfeita.",
   "fc422bee601c7fc6": "Ações",
   "3f11b46bf68f15b4": "Excluir",
-  "096ed987f49a8b6a": "A ação foi excluída, mas não foi possível remover o atalho de teclado."
+  "096ed987f49a8b6a": "A ação foi excluída, mas não foi possível remover o atalho de teclado.",
+  "924d4b8e011c9127": "Falha ao importar a ação.",
+  "8b4c89c1e1343190": "Escolher ação do projeto",
+  "7240fae7f40fdaff": "Importar do t3.json",
+  "0421f870f82997bc": "Importar"
 }

@@ -1,5 +1,13 @@
-import { ProjectId, WS_METHODS, type ProjectScript, type ServerSettings } from "@t3tools/contracts";
 import {
+  ProjectId,
+  WS_METHODS,
+  type ProjectScript,
+  type ServerSettings,
+  type T3ProjectFileScript,
+} from "@t3tools/contracts";
+import {
+  importableProjectScripts,
+  projectFileScriptInput,
   primaryProjectScript,
   resolveProjectScripts,
   type ProjectScriptInput,
@@ -32,9 +40,18 @@ export function watchProjectScripts(
 ) {
   let settings: ServerSettings | undefined;
   let selected:
-    | { project: string; emit: (rows: readonly ScriptRow[], available: boolean) => void }
+    | {
+        project: string;
+        emit: (
+          rows: readonly ScriptRow[],
+          available: boolean,
+          imports: readonly T3ProjectFileScript[],
+        ) => void;
+      }
     | undefined;
   const byKey = new Map<string, ProjectScript>();
+  let fileActions: readonly T3ProjectFileScript[] = [];
+  let previousFile: typeof fileActions | undefined;
   let previous: readonly ProjectScript[] | null | undefined;
   function publish() {
     if (!selected) return;
@@ -46,7 +63,8 @@ export function watchProjectScripts(
             scripts: legacy,
           })
         : null;
-    if (NodeUtil.isDeepStrictEqual(previous, scripts)) return;
+    if (previousFile === fileActions && NodeUtil.isDeepStrictEqual(previous, scripts)) return;
+    previousFile = fileActions;
     previous = scripts;
     const actions = scripts ?? [];
     const retained = retainedScriptKeys(byKey, actions);
@@ -63,13 +81,22 @@ export function watchProjectScripts(
         primary: script === primary,
       };
     });
-    selected.emit(rows, scripts !== null);
+    selected.emit(
+      rows,
+      scripts !== null,
+      scripts ? importableProjectScripts(fileActions, scripts) : [],
+    );
   }
   return {
     select(project: string, emit: NonNullable<typeof selected>["emit"]) {
       byKey.clear();
       selected = { project, emit };
       previous = undefined;
+      publish();
+    },
+    setFileActions(actions: readonly T3ProjectFileScript[]) {
+      if (NodeUtil.isDeepStrictEqual(actions, fileActions)) return;
+      fileActions = actions;
       publish();
     },
     clear() {
@@ -89,6 +116,10 @@ export function watchProjectScripts(
       input: ProjectScriptInput | null,
       activeRpc: () => Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined,
       signal: AbortSignal,
+      readFileActions?: () => Promise<{
+        scripts: readonly T3ProjectFileScript[];
+        isCurrent: () => boolean;
+      }>,
     ) {
       const rpc = activeRpc();
       const target = selected;
@@ -97,6 +128,7 @@ export function watchProjectScripts(
         throw new Error(m(msg("Failed to save action.")));
       }
       const shown = key ? new Map(byKey) : byKey;
+      const file = readFileActions ? await readFileActions() : undefined;
       const config = await Effect.runPromise(
         rpc[WS_METHODS.serverGetConfig]({}).pipe(Effect.timeout("20 seconds")),
         { signal },
@@ -111,13 +143,20 @@ export function watchProjectScripts(
       ) {
         throw new Error(m(msg("Failed to save action.")));
       }
-      const patch = scriptSettingsPatch(
-        config.settings,
-        { id: ProjectId.make(project), scripts: legacy },
-        shown,
-        key,
-        input,
-      );
+      const record = { id: ProjectId.make(project), scripts: legacy };
+      if (file) {
+        const configured = resolveProjectScripts(config.settings, record);
+        const offered = importableProjectScripts(file.scripts, configured);
+        if (
+          key ||
+          !input ||
+          !file.isCurrent() ||
+          !offered.some((s) => NodeUtil.isDeepStrictEqual(projectFileScriptInput(s), input))
+        ) {
+          throw new Error(m(msg("Failed to import action.")));
+        }
+      }
+      const patch = scriptSettingsPatch(config.settings, record, shown, key, input);
       const saved = await Effect.runPromise(
         rpc[WS_METHODS.serverUpdateSettings]({ patch }).pipe(Effect.timeout("20 seconds")),
         { signal },

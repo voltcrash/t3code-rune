@@ -46,7 +46,6 @@
   "b165c3d7e9875f63": "Script introuvable.",
   "904dbe3e472aa364": "Le nom est obligatoire.",
   "334b12915d27dbf8": "La commande est obligatoire.",
-  "66b6769d2ae085a0": "Scripts du projet",
   "ecb748ae62a9a0b8": "Ajouter un script de projet",
   "b02400e51788f2fb": "Ajouter une action",
   "a80ccb590dc09033": "Modifier l’action",
@@ -68,5 +67,9 @@
   "2207c69b042b2e37": "Cette action est irréversible.",
   "fc422bee601c7fc6": "Actions",
   "3f11b46bf68f15b4": "Supprimer",
-  "096ed987f49a8b6a": "L’action a été supprimée, mais son raccourci clavier n’a pas pu être retiré."
+  "096ed987f49a8b6a": "L’action a été supprimée, mais son raccourci clavier n’a pas pu être retiré.",
+  "924d4b8e011c9127": "Échec de l’import de l’action.",
+  "8b4c89c1e1343190": "Choisir une action de projet",
+  "7240fae7f40fdaff": "Importer depuis t3.json",
+  "0421f870f82997bc": "Importer"
 }

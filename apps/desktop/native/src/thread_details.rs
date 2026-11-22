@@ -25,6 +25,8 @@ impl Hidden {
 #[serde(rename_all = "camelCase")]
 struct Labels {
     scripts: String,
+    import_from: String,
+    import: String,
     actions: String,
     form: Box<scripts::Labels>,
     initialize_git: String,
@@ -182,7 +184,7 @@ impl Desktop {
         } else if settings.open_in && details.editor.as_ref().is_some_and(|c| c.can_choose) {
             "choose-editor"
         } else if self.has_scripts() {
-            "choose-project-script"
+            scripts::TRIGGER
         } else if settings.git_write && self.has_git_row() {
             "initialize-git"
         } else {
@@ -225,6 +227,9 @@ impl Desktop {
             open
         };
         self.workspace.details.menu = None;
+        if focus_row {
+            self.refresh_file_actions();
+        }
         tx.focus_when_shown(
             if focus_row {
                 focus
@@ -236,6 +241,9 @@ impl Desktop {
     }
 
     fn open_details_menu(&mut self, action: ContextAction) {
+        if matches!(action, ContextAction::Scripts) {
+            self.refresh_file_actions();
+        }
         if let Some((draft, id)) = self.details_target() {
             self.workspace.details.menu = Some(ContextMenu {
                 target: (draft, id.to_owned()),
@@ -251,7 +259,7 @@ impl Desktop {
         if let Some(menu) = details.menu.take() {
             tx.focus_when_shown(
                 if matches!(menu.action, ContextAction::Scripts) {
-                    "choose-project-script"
+                    scripts::TRIGGER
                 } else if matches!(menu.action, ContextAction::Editor) {
                     "choose-editor"
                 } else {
