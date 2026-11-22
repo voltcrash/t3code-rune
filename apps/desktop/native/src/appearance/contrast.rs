@@ -57,7 +57,7 @@ impl Contrast {
         Color::from_oklab(value)
     }
 
-    fn border(self, color: Color, target: Color) -> Color {
+    pub(crate) fn border(self, color: Color, target: Color) -> Color {
         let level = self.value();
         if level < DEFAULT {
             return color.alpha(color.a * f32::from(level) / 100.);
