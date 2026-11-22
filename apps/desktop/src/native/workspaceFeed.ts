@@ -1,5 +1,7 @@
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
+import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { watchWorkspaceGit } from "./workspaceGit.ts";
 import { watchDraftModels } from "./draftModels.ts";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
 import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
@@ -84,11 +86,30 @@ export function watchWorkspace(
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
+  let configLoaded = initial.configLoaded;
+  const git = watchWorkspaceGit(signal, session, (target) => {
+    const thread = target.draft ? undefined : threads.get(target.target);
+    const project = projects.get(target.draft ? target.target : (thread?.project ?? ""));
+    return (
+      configLoaded &&
+      project !== undefined &&
+      !project.scratch &&
+      !isScratchProject({ workspaceRoot: project.path }, scratchRoot) &&
+      (thread?.worktree ?? project.path) === target.cwd
+    );
+  });
   const draftModels = watchDraftModels(
     signal,
     (id) => projects.get(id),
     session.environmentId,
-    onEditorConfig,
+    (config, rpc) => {
+      if (config && (!configLoaded || config.scratchWorkspaceRoot !== scratchRoot)) {
+        configLoaded = true;
+        scratchRoot = config.scratchWorkspaceRoot;
+        git.reconcile();
+      }
+      onEditorConfig(config, rpc);
+    },
   );
   const dirtyProjects = new Set<string>();
   const dirtyThreads = new Set<string>();
@@ -128,6 +149,7 @@ export function watchWorkspace(
         Effect.andThen(
           Effect.sync(() => {
             scheduled = false;
+            git.reconcile();
             draftModels.projectChanged(dirtyProjects);
             const p = takeChanges(projects, dirtyProjects);
             const t = takeChanges(threads, dirtyThreads);
@@ -169,6 +191,7 @@ export function watchWorkspace(
   function adopt(fresh: Loaded) {
     sequence = fresh.sequence;
     identities = fresh.identities;
+    configLoaded = fresh.configLoaded;
     scratchRoot = fresh.scratchRoot;
     if (fresh.clockOffset !== undefined) onClock(fresh.clockOffset);
     replace(fresh);
@@ -189,6 +212,7 @@ export function watchWorkspace(
     draftModels.connect(rpc);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        git.connect(undefined);
         draftModels.connect(undefined);
         activeRpc = undefined;
         retryFavicons = true;
@@ -197,8 +221,11 @@ export function watchWorkspace(
     if (sampleOnConnect) {
       yield* sampleDesktopConfig(rpc, session).pipe(
         Effect.timeout("3 seconds"),
-        Effect.tap(({ clockOffset }) =>
+        Effect.tap(({ clockOffset, scratchRoot: root }) =>
           Effect.sync(() => {
+            configLoaded = true;
+            scratchRoot = root;
+            git.reconcile();
             if (clockOffset !== undefined) onClock(clockOffset);
           }),
         ),
@@ -245,6 +272,7 @@ export function watchWorkspace(
             if (retryFavicons) refreshFavicons();
             retryFavicons = false;
             activeRpc = rpc;
+            git.connect(rpc);
             currentVisit()?.reconnect();
             failures = 0;
             return;
@@ -309,6 +337,7 @@ export function watchWorkspace(
     initialLanding,
     selectDraftModels: draftModels.select,
     selectBanner: draftModels.selectBanner,
+    git,
     refreshProvider: draftModels.refreshProvider,
     draftConfig: draftModels.config,
     activeRpc: () => activeRpc,

@@ -113,6 +113,14 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    GitStatus {
+        watch: u64,
+        non_repo: bool,
+    },
+    GitInitialized {
+        watch: u64,
+        error: Option<String>,
+    },
     WorkspaceEditors {
         watch: u64,
         catalog: workspace::thread_details::editor::Catalog,
@@ -428,6 +436,14 @@ enum Request<'a> {
     PrepareScratch,
     PrepareLanding {
         project: Option<String>,
+    },
+    WatchGit {
+        watch: u64,
+        selection: Option<&'a workspace::thread_details::git::Selection>,
+    },
+    InitGit {
+        watch: u64,
+        subscription: u64,
     },
     WatchProviderStatus {
         watch: u64,
@@ -788,6 +804,14 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::GitStatus { watch, non_repo } = message.reply {
+            self.git_status(watch, message.id, non_repo);
+            return;
+        }
+        if let Reply::GitInitialized { watch, error } = message.reply {
+            self.git_initialized(watch, message.id, error);
+            return;
+        }
         if let Reply::WorkspaceEditors { watch, catalog } = message.reply {
             self.update_editors(watch, catalog);
             return;
@@ -1236,6 +1260,8 @@ impl Desktop {
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
+            | Reply::GitStatus { .. }
+            | Reply::GitInitialized { .. }
             | Reply::WorkspaceEditors { .. }
             | Reply::EditorError { .. }
             | Reply::EditorOpened { .. }
@@ -1660,6 +1686,7 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_draft_model_watch();
             let banner = s.sync_provider_status();
+            let git = s.sync_git();
             let details = s.reconcile_details();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
@@ -1673,6 +1700,7 @@ fn start() -> io::Result<()> {
                 || resized
                 || contrast
                 || banner
+                || git
                 || details
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {

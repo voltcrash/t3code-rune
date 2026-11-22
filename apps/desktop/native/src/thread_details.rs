@@ -24,6 +24,8 @@ impl Hidden {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Labels {
+    initialize_git: String,
+    initializing: String,
     panel: String,
     toggle: String,
     context: String,
@@ -42,6 +44,10 @@ pub(crate) struct Settings {
     environment: bool,
     #[serde(rename = "openIn", default)]
     open_in: bool,
+    #[serde(rename = "gitActions", default)]
+    git_actions: bool,
+    #[serde(rename = "gitWrite", default)]
+    git_write: bool,
     labels: Labels,
 }
 
@@ -58,7 +64,7 @@ struct ContextMenu {
 
 impl Settings {
     fn enabled(&self) -> bool {
-        self.environment || self.open_in
+        self.environment || self.open_in || self.git_actions
     }
 
     pub(super) fn toggle_label(&self) -> &str {
@@ -70,6 +76,7 @@ impl Settings {
 pub(crate) struct Details {
     pub(crate) settings: Option<Settings>,
     pub(crate) editor: Option<editor::Catalog>,
+    git: git::State,
     mounted: Cell<bool>,
     inline: Cell<bool>,
     popup: Option<(bool, String)>,
@@ -144,7 +151,7 @@ impl Desktop {
             .details
             .settings
             .as_ref()
-            .is_some_and(Settings::enabled)
+            .is_some_and(|s| s.environment || s.open_in || self.has_git_row())
             && self.details_target().is_some()
     }
 
@@ -158,8 +165,10 @@ impl Desktop {
         };
         let focus = if settings.environment {
             "details-context"
-        } else if details.editor.as_ref().is_some_and(|c| c.can_choose) {
+        } else if settings.open_in && details.editor.as_ref().is_some_and(|c| c.can_choose) {
             "choose-editor"
+        } else if settings.git_write && self.has_git_row() {
+            "initialize-git"
         } else {
             "toggle-thread-details"
         };
@@ -245,7 +254,10 @@ impl Desktop {
         let details = &self.workspace.details;
         let same = |(draft, id): &(bool, String)| target == Some((*draft, id.as_str()));
         let inline = details.inline.get();
-        let close_popup = details.popup.as_ref().is_some_and(|p| !same(p) || inline);
+        let close_popup = details
+            .popup
+            .as_ref()
+            .is_some_and(|p| !same(p) || inline || !self.can_show_details());
         let close_menu = details.menu.as_ref().is_some_and(|m| {
             !same(&m.target)
                 || close_popup
@@ -282,7 +294,7 @@ pub(super) fn layout(
     details.inline.set(inline);
     let card = inline
         && details.settings.as_ref().is_some_and(|settings| {
-            settings.enabled()
+            s.can_show_details()
                 && s.details_target()
                     .is_some_and(|(draft, id)| !settings.hidden.contains(draft, id))
         });
@@ -315,6 +327,9 @@ pub(super) const DETAILS_ICON: Icon = Icon {
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h.01M10 8h7M7 12h.01M10 12h7M7 16h.01M10 16h7"/></g>"#,
 };
+
+#[path = "thread_details/git.rs"]
+pub(crate) mod git;
 
 #[path = "thread_details/editor.rs"]
 pub(crate) mod editor;
@@ -409,7 +424,16 @@ fn contents(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
     {
         rows = rows.child(editor.row(s, theme));
     }
-    rows
+    let primary =
+        settings.environment || (settings.open_in && s.workspace.details.editor.is_some());
+    let mut panel = col().w(WIDTH);
+    if primary {
+        panel = panel.child(rows);
+    }
+    if s.has_git_row() {
+        panel = panel.child(git::section(s, settings, theme, primary));
+    }
+    panel
 }
 
 pub(super) fn menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {

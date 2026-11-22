@@ -157,5 +157,8 @@
   "64a9a7f137f4715b": "Ingen SSH-rutt till {environment}",
   "b99f09d2d9df18ad": "Inga installerade redigerare hittades",
   "392611fdc89f2809": "Öppnades i {editor}",
-  "c77307f0c52b5031": "Öppnas via SSH. Kräver din nyckel på {environment}"
+  "c77307f0c52b5031": "Öppnas via SSH. Kräver din nyckel på {environment}",
+  "0282c27e763f6e1d": "Git-initieringen misslyckades",
+  "afef16b4bdfd825c": "Initiera Git",
+  "affd5a57623e949c": "Initierar..."
 }
