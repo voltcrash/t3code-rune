@@ -24,6 +24,8 @@ impl Hidden {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Labels {
+    scripts: String,
+    actions: String,
     initialize_git: String,
     initializing: String,
     panel: String,
@@ -52,6 +54,7 @@ pub(crate) struct Settings {
 }
 
 enum ContextAction {
+    Scripts,
     Checkout,
     Editor,
     Copy { point: (f32, f32) },
@@ -74,6 +77,7 @@ impl Settings {
 
 #[derive(Default)]
 pub(crate) struct Details {
+    pub(crate) scripts: Option<(u64, Vec<scripts::Script>)>,
     pub(crate) settings: Option<Settings>,
     pub(crate) editor: Option<editor::Catalog>,
     git: git::State,
@@ -151,7 +155,7 @@ impl Desktop {
             .details
             .settings
             .as_ref()
-            .is_some_and(|s| s.environment || s.open_in || self.has_git_row())
+            .is_some_and(|s| s.environment || s.open_in || self.has_git_row() || self.has_scripts())
             && self.details_target().is_some()
     }
 
@@ -160,13 +164,19 @@ impl Desktop {
             return;
         };
         let details = &self.workspace.details;
-        let Some(settings) = details.settings.as_ref().filter(|s| s.enabled()) else {
+        let Some(settings) = details
+            .settings
+            .as_ref()
+            .filter(|s| s.enabled() || self.has_scripts())
+        else {
             return;
         };
         let focus = if settings.environment {
             "details-context"
         } else if settings.open_in && details.editor.as_ref().is_some_and(|c| c.can_choose) {
             "choose-editor"
+        } else if self.has_scripts() {
+            "choose-project-script"
         } else if settings.git_write && self.has_git_row() {
             "initialize-git"
         } else {
@@ -234,7 +244,9 @@ impl Desktop {
         }
         if let Some(menu) = details.menu.take() {
             tx.focus_when_shown(
-                if matches!(menu.action, ContextAction::Editor) {
+                if matches!(menu.action, ContextAction::Scripts) {
+                    "choose-project-script"
+                } else if matches!(menu.action, ContextAction::Editor) {
                     "choose-editor"
                 } else {
                     "details-context"
@@ -260,12 +272,13 @@ impl Desktop {
             .is_some_and(|p| !same(p) || inline || !self.can_show_details());
         let close_menu = details.menu.as_ref().is_some_and(|m| {
             !same(&m.target)
+                || (matches!(m.action, ContextAction::Scripts) && !self.has_scripts())
                 || close_popup
                 || if inline {
-                    details
-                        .settings
-                        .as_ref()
-                        .is_none_or(|s| !s.enabled() || s.hidden.contains(m.target.0, &m.target.1))
+                    details.settings.as_ref().is_none_or(|s| {
+                        (!s.enabled() && !self.has_scripts())
+                            || s.hidden.contains(m.target.0, &m.target.1)
+                    })
                 } else {
                     details.popup.is_none()
                 }
@@ -330,6 +343,8 @@ pub(super) const DETAILS_ICON: Icon = Icon {
 
 #[path = "thread_details/git.rs"]
 pub(crate) mod git;
+#[path = "thread_details/scripts.rs"]
+pub(crate) mod scripts;
 
 #[path = "thread_details/editor.rs"]
 pub(crate) mod editor;
@@ -424,8 +439,11 @@ fn contents(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
     {
         rows = rows.child(editor.row(s, theme));
     }
-    let primary =
-        settings.environment || (settings.open_in && s.workspace.details.editor.is_some());
+    let scripts = scripts::controls(s, theme);
+    let primary = settings.environment
+        || (settings.open_in && s.workspace.details.editor.is_some())
+        || scripts.is_some();
+    rows = rows.children(scripts);
     let mut panel = col().w(WIDTH);
     if primary {
         panel = panel.child(rows);
@@ -450,6 +468,12 @@ pub(super) fn menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
         .open(true)
         .on_close(|s: &mut Desktop| s.workspace.details.menu = None);
     match action {
+        ContextAction::Scripts => {
+            if let Some(menu) = scripts::menu(s) {
+                menu.build(kit, overlays);
+            }
+            return;
+        }
         ContextAction::Editor => {
             if let Some(editor) = &s.workspace.details.editor {
                 editor.menu().build(kit, overlays);

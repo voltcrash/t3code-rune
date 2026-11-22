@@ -5,6 +5,8 @@ import { m } from "../i18n/catalog.ts";
 export function threadDetailsLabels() {
   return {
     panel: m(msg("Thread details")),
+    scripts: m(msg("Project scripts")),
+    actions: m(msg("Actions", { $context: "project actions menu" })),
     initializeGit: m(msg("Initialize Git")),
     initializing: m(msg("Initializing...")),
     toggle: m(msg("Toggle thread details panel")),

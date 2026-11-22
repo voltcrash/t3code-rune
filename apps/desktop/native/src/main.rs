@@ -234,6 +234,16 @@ enum Reply {
         #[serde(flatten)]
         recorded: workspace::file_diff::Recorded,
     },
+    TerminalSessions {
+        watch: u64,
+        operation: String,
+        active: String,
+        rows: Vec<terminal::Session>,
+    },
+    ProjectScripts {
+        watch: u64,
+        rows: Vec<workspace::thread_details::scripts::Script>,
+    },
     TerminalCopy {
         watch: u64,
         operation: String,
@@ -1009,6 +1019,22 @@ impl Desktop {
             self.workspace.diff.receive(&operation, recorded);
             return;
         }
+        if let Reply::TerminalSessions {
+            watch,
+            operation,
+            active,
+            rows,
+        } = message.reply
+        {
+            self.terminal_sessions(watch, &operation, active, rows);
+            return;
+        }
+        if let Reply::ProjectScripts { watch, rows } = message.reply {
+            if self.workspace.terminal_watch() == Some(watch) {
+                self.workspace.details.scripts = Some((watch, rows));
+            }
+            return;
+        }
         if let Reply::Terminal {
             watch,
             operation,
@@ -1312,6 +1338,8 @@ impl Desktop {
             | Reply::WorkspacePaused { .. }
             | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
+            | Reply::TerminalSessions { .. }
+            | Reply::ProjectScripts { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }

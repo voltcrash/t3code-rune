@@ -68,3 +68,8 @@ export function settleProjectScript(scripts: readonly ProjectScript[]): ProjectS
 export function projectScriptTerminalInput(command: string): string {
   return ` ${command}\r`;
 }
+
+export function primaryProjectScript(scripts: ReadonlyArray<ProjectScript>): ProjectScript | null {
+  const regular = scripts.find((script) => !script.runOnWorktreeCreate && !script.runOnSettle);
+  return regular ?? scripts.find((script) => !script.runOnSettle) ?? null;
+}

@@ -1,6 +1,7 @@
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
 import { sortProjectsByLatestActivity } from "@t3tools/client-runtime/state/thread-sort";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { watchProjectScripts } from "./projectScripts.ts";
 import { watchWorkspaceGit } from "./workspaceGit.ts";
 import { watchDraftModels } from "./draftModels.ts";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
@@ -87,6 +88,13 @@ export function watchWorkspace(
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
   let configLoaded = initial.configLoaded;
+  let legacyScripts = initial.legacyScripts;
+  const scripts = watchProjectScripts((id) => {
+    const project = projects.get(id);
+    return project && !project.archived && !project.scratch
+      ? (legacyScripts.get(id) ?? [])
+      : undefined;
+  });
   const git = watchWorkspaceGit(signal, session, (target) => {
     const thread = target.draft ? undefined : threads.get(target.target);
     const project = projects.get(target.draft ? target.target : (thread?.project ?? ""));
@@ -108,6 +116,7 @@ export function watchWorkspace(
         scratchRoot = config.scratchWorkspaceRoot;
         git.reconcile();
       }
+      scripts.configure(config?.settings);
       onWorkspaceConfig(config, rpc);
     },
   );
@@ -177,11 +186,13 @@ export function watchWorkspace(
       { signal },
     ).catch(() => {});
   };
-  function replace(fresh: Pick<Loaded, "view" | "visitRows">) {
+  function replace(fresh: Pick<Loaded, "view" | "visitRows" | "legacyScripts">) {
     const { view } = fresh;
     visitRows = fresh.visitRows;
+    legacyScripts = fresh.legacyScripts;
     reconcileRows(projects, dirtyProjects, view.projects);
     reconcileRows(threads, dirtyThreads, view.threads);
+    scripts.publish();
     scratchChanged ||= view.scratch_available !== scratchAvailable;
     scratchAvailable = view.scratch_available;
     const active = currentVisit();
@@ -303,12 +314,16 @@ export function watchWorkspace(
             const current = currentVisit();
             if (current?.id === item.thread.id) current.update(visit);
           } else if (item.kind === "project.updated") {
+            if (item.project.scripts.length)
+              legacyScripts.set(item.project.id, item.project.scripts);
+            else legacyScripts.delete(item.project.id);
             changeRow(
               projects,
               dirtyProjects,
               item.project.id,
               projectSummary(item.project, scratchRoot),
             );
+            scripts.publish();
           } else if (item.kind === "thread.removed") {
             visitRows.delete(item.threadId);
             const current = currentVisit();
@@ -316,6 +331,8 @@ export function watchWorkspace(
             changeRow(threads, dirtyThreads, item.threadId, undefined);
           } else {
             changeRow(projects, dirtyProjects, item.projectId, undefined);
+            legacyScripts.delete(item.projectId);
+            scripts.publish();
           }
           flush();
         }),
@@ -338,6 +355,7 @@ export function watchWorkspace(
     selectDraftModels: draftModels.select,
     selectBanner: draftModels.selectBanner,
     git,
+    scripts,
     refreshProvider: draftModels.refreshProvider,
     draftConfig: draftModels.config,
     activeRpc: () => activeRpc,

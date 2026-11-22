@@ -1,8 +1,15 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import { nextTerminalId } from "@t3tools/shared/terminalLabels";
+import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabelsCopy";
+import { m } from "../src/i18n/catalog.ts";
+import {
+  projectScriptRuntimeEnv,
+  projectScriptTerminalInput,
+} from "@t3tools/shared/projectScripts";
 import { GhosttyTerminalCore } from "@t3tools/client-runtime/terminal/ghostty/core";
 import { GhosttySelection } from "@t3tools/client-runtime/terminal/ghostty/selection";
 import { GhosttyRuntime } from "@t3tools/client-runtime/terminal/ghostty/runtime";
@@ -16,6 +23,7 @@ import {
 import {
   nextTerminalAttachSeedState,
   applyTerminalAttachStreamEvent,
+  applyTerminalMetadataStreamEvent,
   INITIAL_TERMINAL_OUTPUT_CURSOR,
   readTerminalOutputUpdate,
 } from "@t3tools/client-runtime/state/terminal-session";
@@ -99,7 +107,7 @@ function runs(row, background, dark) {
   return result;
 }
 
-export function openTerminal(watch, request, write) {
+export function openTerminal(watch, request, write, resolveScript) {
   const { owner, state } = watch;
   const operable = owner.canOperateTerminal;
   if (!operable && !owner.canReadTerminal) return;
@@ -121,7 +129,15 @@ export function openTerminal(watch, request, write) {
     dark = request.dark;
   let status = "connecting",
     error = null;
-  const id = { threadId: watch.thread, terminalId: DEFAULT_TERMINAL_ID };
+  const rememberedId = request.terminalId ?? watch.lastTerminal;
+  const terminalId = request.script
+    ? nextTerminalId(
+        [...new Set([DEFAULT_TERMINAL_ID, ...(watch.sessions ?? []).map((s) => s.terminalId)])],
+        request.operation,
+      )
+    : (rememberedId ?? DEFAULT_TERMINAL_ID);
+  const id = { threadId: watch.thread, terminalId };
+  let runScript = Boolean(request.script);
   const run = (effect) => Effect.runPromise(effect.pipe(Effect.provide(owner.http)), { signal });
   let selection;
   let drag;
@@ -325,90 +341,171 @@ export function openTerminal(watch, request, write) {
     },
     { once: true },
   );
+  const discover = !request.script && (!operable || Boolean(rememberedId));
+  const firstSnapshot = Promise.withResolvers();
+  const metadata = Effect.gen(function* () {
+    if (!owner.canReadTerminal) return;
+    let published;
+    yield* rpc[WS_METHODS.subscribeTerminalMetadata]({}).pipe(
+      Stream.runForEach((event) =>
+        Effect.sync(() => {
+          if (
+            event.type !== "snapshot" &&
+            (event.type === "remove" ? event.threadId : event.terminal.threadId) !== watch.thread
+          )
+            return;
+          const filtered =
+            event.type === "snapshot"
+              ? {
+                  ...event,
+                  terminals: event.terminals.filter((t) => t.threadId === watch.thread),
+                }
+              : event;
+          watch.sessions = applyTerminalMetadataStreamEvent(watch.sessions ?? [], filtered);
+          const rows = watch.sessions.map((t) => ({
+            id: t.terminalId,
+            label: resolveTerminalSessionLabel(t.terminalId, t, m),
+          }));
+          rows.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+          if (
+            !published &&
+            discover &&
+            !request.terminalId &&
+            !rows.some((row) => row.id === id.terminalId)
+          )
+            id.terminalId = rows[0]?.id ?? DEFAULT_TERMINAL_ID;
+          if (watch.lastTerminal && !rows.some((row) => row.id === watch.lastTerminal))
+            watch.lastTerminal = undefined;
+          firstSnapshot.resolve();
+          if (!NodeUtil.isDeepStrictEqual(published, rows)) {
+            published = rows;
+            reply({ type: "terminalsessions", active: id.terminalId, rows });
+          }
+        }),
+      ),
+    );
+  }).pipe(Effect.ignore, Effect.ensuring(Effect.sync(firstSnapshot.resolve)));
+  const output = Effect.gen(function* () {
+    loading ??= loadRuntime().catch((e) => {
+      loading = undefined;
+      throw e;
+    });
+    const runtime = yield* Effect.promise(() => loading);
+    core = GhosttyTerminalCore.fromRuntime(runtime, cols, rows, 7.23, 16, theme(dark), (data) =>
+      send(data, true),
+    );
+    selection = new GhosttySelection(core);
+    if (discover) yield* Effect.promise(() => firstSnapshot.promise);
+    if (request.terminalId && !watch.sessions?.some((s) => s.terminalId === request.terminalId)) {
+      status = "closed";
+      invalidate();
+      return;
+    }
+    const thread = state.projection.thread;
+    const cwd = thread.worktreePath ?? state.projectRoot;
+    reportedGrid = { cols, rows };
+    const script = runScript ? resolveScript() : undefined;
+    if (runScript && !script) {
+      error = "Project script is unavailable. Reopen Thread Details and try again.";
+      status = "error";
+      invalidate();
+      return;
+    }
+    const resume =
+      !request.script && (Boolean(request.terminalId) || id.terminalId !== DEFAULT_TERMINAL_ID);
+    const stream = operable
+      ? rpc[WS_METHODS.terminalAttach]({
+          ...id,
+          cwd,
+          worktreePath: thread.worktreePath,
+          cols,
+          rows,
+          providerInstanceId: thread.providerInstanceId,
+          ...(resume ? { resume: true } : { restartIfNotRunning: true }),
+          ...(script && { stopOnSettle: script.stopOnSettle ?? false }),
+          ...(state.projectRoot && {
+            env: projectScriptRuntimeEnv({
+              project: { cwd: state.projectRoot },
+              worktreePath: thread.worktreePath,
+            }),
+          }),
+          maxHistoryBytes: DEFAULT_MAX_TERMINAL_BUFFER_BYTES,
+        })
+      : rpc[WS_METHODS.terminalObserve](id);
+    let buffer = nextTerminalAttachSeedState();
+    let cursor = INITIAL_TERMINAL_OUTPUT_CURSOR;
+    yield* stream.pipe(
+      Stream.runForEach((event) =>
+        Effect.sync(() => {
+          const previous = buffer;
+          buffer = applyTerminalAttachStreamEvent(buffer, event);
+          status = buffer.status;
+          error = buffer.error;
+          sharedGrid = buffer.grid;
+          if (sharedGrid && previous.grid !== sharedGrid) {
+            core.resize(sharedGrid.cols, sharedGrid.rows, 7.23, 16);
+            force = true;
+          } else if (!sharedGrid && (event.type === "snapshot" || event.type === "restarted")) {
+            core.resize(cols, rows, 7.23, 16);
+            force = true;
+          }
+          if (event.type === "snapshot" || event.type === "restarted")
+            watch.lastTerminal = id.terminalId;
+          if (previous.status !== "running" && status === "running") {
+            reportGrid();
+            if (runScript) {
+              runScript = false;
+              const current = resolveScript();
+              if (current) {
+                send(projectScriptTerminalInput(current.command));
+              } else {
+                error = "Project script changed before its terminal was ready.";
+              }
+            }
+          }
+          const update = readTerminalOutputUpdate(buffer.output, cursor);
+          cursor = update.cursor;
+          if (update.type === "reset") {
+            core.resetAndWrite(update.data);
+            force = true;
+          }
+          if (update.type === "append") core.write(update.data);
+          invalidate();
+        }),
+      ),
+    );
+    if (!["closed", "exited", "error"].includes(status)) {
+      status = "disconnected";
+      invalidate();
+    }
+  });
+  function disconnected() {
+    if (signal.aborted) return;
+    status = "disconnected";
+    error = operable
+      ? "Couldn’t connect to the terminal. Reopen it to retry."
+      : "No terminal session is available to view.";
+    if (core) invalidate();
+    else
+      reply({
+        status,
+        error,
+        rows: 0,
+        background: rgb(theme(dark).background),
+        cursor: null,
+        patches: [],
+      });
+  }
   void run(
     Effect.gen(function* () {
-      loading ??= loadRuntime().catch((e) => {
-        loading = undefined;
-        throw e;
-      });
-      const runtime = yield* Effect.promise(() => loading);
-      core = GhosttyTerminalCore.fromRuntime(runtime, cols, rows, 7.23, 16, theme(dark), (data) =>
-        send(data, true),
-      );
-      selection = new GhosttySelection(core);
       rpc = yield* openEnvironmentRpc(owner);
-      const thread = state.projection.thread;
-      const cwd = thread.worktreePath ?? state.projectRoot;
-      reportedGrid = { cols, rows };
-      const stream = operable
-        ? rpc[WS_METHODS.terminalAttach]({
-            ...id,
-            cwd,
-            worktreePath: thread.worktreePath,
-            cols,
-            rows,
-            providerInstanceId: thread.providerInstanceId,
-            restartIfNotRunning: true,
-            ...(state.projectRoot && {
-              env: projectScriptRuntimeEnv({
-                project: { cwd: state.projectRoot },
-                worktreePath: thread.worktreePath,
-              }),
-            }),
-            maxHistoryBytes: DEFAULT_MAX_TERMINAL_BUFFER_BYTES,
-          })
-        : rpc[WS_METHODS.terminalObserve](id);
-      let buffer = nextTerminalAttachSeedState();
-      let cursor = INITIAL_TERMINAL_OUTPUT_CURSOR;
-      yield* stream.pipe(
-        Stream.runForEach((event) =>
-          Effect.sync(() => {
-            const previous = buffer;
-            buffer = applyTerminalAttachStreamEvent(buffer, event);
-            status = buffer.status;
-            error = buffer.error;
-            sharedGrid = buffer.grid;
-            if (sharedGrid && previous.grid !== sharedGrid) {
-              core.resize(sharedGrid.cols, sharedGrid.rows, 7.23, 16);
-              force = true;
-            } else if (!sharedGrid && (event.type === "snapshot" || event.type === "restarted")) {
-              core.resize(cols, rows, 7.23, 16);
-              force = true;
-            }
-            if (previous.status !== "running" && status === "running") reportGrid();
-            const update = readTerminalOutputUpdate(buffer.output, cursor);
-            cursor = update.cursor;
-            if (update.type === "reset") {
-              core.resetAndWrite(update.data);
-              force = true;
-            }
-            if (update.type === "append") core.write(update.data);
-            invalidate();
-          }),
-        ),
+      yield* Effect.all(
+        [metadata, output.pipe(Effect.catchCause(() => Effect.sync(disconnected)))],
+        { concurrency: 2 },
       );
-      if (!["closed", "exited", "error"].includes(status)) {
-        status = "disconnected";
-        invalidate();
-      }
     }).pipe(Effect.scoped),
   )
-    .catch(() => {
-      status = "disconnected";
-      error = operable
-        ? "Couldn’t connect to the terminal. Reopen it to retry."
-        : "No terminal session is available to view.";
-      if (core) invalidate();
-      else
-        reply({
-          status,
-          error,
-          rows: 0,
-          background: rgb(theme(dark).background),
-          cursor: null,
-          patches: [],
-        });
-    })
+    .catch(disconnected)
     .finally(() => {
       rpc = undefined;
       if (signal.aborted) core?.dispose();
