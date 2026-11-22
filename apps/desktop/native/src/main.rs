@@ -17,6 +17,8 @@ mod launch_check;
 mod linux_frame;
 #[cfg(target_os = "linux")]
 mod linux_menu;
+#[cfg(target_os = "macos")]
+mod mac_update;
 mod models;
 mod navigation;
 mod new_thread;
@@ -1800,6 +1802,11 @@ fn start() -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--exchange-mac-update"))
+    {
+        return mac_update::exchange();
+    }
     #[cfg(target_os = "linux")]
     if std::env::var_os("APPIMAGE").is_some()
         && std::env::var("APPIMAGE_EXIT_AFTER_INSTALL").as_deref() == Ok("true")

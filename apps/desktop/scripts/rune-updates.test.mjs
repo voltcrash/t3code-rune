@@ -1,3 +1,6 @@
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeUtil from "node:util";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -5,7 +8,10 @@ import * as NodePath from "node:path";
 import { expect, it, vi } from "vitest";
 import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
 import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
+import { installedMacPackage, installMacPackage } from "./rune-mac-update.mjs";
 import { runeUpdates } from "./rune-updates.mjs";
+
+const run = NodeUtil.promisify(NodeChildProcess.execFile);
 
 it("publishes only complete downloads with the offered digest and preserves a previous installer on failure", async () => {
   await using cache = await NodeFSP.mkdtempDisposable(
@@ -133,5 +139,59 @@ it.runIf(NodePath.sep === "/")(
     await expect(installLinuxPackage(installed, release, cache, signal)).rejects.toThrow(
       "has changed",
     );
+  },
+);
+
+it.runIf(NodeFS.existsSync("/usr/bin/codesign"))(
+  "leaves the installed Mac app intact when the archive contains a different bundle or a broken seal",
+  async () => {
+    await using tmp = await NodeFSP.mkdtempDisposable(
+      NodePath.join(NodeOS.tmpdir(), "rune-mac-install-"),
+    );
+    const installedApp = NodePath.join(tmp.path, "Installed.app");
+    const resources = NodePath.join(installedApp, "Contents/Resources");
+    await NodeFSP.mkdir(resources, { recursive: true });
+    const app = NodePath.join(tmp.path, "Release.app");
+    const contents = NodePath.join(app, "Contents");
+    await NodeFSP.mkdir(NodePath.join(contents, "MacOS"), { recursive: true });
+    const metadata = {
+      CFBundleIdentifier: "dev.t3.update-fixture",
+      CFBundleExecutable: "t3-code",
+      CFBundlePackageType: "APPL",
+      CFBundleShortVersionString: "1.3.0",
+    };
+    async function signFixture(bundle, id) {
+      const info = NodePath.join(bundle, "Contents/Info.plist");
+      const bin = NodePath.join(bundle, "Contents/MacOS");
+      await NodeFSP.mkdir(bin, { recursive: true });
+      await NodeFSP.writeFile(info, JSON.stringify({ ...metadata, CFBundleIdentifier: id }));
+      await run("/usr/bin/plutil", ["-convert", "xml1", info]);
+      await NodeFSP.copyFile("/usr/bin/true", NodePath.join(bin, "t3-code"));
+      await run("/usr/bin/codesign", ["--force", "--sign", "-", bundle]);
+    }
+    await signFixture(installedApp, metadata.CFBundleIdentifier);
+    const installed = await installedMacPackage(resources);
+    for (const id of ["dev.t3.other-fixture", metadata.CFBundleIdentifier]) {
+      await signFixture(app, id);
+      if (id === metadata.CFBundleIdentifier) {
+        await NodeFSP.mkdir(NodePath.join(contents, "Resources"), { recursive: true });
+        await NodeFSP.writeFile(NodePath.join(contents, "Resources/unsealed.txt"), "unexpected");
+      }
+      const zip = NodePath.join(tmp.path, id + ".zip");
+      await run("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, zip]);
+      const bytes = await NodeFSP.readFile(zip);
+      const release = {
+        filename: "release.zip",
+        version: "1.3.0",
+        size: bytes.length,
+        sha512: NodeCrypto.createHash("sha512").update(bytes).digest("base64"),
+      };
+      await expect(
+        installMacPackage(installed, release, zip, new AbortController().signal),
+      ).rejects.toThrow(
+        id === metadata.CFBundleIdentifier ? /codesign/ : /match this installation/,
+      );
+      expect((await NodeFSP.stat(installedApp, { bigint: true })).ino).toBe(installed.ino);
+    }
   },
 );

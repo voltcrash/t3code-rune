@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
-import { InvalidReleaseFile, writeVerifiedRelease } from "./rune-release-file.mjs";
+import { stageCachedRelease } from "./rune-release-file.mjs";
 import { lock } from "proper-lockfile";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -71,25 +71,12 @@ async function installDebianPackage(installed, replacement) {
   });
 }
 
-async function* readCachedRelease(cached) {
-  try {
-    await using file = await NodeFSP.open(
-      cached,
-      NodeFS.constants.O_RDONLY | NodeFS.constants.O_NONBLOCK,
-    );
-    if (!(await file.stat()).isFile()) throw new Error("Expected a regular file.");
-    yield* file.createReadStream({ autoClose: false });
-  } catch (cause) {
-    throw new InvalidReleaseFile("The downloaded file cannot be read.", { cause });
-  }
-}
-
 export async function installLinuxPackage(installed, release, cached, signal) {
   const image = installed.format === "AppImage";
   const parent = image ? NodePath.dirname(installed.target) : NodeOS.tmpdir();
   await using stage = await NodeFSP.mkdtempDisposable(NodePath.join(parent, ".t3-update-"));
   const replacement = NodePath.join(stage.path, release.filename);
-  await writeVerifiedRelease(readCachedRelease(cached), replacement, release, signal);
+  await stageCachedRelease(cached, replacement, release, signal);
   if (image) {
     const unlock = await lock(installed.target, { realpath: false });
     try {

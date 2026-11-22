@@ -9,6 +9,7 @@ import * as DesktopManagedPolicy from "../src/app/DesktopManagedPolicy.ts";
 import * as DesktopUpdatePolicy from "../src/updates/DesktopUpdatePolicy.ts";
 import { downloadRelease, InvalidReleaseFile } from "./rune-release-file.mjs";
 import { installedLinuxPackage, installLinuxPackage } from "./rune-linux-update.mjs";
+import { installedMacPackage, installMacPackage } from "./rune-mac-update.mjs";
 import { configuredDisableAutoUpdate } from "../src/app/DesktopConfig.ts";
 import { checkRuneRelease, decodeReleaseSource } from "../src/native/releases.ts";
 
@@ -59,14 +60,17 @@ export function runeUpdates({
   publish,
   readPolicy = readUpdatePolicy,
 }) {
-  const installed =
-    resources && Effect.runSync(HostProcess.Platform) === "linux"
-      ? installedLinuxPackage(
-          resources,
-          Effect.runSync(HostProcess.Environment),
-          Effect.runSync(HostProcess.UserId),
-        ).catch(() => undefined)
-      : Promise.resolve(undefined);
+  const platform = Effect.runSync(HostProcess.Platform);
+  const installed = (async () => {
+    if (!resources) return;
+    if (platform === "darwin") return installedMacPackage(resources);
+    if (platform === "linux")
+      return installedLinuxPackage(
+        resources,
+        Effect.runSync(HostProcess.Environment),
+        Effect.runSync(HostProcess.UserId),
+      );
+  })().catch(() => undefined);
   let downloaded;
   let release;
   let directory;
@@ -76,7 +80,6 @@ export function runeUpdates({
   return async (request) => {
     if (request === "showupdate") {
       if (directory) {
-        const platform = await Effect.runPromise(HostProcess.Platform);
         const open =
           platform === "darwin"
             ? "/usr/bin/open"
@@ -121,7 +124,8 @@ export function runeUpdates({
       ) {
         const target = await installed;
         if (install && directory && target?.format === source?.format) {
-          const executable = await installLinuxPackage(
+          const apply = target.format === "zip" ? installMacPackage : installLinuxPackage;
+          const executable = await apply(
             target,
             release,
             NodePath.join(directory, release.filename),
