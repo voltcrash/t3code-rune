@@ -1512,7 +1512,7 @@ fn timeline(
         .table_header_fill(rune::Color::TRANSPARENT)
         .table_outline(None)
         .table_cell_padding(10.0, 8.0);
-    let mut content = col().w_full().max_w(736.0).self_center().pt(16.);
+    let mut content = s.chat_width.lane(col()).pt(16.);
     if pane.cursor.is_some() {
         content = content.child(action(
             "Load earlier messages",

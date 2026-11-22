@@ -60,10 +60,11 @@ enum Reply {
         open: Option<bool>,
         error: Option<String>,
     },
-    Typography {
+    ClientAppearance {
         sans: String,
         code: String,
         smoothing: bool,
+        chat_width: appearance::ChatWidth,
         error: Option<String>,
     },
     Appearance {
@@ -330,6 +331,9 @@ enum Request<'a> {
     SetAppearance {
         mode: appearance::Mode,
     },
+    SetChatWidth {
+        width: appearance::ChatWidth,
+    },
     SetFontFamily {
         slot: appearance::FontSlot,
         family: &'a str,
@@ -506,7 +510,9 @@ struct Desktop {
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
     font_smoothing: Option<bool>,
-    saving_typography: bool,
+    saving_client_appearance: bool,
+    chat_width: appearance::ChatWidth,
+    chat_width_menu: bool,
     font_families: appearance::FontFamilies,
     typography_advanced: bool,
     settings_open: bool,
@@ -553,7 +559,9 @@ impl Desktop {
             answer_advance: None,
             appearance: Default::default(),
             font_smoothing: None,
-            saving_typography: false,
+            saving_client_appearance: false,
+            chat_width: Default::default(),
+            chat_width_menu: false,
             font_families: Default::default(),
             typography_advanced: false,
             settings_open: false,
@@ -599,7 +607,8 @@ impl Desktop {
             sidebar_layout: self.sidebar_layout,
             appearance: self.appearance,
             font_smoothing: self.font_smoothing,
-            saving_typography: self.saving_typography,
+            saving_client_appearance: self.saving_client_appearance,
+            chat_width: self.chat_width,
             font_families: std::mem::take(&mut self.font_families),
             pairing_offers: std::mem::take(&mut self.pairing_offers),
             update: std::mem::take(&mut self.update),
@@ -1129,7 +1138,7 @@ impl Desktop {
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
             | Reply::SidebarLayout { .. }
-            | Reply::Typography { .. }
+            | Reply::ClientAppearance { .. }
             | Reply::RestartUpdated { .. }
             | Reply::PairingOffer { .. }
             | Reply::ReleaseCheck { .. }
@@ -1766,17 +1775,19 @@ fn start() -> io::Result<()> {
                     action.activate(s, tx);
                     return;
                 }
-                if let Reply::Typography {
+                if let Reply::ClientAppearance {
                     sans,
                     code,
                     smoothing,
+                    chat_width,
                     error,
                 } = reply.reply
                 {
+                    s.chat_width = chat_width;
                     s.font_smoothing = Some(smoothing);
-                    if s.saving_typography {
+                    if s.saving_client_appearance {
                         s.appearance_error = error;
-                        s.saving_typography = false;
+                        s.saving_client_appearance = false;
                     }
                     appearance::apply_fonts(tx, &sans, &code, smoothing);
                     s.font_families.receive(sans, code);

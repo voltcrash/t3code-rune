@@ -13,7 +13,10 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
-import { readClientSettings, setClientTypography } from "../src/settings/DesktopClientSettings.ts";
+import {
+  readClientSettings,
+  patchClientAppearance,
+} from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -635,28 +638,29 @@ const releaseUpdate = runeUpdates({
   publish: write,
 });
 const clientSettingsPath = NodePath.join(homes.server, "userdata", "client-settings.json");
-let typographySettings = DEFAULT_CLIENT_SETTINGS;
-function publishTypography(error) {
+let clientSettings = DEFAULT_CLIENT_SETTINGS;
+function publishClientAppearance(error) {
   write({
-    type: "typography",
-    sans: typographySettings.fontFamilySans,
-    code: typographySettings.fontFamilyCode,
-    smoothing: typographySettings.fontSmoothing,
+    type: "clientappearance",
+    chat_width: clientSettings.chatWidth,
+    sans: clientSettings.fontFamilySans,
+    code: clientSettings.fontFamilyCode,
+    smoothing: clientSettings.fontSmoothing,
     error,
   });
 }
-let typographyWrites = Effect.runPromise(
+let clientSettingsWrites = Effect.runPromise(
   FileSystem.FileSystem.use((fs) => readClientSettings(fs, clientSettingsPath)).pipe(
     Effect.provide(NodeFileSystem.layer),
     Effect.provideService(Logger.LogToStderr, true),
     Effect.catch(() => Effect.succeed(Option.none())),
   ),
 ).then((saved) => {
-  typographySettings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
-  publishTypography();
+  clientSettings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
+  publishClientAppearance();
 });
 
-async function setTypography(request) {
+async function setClientAppearance(request) {
   try {
     let changes;
     if (request.type === "setfontsmoothing" && typeof request.smoothing === "boolean") {
@@ -667,17 +671,22 @@ async function setTypography(request) {
       typeof request.family === "string"
     ) {
       changes = { [request.slot === "sans" ? "fontFamilySans" : "fontFamilyCode"]: request.family };
-    } else throw new Error("Invalid font setting");
-    typographySettings = await Effect.runPromise(
-      setClientTypography(clientSettingsPath, changes).pipe(
+    } else if (
+      request.type === "setchatwidth" &&
+      ["comfortable", "wide", "full"].includes(request.width)
+    ) {
+      changes = { chatWidth: request.width };
+    } else throw new Error("Invalid appearance setting");
+    clientSettings = await Effect.runPromise(
+      patchClientAppearance(clientSettingsPath, changes).pipe(
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
         Effect.provideService(Logger.LogToStderr, true),
       ),
     );
-    publishTypography();
+    publishClientAppearance();
   } catch {
-    publishTypography("Couldn’t save the font setting on this computer.");
+    publishClientAppearance("Couldn’t save the appearance setting on this computer.");
   }
 }
 
@@ -1277,9 +1286,9 @@ try {
         const controller = new AbortController();
         menuWindow = { id: request.window, controller };
         const signal = AbortSignal.any([controller.signal, lifetime.signal]);
-        void Promise.all([import("./rune-linux-menu.mjs"), typographyWrites])
+        void Promise.all([import("./rune-linux-menu.mjs"), clientSettingsWrites])
           .then(([menu]) =>
-            menu.registerWindow(request.window, typographySettings.language, signal, (action) =>
+            menu.registerWindow(request.window, clientSettings.language, signal, (action) =>
               write({ type: "menuaction", action }),
             ),
           )
@@ -1309,8 +1318,12 @@ try {
     }
     if (request?.type === "setappearance") {
       setAppearance(request.mode);
-    } else if (request?.type === "setfontsmoothing" || request?.type === "setfontfamily") {
-      typographyWrites = typographyWrites.then(() => setTypography(request));
+    } else if (
+      request?.type === "setfontsmoothing" ||
+      request?.type === "setfontfamily" ||
+      request?.type === "setchatwidth"
+    ) {
+      clientSettingsWrites = clientSettingsWrites.then(() => setClientAppearance(request));
     } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {
       setSidebarLayout(request);
     } else if (request?.type === "visitthread") {
@@ -1367,7 +1380,7 @@ try {
       workspaceRequests = workspaceRequests.then(() => handleWorkspaceRequest(request, reply));
     }
   }
-  await Promise.all([workspaceRequests, downloads, typographyWrites]);
+  await Promise.all([workspaceRequests, downloads, clientSettingsWrites]);
 } finally {
   close();
   await server?.stopped;

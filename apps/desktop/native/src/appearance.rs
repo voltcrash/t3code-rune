@@ -1,6 +1,8 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
+mod chat_width;
 mod fonts;
+pub(crate) use chat_width::ChatWidth;
 pub(super) use fonts::{FontFamilies, FontSlot};
 use rune_kit::glyphs;
 use serde::{Deserialize, Serialize};
@@ -70,6 +72,7 @@ impl Desktop {
         self.permission_menu = None;
         self.close_sidebar_menus();
         self.font_families.close();
+        self.chat_width_menu = false;
         self.settings_open = true;
         self.typography_advanced = false;
         self.appearance_error = None;
@@ -82,8 +85,10 @@ impl Desktop {
     }
 
     fn set_font_smoothing(&mut self, smoothing: bool) {
-        if !self.saving_typography && self.font_smoothing.is_some_and(|value| value != smoothing) {
-            self.saving_typography =
+        if !self.saving_client_appearance
+            && self.font_smoothing.is_some_and(|value| value != smoothing)
+        {
+            self.saving_client_appearance =
                 self.write_request(None, Request::SetFontSmoothing { smoothing });
         }
     }
@@ -226,6 +231,24 @@ fn tile(mode: Mode, selected: bool, width: f32, theme: &tok::Theme) -> El {
         })
 }
 
+fn reset_button(key: &str, caption: &str, theme: &tok::Theme) -> El {
+    const UNDO: Icon = Icon {
+        name: "undo-2",
+        view: 24.,
+        body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12"/></g>"#,
+    };
+    el().key(key)
+        .role("button")
+        .label(caption)
+        .help("Reset to default")
+        .focusable(true)
+        .size(22., 22.)
+        .radius(4.)
+        .center()
+        .hover(theme.separator)
+        .child(icon(&UNDO, 12.).color(theme.text_secondary))
+}
+
 fn typography(
     s: &Desktop,
     narrow: bool,
@@ -267,7 +290,7 @@ fn typography(
     }
     if cfg!(target_os = "macos") && s.typography_advanced {
         let checked = s.font_smoothing.unwrap_or(true);
-        let enabled = s.font_smoothing.is_some() && !s.saving_typography;
+        let enabled = s.font_smoothing.is_some() && !s.saving_client_appearance;
         let thumb = if narrow { 20. } else { 16. };
         let toggle = el()
             .key("font-smoothing")
@@ -292,27 +315,17 @@ fn typography(
                 .gap(4.)
                 .child(label("Font smoothing", 14., 500., theme.text));
         if !checked {
-            const UNDO: Icon = Icon {
-                name: "undo-2",
-                view: 24.,
-                body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12"/></g>"#,
-            };
             title = title.child(
-                el().key("reset-font-smoothing")
-                    .role("button")
-                    .label("Reset font smoothing to default")
-                    .help("Reset to default")
-                    .focusable(true)
-                    .disabled(!enabled)
-                    .size(22., 22.)
-                    .radius(4.)
-                    .center()
-                    .hover(theme.separator)
-                    .child(icon(&UNDO, 12.).color(theme.text_secondary))
-                    .on_press_tx(|s: &mut Desktop, tx| {
-                        s.set_font_smoothing(true);
-                        tx.focus("font-smoothing", true);
-                    }),
+                reset_button(
+                    "reset-font-smoothing",
+                    "Reset font smoothing to default",
+                    theme,
+                )
+                .disabled(!enabled)
+                .on_press_tx(|s: &mut Desktop, tx| {
+                    s.set_font_smoothing(true);
+                    tx.focus("font-smoothing", true);
+                }),
             );
         }
         let description = "Use thinner grayscale text smoothing instead of the macOS default.";
@@ -409,6 +422,13 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                 ),
         );
     let mut popups = Vec::new();
+    body = body.child(chat_width::section(
+        s,
+        w < 640.,
+        theme,
+        s.dark(cx),
+        &mut popups,
+    ));
     body = body.child(typography(s, w < 640., theme, s.dark(cx), &mut popups));
     if let Some(err) = &s.appearance_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());

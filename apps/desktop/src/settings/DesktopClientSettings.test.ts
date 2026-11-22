@@ -262,18 +262,19 @@ describe("DesktopClientSettings", () => {
         if (Option.isSome(persisted)) {
           assert.equal(persisted.value.timestampFormat, "12-hour");
         }
-        const updated = yield* DesktopClientSettings.setClientTypography(
+        const updated = yield* DesktopClientSettings.patchClientAppearance(
           environment.clientSettingsPath,
           { fontSmoothing: false },
         );
         assert.isFalse(updated.fontSmoothing);
-        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontFamilySans: "Georgia",
         });
-        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontFamilyCode: "Menlo",
+          chatWidth: "full",
         });
-        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontFamilySans: "",
         });
         assert.deepEqual(
@@ -285,6 +286,7 @@ describe("DesktopClientSettings", () => {
               fontSmoothing: false,
               fontFamilySans: "",
               fontFamilyCode: "Menlo",
+              chatWidth: "full",
             },
             profileVersion: 2,
           },
@@ -310,7 +312,7 @@ describe("DesktopClientSettings", () => {
         assert.equal(error.operation, "decode-document");
         assert.equal(error.path, environment.clientSettingsPath);
         assert.instanceOf(error.cause, Schema.SchemaError);
-        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
           fontSmoothing: false,
         }).pipe(Effect.flip);
         assert.equal(

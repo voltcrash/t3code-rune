@@ -166,9 +166,11 @@ function withSettingsWriteLock<A, E, R>(
   });
 }
 
-export const setClientTypography = Effect.fn("desktop.clientSettings.setTypography")(function (
+export const patchClientAppearance = Effect.fn("desktop.clientSettings.setTypography")(function (
   settingsPath: string,
-  changes: Partial<Pick<ClientSettings, "fontSmoothing" | "fontFamilySans" | "fontFamilyCode">>,
+  changes: Partial<
+    Pick<ClientSettings, "fontSmoothing" | "fontFamilySans" | "fontFamilyCode" | "chatWidth">
+  >,
 ) {
   return withSettingsWriteLock(settingsPath, (target) =>
     Effect.gen(function* () {
