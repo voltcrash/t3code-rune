@@ -1355,7 +1355,7 @@ fn product_name() -> &'static str {
 }
 
 #[cfg(target_os = "linux")]
-fn claim_linux_instance() -> io::Result<bool> {
+fn claim_installed_instance() -> io::Result<bool> {
     let mut id = format!("com.t3tools.T3Code.{}", product_name());
     let home = std::env::var("T3CODE_HOME").unwrap_or_default();
     if !home.trim().is_empty() {
@@ -1373,6 +1373,12 @@ fn claim_linux_instance() -> io::Result<bool> {
         id.push_str(&hash[..16]);
     }
     Ok(rune::single_instance(&id))
+}
+
+#[cfg(windows)]
+fn claim_installed_instance() -> io::Result<bool> {
+    // Browser activations inherit Explorer's environment, even when T3 started with a custom home.
+    Ok(rune::single_instance("com.t3tools.T3Code"))
 }
 
 fn packaged_runtime() -> io::Result<Option<(std::path::PathBuf, std::path::PathBuf)>> {
@@ -1522,12 +1528,12 @@ fn start() -> io::Result<()> {
         close_fds::set_fds_cloexec(3, &[]);
     }
     let launch_check = launch_check::LaunchCheck::requested()?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     if launch_check.is_none()
         && package
             .as_ref()
             .is_some_and(|(_, resources)| resources.join("rune-release.json").is_file())
-        && !claim_linux_instance()?
+        && !claim_installed_instance()?
     {
         return Ok(());
     }
@@ -1870,7 +1876,7 @@ fn start() -> io::Result<()> {
     let (status, restart) = reader
         .join()
         .map_err(|_| io::Error::other("The desktop worker reader stopped unexpectedly."))??;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     rune::release_instance();
     result.map_err(io::Error::other)?;
     if !status.success() {

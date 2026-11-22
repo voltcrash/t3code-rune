@@ -34,6 +34,7 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "T3 Tools"
 
 !ifdef RELEASE_INSTALL
   !include "${__FILEDIR__}/rune-install-location.nsh"
+  !include "${__FILEDIR__}/rune-url-protocol.nsh"
 !else
   !define ROOT "$LOCALAPPDATA\Programs\${INSTALL_NAME}"
   !define ACTIVE "${ROOT}\app"
@@ -291,6 +292,8 @@ Section "Install"
       Call RecoverShortcutChange
     ${EndIf}
     Call RetirePreviousRelease
+    !insertmacro RegisterRuneProtocol "t3code"
+    !insertmacro RegisterRuneProtocol "t3code-dev"
   !endif
   Call CleanRetired
   Goto done
@@ -398,6 +401,10 @@ Section "Uninstall"
     Delete "${DESKTOP_LINK}"
     DeleteRegKey HKCU "${ARP}"
   ${EndIf}
+  !ifdef RELEASE_INSTALL
+    !insertmacro UnregisterRuneProtocol "t3code"
+    !insertmacro UnregisterRuneProtocol "t3code-dev"
+  !endif
   Call un.CleanRetired
   ${If} $pendingCleanup != ""
     Goto busy
