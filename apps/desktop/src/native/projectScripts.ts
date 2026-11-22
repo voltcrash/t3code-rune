@@ -5,7 +5,11 @@ import {
   type ProjectScriptInput,
 } from "@t3tools/shared/projectScripts";
 import type { openEnvironmentRpc } from "./environmentRpc.ts";
-import { obsoleteScriptShortcuts, scriptSettingsPatch } from "./scriptMutations.ts";
+import {
+  obsoleteScriptShortcuts,
+  retainedScriptKeys,
+  scriptSettingsPatch,
+} from "./scriptMutations.ts";
 import * as Effect from "effect/Effect";
 import * as NodeUtil from "node:util";
 
@@ -13,10 +17,6 @@ import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
 
 let nextScriptKey = 0;
-
-function scriptIdentity(script: ProjectScript) {
-  return JSON.stringify(script, Object.keys(script).sort());
-}
 
 type ScriptRow = {
   key: string;
@@ -49,15 +49,11 @@ export function watchProjectScripts(
     if (NodeUtil.isDeepStrictEqual(previous, scripts)) return;
     previous = scripts;
     const actions = scripts ?? [];
-    const identities = actions.map(scriptIdentity);
-    const prior = Map.groupBy(byKey, ([, script]) => scriptIdentity(script));
-    for (const [identity, matches] of Map.groupBy(identities, (id) => id)) {
-      if (prior.get(identity)?.length !== matches.length) prior.delete(identity);
-    }
+    const retained = retainedScriptKeys(byKey, actions);
     byKey.clear();
     const primary = primaryProjectScript(actions);
     const rows = actions.map((script, index) => {
-      const key = prior.get(identities[index]!)?.shift()?.[0] ?? String(++nextScriptKey);
+      const key = retained.get(index) ?? String(++nextScriptKey);
       byKey.set(key, script);
       return {
         key,
@@ -100,10 +96,7 @@ export function watchProjectScripts(
       if (!rpc || !settings || target?.project !== project || (key && !original)) {
         throw new Error(m(msg("Failed to save action.")));
       }
-      const matches = original
-        ? [...byKey].filter(([, script]) => NodeUtil.isDeepStrictEqual(script, original))
-        : [];
-      const occurrence = matches.findIndex(([rowKey]) => rowKey === key);
+      const shown = key ? new Map(byKey) : byKey;
       const config = await Effect.runPromise(
         rpc[WS_METHODS.serverGetConfig]({}).pipe(Effect.timeout("20 seconds")),
         { signal },
@@ -121,10 +114,9 @@ export function watchProjectScripts(
       const patch = scriptSettingsPatch(
         config.settings,
         { id: ProjectId.make(project), scripts: legacy },
-        original,
+        shown,
+        key,
         input,
-        occurrence,
-        matches.length,
       );
       const saved = await Effect.runPromise(
         rpc[WS_METHODS.serverUpdateSettings]({ patch }).pipe(Effect.timeout("20 seconds")),

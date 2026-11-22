@@ -66,8 +66,8 @@ it("invalidates displayed actions when their command, project, or environment co
     });
   setRows(duplicates);
   const priorKeys = [...keys];
-  setRows([duplicates[1]!, duplicates[0]!, duplicates[2]!, { ...action, id: "another" }]);
-  expect(keys.slice(0, 3)).toEqual([priorKeys[1], priorKeys[0], priorKeys[2]]);
+  setRows([...duplicates, { ...action, id: "another" }]);
+  expect(keys.slice(0, 3)).toEqual(priorKeys);
   expect(new Set(keys).size).toBe(keys.length);
   scripts.configure(undefined);
   expect(scripts.lookup("p", updated!)).toBeUndefined();
@@ -77,47 +77,55 @@ it("invalidates displayed actions when their command, project, or environment co
   expect(key).toBeUndefined();
 });
 
-it("rejects deletion when an identical action disappears before or during a config refresh", async () => {
-  const action: ProjectScript = {
-    id: "build",
-    name: "Build",
-    command: "build",
-    icon: "build",
-    runOnWorktreeCreate: false,
-  };
-  const other = { ...action, id: "lint", command: "lint" };
-  const initial = { ...DEFAULT_SERVER_SETTINGS, defaultProjectScripts: [action, other, action] };
-  const fresh = {
-    ...initial,
-    defaultProjectScripts: [{ ...action, command: "changed" }, other, action],
-  };
-  const scripts = watchProjectScripts(
-    () => [],
-    () => new Map(),
-  );
-  let keys: string[] = [];
-  scripts.select("p", (rows) => {
-    keys = rows.map((row) => row.key);
-  });
-  scripts.configure(initial);
-  const [first, middle, last] = keys;
-  let writes = 0;
-  const rpc = {
-    [WS_METHODS.serverGetConfig]: () => Effect.succeed({ settings: fresh, keybindings: [] }),
-    [WS_METHODS.serverUpdateSettings]: () => {
-      writes++;
-      return Effect.succeed(fresh);
-    },
-  } as unknown as NonNullable<ReturnType<Parameters<typeof scripts.save>[3]>>;
-  const remove = () => scripts.save("p", first!, null, () => rpc, new AbortController().signal);
-  await expect(remove()).rejects.toThrow();
-  scripts.configure(fresh);
-  expect(keys[1]).toBe(middle);
-  expect(keys).not.toContain(first);
-  expect(keys).not.toContain(last);
-  await expect(remove()).rejects.toThrow();
-  expect(writes).toBe(0);
-});
+it.each([false, true])(
+  "rejects deletion when an identical action is edited, with replacement appended: %s",
+  async (append) => {
+    const action: ProjectScript = {
+      id: "build",
+      name: "Build",
+      command: "build",
+      icon: "build",
+      runOnWorktreeCreate: false,
+    };
+    const other = { ...action, id: "lint", command: "lint" };
+    const initial = { ...DEFAULT_SERVER_SETTINGS, defaultProjectScripts: [action, other, action] };
+    const fresh = {
+      ...initial,
+      defaultProjectScripts: [
+        { ...action, command: "changed" },
+        other,
+        action,
+        ...(append ? [action] : []),
+      ],
+    };
+    const scripts = watchProjectScripts(
+      () => [],
+      () => new Map(),
+    );
+    let keys: string[] = [];
+    scripts.select("p", (rows) => {
+      keys = rows.map((row) => row.key);
+    });
+    scripts.configure(initial);
+    const [first, middle, last] = keys;
+    let writes = 0;
+    const rpc = {
+      [WS_METHODS.serverGetConfig]: () => Effect.succeed({ settings: fresh, keybindings: [] }),
+      [WS_METHODS.serverUpdateSettings]: () => {
+        writes++;
+        return Effect.succeed(fresh);
+      },
+    } as unknown as NonNullable<ReturnType<Parameters<typeof scripts.save>[3]>>;
+    const remove = () => scripts.save("p", first!, null, () => rpc, new AbortController().signal);
+    await expect(remove()).rejects.toThrow();
+    scripts.configure(fresh);
+    expect(keys[1]).toBe(middle);
+    expect(keys).not.toContain(first);
+    expect(keys).not.toContain(last);
+    await expect(remove()).rejects.toThrow();
+    expect(writes).toBe(0);
+  },
+);
 
 it("edits the project's effective scripts without replacing other project settings", () => {
   const existing = {
@@ -141,7 +149,13 @@ it("edits the project's effective scripts without replacing other project settin
     autoOpenPreview: false,
   } as const;
   const patch = (original: ProjectScript | undefined, form: typeof input | null) =>
-    scriptSettingsPatch(settings, project, original, form);
+    scriptSettingsPatch(
+      settings,
+      project,
+      original ? new Map([["selected", original]]) : new Map(),
+      original ? "selected" : null,
+      form,
+    );
   const scripts = (p: ReturnType<typeof patch>) => p.projectScriptOverrides.p;
   expect(scripts(patch(undefined, input))).toMatchObject([
     { id: "setup", runOnWorktreeCreate: false },
@@ -162,12 +176,13 @@ it("edits the project's effective scripts without replacing other project settin
   ).toEqual({ newWorktreesStartFromOrigin: true, defaultProjectScripts: [] });
   const duplicate = { ...existing, command: "another", runOnWorktreeCreate: false };
   const sameIds = { ...settings, defaultProjectScripts: [existing, duplicate, { ...existing }] };
-  expect(scripts(scriptSettingsPatch(sameIds, project, duplicate, null))).toEqual([
+  const shown = new Map(sameIds.defaultProjectScripts.map((s, index) => [String(index), s]));
+  expect(scripts(scriptSettingsPatch(sameIds, project, shown, "1", null))).toEqual([
     existing,
     existing,
   ]);
   expect(
-    scripts(scriptSettingsPatch(sameIds, project, existing, input, 1, 2))?.map((s) => s.command),
+    scripts(scriptSettingsPatch(sameIds, project, shown, "2", input))?.map((s) => s.command),
   ).toEqual(["old", "another", "new"]);
   const binding = {
     command: "script.setup.run",

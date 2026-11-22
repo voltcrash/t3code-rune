@@ -14,29 +14,53 @@ import {
 } from "@t3tools/shared/projectScripts";
 import { keybindingValueForCommand } from "@t3tools/shared/keybindings";
 import * as Schema from "effect/Schema";
-import * as NodeUtil from "node:util";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
 
 const isProjectScript = Schema.is(ProjectScript);
 
+function scriptIdentity(script: ProjectScript) {
+  return JSON.stringify(script, Object.keys(script).sort());
+}
+
+export function retainedScriptKeys(
+  shown: ReadonlyMap<string, ProjectScript>,
+  scripts: readonly ProjectScript[],
+) {
+  const previous = Map.groupBy(
+    [...shown].map(([key, script], index) => ({
+      key,
+      index,
+      identity: scriptIdentity(script),
+    })),
+    (row) => row.identity,
+  );
+  const identities = scripts.map(scriptIdentity);
+  const retained = new Map<number, string>();
+  for (const [identity, indices] of Map.groupBy(identities.keys(), (i) => identities[i]!)) {
+    const old = previous.get(identity);
+    if (!old || old.length !== indices.length) continue;
+    // Identical actions have no persistent ID that distinguishes one occurrence from another.
+    if (indices.length > 1 && indices.some((index, i) => index !== old[i]!.index)) continue;
+    indices.forEach((index, i) => retained.set(index, old[i]!.key));
+  }
+  return retained;
+}
+
 export function scriptSettingsPatch(
   settings: ServerSettings,
   project: { id: ProjectId; scripts: readonly ProjectScript[] },
-  original: ProjectScript | undefined,
+  shown: ReadonlyMap<string, ProjectScript>,
+  key: string | null,
   input: ProjectScriptInput | null,
-  occurrence = 0,
-  expectedCount = 1,
 ) {
   const scripts = resolveProjectScripts(settings, project);
-  const matches = original
-    ? scripts.flatMap((s, index) => (NodeUtil.isDeepStrictEqual(s, original) ? [index] : []))
-    : [];
-  const index = matches[occurrence];
-  if (
-    (!original && !input) ||
-    (original && (index === undefined || matches.length !== expectedCount))
-  ) {
+  const index =
+    key === null
+      ? undefined
+      : [...retainedScriptKeys(shown, scripts)].find(([, retained]) => retained === key)?.[0];
+  const original = index === undefined ? undefined : scripts[index];
+  if ((!original && !input) || (key !== null && !original)) {
     throw new Error(m(msg("Script not found.")));
   }
   let updated: readonly ProjectScript[];
