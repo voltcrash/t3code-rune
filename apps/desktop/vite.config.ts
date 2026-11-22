@@ -40,16 +40,6 @@ export default defineConfig({
         command: "node scripts/launch-rune.mjs --watch",
         cache: false,
       },
-      "dev:bundle": {
-        command:
-          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && vp pack --watch",
-        cache: false,
-      },
-      "dev:electron": {
-        command: "node scripts/dev-electron.mjs",
-        dependsOn: ["t3#build"],
-        cache: false,
-      },
       // A local tsbuildinfo is leftover build state, not a typecheck input.
       typecheck: {
         command: "effect-tsgo tsrs --noEmit",
