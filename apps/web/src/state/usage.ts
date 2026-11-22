@@ -14,7 +14,12 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { msg } from "gt-react";
 import { useState } from "react";
 
-import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
+import {
+  filterUsageProviders,
+  mergeUsage,
+  type EnvironmentUsage,
+  type MergedUsage,
+} from "@t3tools/shared/usageMerge";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "./presentation";
 import { serverEnvironment } from "./server";
@@ -123,15 +128,7 @@ function withoutProviders(
       ? environment
       : {
           ...environment,
-          summary: {
-            ...environment.summary,
-            buckets: environment.summary.buckets.filter(
-              (bucket) => !hiddenProviders.has(bucket.provider),
-            ),
-            sources: environment.summary.sources.filter(
-              (source) => !hiddenProviders.has(source.fingerprint.provider),
-            ),
-          },
+          summary: filterUsageProviders(environment.summary, hiddenProviders),
         },
   );
 }

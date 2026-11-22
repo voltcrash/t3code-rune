@@ -2,6 +2,8 @@ import {
   type EnvironmentId,
   type ModelSelection,
   type ServerSettings,
+  type ServerConfig,
+  type UsageProviderKind,
   type ProjectId,
   resolveProjectProviderInstanceEnabled,
   type UsageLimitsReport,
@@ -22,6 +24,23 @@ import * as DateTime from "effect/DateTime";
 import { isLocalLoopbackHost, isWildcardHost } from "./hostClassification.ts";
 
 const MINUTE = 60_000;
+
+export function filterUsageLimitConfig(
+  config: Pick<ServerConfig, "providers" | "usageLimitSources">,
+  hidden: ReadonlySet<UsageProviderKind>,
+) {
+  if (hidden.size === 0) return config;
+  const drivers = new Set<string>(
+    Array.from(hidden, (provider) => (provider === "claude" ? "claudeAgent" : provider)),
+  );
+  return {
+    providers: config.providers.filter((provider) => !drivers.has(provider.driver)),
+    usageLimitSources: config.usageLimitSources?.flatMap((source) => {
+      const accounts = source.accounts.filter((account) => !drivers.has(account.driver));
+      return accounts.length === 0 && source.accounts.length > 0 ? [] : [{ ...source, accounts }];
+    }),
+  };
+}
 
 export function exhaustedUsageWindow(
   provider: ServerProvider | undefined,

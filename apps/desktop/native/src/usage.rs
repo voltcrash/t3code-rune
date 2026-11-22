@@ -1,3 +1,4 @@
+mod providers;
 pub(crate) mod summary;
 use crate::{Desktop, Request, workspace};
 use rune::{Cx, El, Icon, ScrollSpec, col, el, icon, row, spacer, tok};
@@ -17,13 +18,16 @@ pub(super) enum Action<'a> {
     Refresh,
     Summary { selection: u64, days: u32 },
     RefreshSummary,
-    Preferences { preferences: summary::Preferences },
     Manage { url: &'a str },
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Labels {
+    providers: Vec<providers::Choice>,
+    all_providers: String,
+    no_providers: String,
+    provider_counts: Vec<String>,
     cost: String,
     tokens: String,
     periods: [String; 4],
@@ -98,6 +102,8 @@ struct Limits {
 
 #[derive(Deserialize)]
 pub(super) struct Snapshot {
+    #[serde(default, rename = "hiddenProviders")]
+    hidden: std::collections::BTreeSet<String>,
     labels: Labels,
     result: Option<Limits>,
     #[serde(skip)]
@@ -109,6 +115,7 @@ pub(super) struct Snapshot {
 #[derive(Default)]
 pub(super) struct Panel {
     pub(super) open: bool,
+    pub(super) providers_open: bool,
     revealed_email: Option<String>,
     pub(crate) summary: summary::Summary,
     pub(super) labels: Option<Labels>,
@@ -127,7 +134,8 @@ impl Panel {
     }
 
     pub(super) fn receive(&mut self, mut snapshot: Snapshot) {
-        if self.summary.metric != summary::Metric::Limits {
+        if self.summary.metric != summary::Metric::Limits || self.summary.hidden != snapshot.hidden
+        {
             return;
         }
         if snapshot.result.is_none() {
@@ -143,6 +151,11 @@ impl Desktop {
         if let Some(watch) = self.workspace.feed {
             self.write_request(None, Request::Usage { watch, action });
         }
+    }
+
+    fn save_usage_preferences(&mut self) {
+        let preferences = self.workspace.usage.summary.preferences();
+        self.write_request(None, Request::SetUsagePreferences { preferences });
     }
 
     pub(super) fn start_usage(&mut self) {
@@ -164,6 +177,7 @@ impl Desktop {
 
     pub(super) fn close_usage(&mut self) {
         self.usage_action(Action::Close);
+        self.workspace.usage.providers_open = false;
         self.workspace.usage.open = false;
         self.workspace.usage.clear_results();
     }
@@ -407,6 +421,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     } else {
         refresh
     };
+    let mut menus = Vec::new();
     let mut header = row()
         .w_full()
         .h(46.)
@@ -425,6 +440,8 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             .min_w(0.)
             .truncate(),
         )
+        .child(workspace::label("/", 14., 400., theme.text_secondary))
+        .child(providers::menu(s, labels, theme, s.dark(cx), &mut menus))
         .child(spacer());
     if panel.summary.metric != summary::Metric::Limits && width >= 860. {
         header = header.child(summary::periods(s, labels, theme));
@@ -457,4 +474,5 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             .fill(theme.bg.alpha(0.62))
             .child(panel),
     );
+    overlays.extend(menus);
 }

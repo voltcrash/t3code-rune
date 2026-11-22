@@ -165,5 +165,8 @@
   "953b6473de4b9ad6": "Esta conexão não tem acesso ao diagnóstico e ao uso.",
   "0d572342fd560670": "Não foi possível carregar os dados de uso. Tente novamente.",
   "e0cfab9ded209e81": "Reconectar",
-  "68883cb3342998e5": "Reconecte-se ao ambiente e tente novamente."
+  "68883cb3342998e5": "Reconecte-se ao ambiente e tente novamente.",
+  "9b0277205d8a9b04": "Todos os provedores",
+  "31fd849033990734": "Nenhum provedor",
+  "0d4d01729dabc81e": "{count, plural, one {{count} provedor} other {{count} provedores}}"
 }

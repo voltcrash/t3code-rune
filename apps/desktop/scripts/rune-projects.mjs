@@ -1,5 +1,5 @@
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
-import { usageLabels, watchUsage } from "../src/native/usage.ts";
+import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
 import { openExternalUrl } from "./rune-external.mjs";
 import {
   CommandId,
@@ -156,6 +156,9 @@ function startWorkspaceFeed(owner, initial, watch) {
   const usageTotals = watchUsageTotals(owner, signal, (view) =>
     write({ type: "usagetotals", watch, ...view }),
   );
+  const hiddenProviders = new Set(usagePreferences().hiddenProviders);
+  usage.filter(hiddenProviders);
+  usageTotals.filter(hiddenProviders);
   let registryIcons = new Set();
   const configureProviders = watchSidebarProviders((instances, art) => {
     registryIcons = new Set(
@@ -840,7 +843,11 @@ function savePreference(name, value) {
 
 function validUsagePreferences(value) {
   return (
-    ["cost", "tokens", "limits"].includes(value?.metric) && [1, 7, 30, 90].includes(value.days)
+    ["cost", "tokens", "limits"].includes(value?.metric) &&
+    [1, 7, 30, 90].includes(value.days) &&
+    (value.hiddenProviders === undefined ||
+      (Array.isArray(value.hiddenProviders) &&
+        value.hiddenProviders.every((id) => usageProviders.includes(id))))
   );
 }
 let unsavedUsagePreferences;
@@ -1558,6 +1565,19 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "setusagepreferences") {
+      if (validUsagePreferences(request.preferences)) {
+        const hidden = new Set(request.preferences.hiddenProviders);
+        workspaceFeed?.usage.filter(hidden);
+        workspaceFeed?.usageTotals.filter(hidden);
+        try {
+          savePreference("desktop-usage", JSON.stringify(request.preferences));
+          unsavedUsagePreferences = undefined;
+        } catch {
+          unsavedUsagePreferences = request.preferences;
+          process.stderr.write("Couldn’t save usage preferences.\n");
+        }
+      }
     } else if (request?.type === "usage") {
       const feed = workspaceFeed;
       if (!feed || feed.watch !== request.watch) continue;
@@ -1570,17 +1590,6 @@ try {
           if (Number.isSafeInteger(request.selection) && [1, 7, 30, 90].includes(request.days)) {
             feed.usage.select(false);
             feed.usageTotals.select(request.selection, request.days);
-          }
-          break;
-        case "preferences":
-          if (validUsagePreferences(request.preferences)) {
-            try {
-              savePreference("desktop-usage", JSON.stringify(request.preferences));
-              unsavedUsagePreferences = undefined;
-            } catch {
-              unsavedUsagePreferences = request.preferences;
-              process.stderr.write("Couldn’t save usage preferences.\n");
-            }
           }
           break;
         case "refreshsummary":

@@ -165,5 +165,8 @@
   "953b6473de4b9ad6": "Den här anslutningen har inte åtkomst till diagnostik och användning.",
   "0d572342fd560670": "Det gick inte att läsa in användningen. Försök igen.",
   "e0cfab9ded209e81": "Återanslut",
-  "68883cb3342998e5": "Återanslut till miljön och försök igen."
+  "68883cb3342998e5": "Återanslut till miljön och försök igen.",
+  "9b0277205d8a9b04": "Alla leverantörer",
+  "31fd849033990734": "Inga leverantörer",
+  "0d4d01729dabc81e": "{count, plural, one {{count} leverantör} other {{count} leverantörer}}"
 }

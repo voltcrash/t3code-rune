@@ -165,5 +165,8 @@
   "953b6473de4b9ad6": "Diese Verbindung hat keinen Zugriff auf Diagnose und Nutzung.",
   "0d572342fd560670": "Nutzung konnte nicht geladen werden. Versuche es erneut.",
   "e0cfab9ded209e81": "Neu verbinden",
-  "68883cb3342998e5": "Verbinde dich erneut mit der Umgebung und versuche es noch einmal."
+  "68883cb3342998e5": "Verbinde dich erneut mit der Umgebung und versuche es noch einmal.",
+  "9b0277205d8a9b04": "Alle Anbieter",
+  "31fd849033990734": "Keine Anbieter",
+  "0d4d01729dabc81e": "{count, plural, one {{count} Anbieter} other {{count} Anbieter}}"
 }

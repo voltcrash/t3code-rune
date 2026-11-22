@@ -393,6 +393,9 @@ enum Request<'a> {
         #[serde(flatten)]
         action: usage::Action<'a>,
     },
+    SetUsagePreferences {
+        preferences: usage::summary::Preferences,
+    },
     CheckUpdates,
     DownloadUpdate,
     InstallUpdate,
@@ -1885,6 +1888,7 @@ fn start() -> io::Result<()> {
                 return true;
             }
             if s.workspace.usage.open
+                && !s.workspace.usage.providers_open
                 && s.pairing_offers.is_empty()
                 && !s.update.open
                 && !ev.mods.alt

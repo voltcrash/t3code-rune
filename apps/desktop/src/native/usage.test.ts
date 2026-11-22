@@ -43,6 +43,10 @@ it("publishes the connected environment’s limit sources only while Usage is op
       remaining: 77,
       accounts: [{ email: "account@example.test", remaining: 77 }],
     });
+    feed.filter(new Set(["codex"]));
+    expect(publish.mock.lastCall?.[0].result?.groups).toEqual([]);
+    feed.filter(new Set());
+    expect(publish.mock.lastCall?.[0].result?.groups).toHaveLength(1);
     const [account] = source.accounts;
     feed.configure(
       {
@@ -106,6 +110,10 @@ it("opens only HTTP and HTTPS usage links from the current config", async () => 
       expect(publish.mock.lastCall?.[0].result?.links.map((link) => link.url)).toEqual([url]);
       await feed.manage(url, open);
     }
+    feed.filter(new Set(["opencode"]));
+    await feed.manage(secure, open);
+    expect(publish.mock.lastCall?.[0].result?.links).toEqual([]);
+    feed.filter(new Set());
     for (const url of ["file:///tmp/example", "invalid"]) {
       feed.configure({ providers: [provider(url)] }, undefined);
       expect(publish.mock.lastCall?.[0].result?.links).toEqual([]);

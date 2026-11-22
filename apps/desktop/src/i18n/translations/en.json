@@ -165,5 +165,8 @@
   "953b6473de4b9ad6": "This connection does not have access to diagnostics and usage.",
   "0d572342fd560670": "Couldn’t load usage. Try again.",
   "e0cfab9ded209e81": "Reconnect",
-  "68883cb3342998e5": "Reconnect to the environment and try again."
+  "68883cb3342998e5": "Reconnect to the environment and try again.",
+  "9b0277205d8a9b04": "All providers",
+  "31fd849033990734": "No providers",
+  "0d4d01729dabc81e": "{count, plural, one {{count} providers} other {{count} providers}}"
 }
