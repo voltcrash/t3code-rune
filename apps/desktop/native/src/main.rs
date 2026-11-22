@@ -22,6 +22,7 @@ mod mac_update;
 mod models;
 mod navigation;
 mod new_thread;
+mod pairing_link;
 mod permissions;
 mod project_icon;
 mod questions;
@@ -42,6 +43,10 @@ enum Reply {
     },
     RestartUpdated {
         executable: std::path::PathBuf,
+    },
+    PairingOffer {
+        #[serde(flatten)]
+        offer: pairing_link::Offer,
     },
     ReleaseCheck {
         #[serde(flatten)]
@@ -295,6 +300,9 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    OpenUrl {
+        url: &'a str,
+    },
     CheckUpdates,
     DownloadUpdate,
     InstallUpdate,
@@ -502,6 +510,8 @@ struct Desktop {
     output: Option<std::process::ChildStdin>,
     answer_advance: Option<questions::Advance>,
     link: TextEdit,
+    pairing_offers: std::collections::VecDeque<pairing_link::Offer>,
+    pairing: bool,
     environment: Option<String>,
     stage: stage::Stage,
     local: bool,
@@ -544,6 +554,8 @@ impl Desktop {
             update: Default::default(),
             appearance_error: None,
             link: TextEdit::new("").secure(),
+            pairing_offers: Default::default(),
+            pairing: false,
             environment: None,
             stage: Default::default(),
             local: false,
@@ -568,6 +580,25 @@ impl Desktop {
             starting_local: false,
             error: None,
         }
+    }
+
+    fn clear_environment(&mut self) {
+        self.sidebar_layout.end_drag();
+        *self = Self {
+            #[cfg(target_os = "linux")]
+            frame: self.frame,
+            output: self.output.take(),
+            last_id: self.last_id,
+            request_id: self.request_id,
+            sidebar_layout: self.sidebar_layout,
+            appearance: self.appearance,
+            font_smoothing: self.font_smoothing,
+            saving_smoothing: self.saving_smoothing,
+            pairing_offers: std::mem::take(&mut self.pairing_offers),
+            update: std::mem::take(&mut self.update),
+            zoom: self.zoom,
+            ..Self::new()
+        };
     }
 
     fn worker_closed(&mut self) {
@@ -603,6 +634,7 @@ impl Desktop {
         if self.pending || self.output.is_none() {
             return;
         }
+        let pairing = matches!(request, Request::Pair { .. });
         if matches!(request, Request::Refresh) {
             if self.workspace.refresh_request.is_some() {
                 return;
@@ -617,14 +649,15 @@ impl Desktop {
                 }
                 return;
             }
-        } else if self.landing.project().is_some()
-            || matches!(
-                request,
-                Request::Thread { .. }
-                    | Request::PrepareThread { .. }
-                    | Request::PrepareScratch
-                    | Request::Disconnect
-            )
+        } else if !pairing
+            && (self.landing.project().is_some()
+                || matches!(
+                    request,
+                    Request::Thread { .. }
+                        | Request::PrepareThread { .. }
+                        | Request::PrepareScratch
+                        | Request::Disconnect
+                ))
         {
             self.leave_landing();
         }
@@ -641,6 +674,7 @@ impl Desktop {
         let starting_local = matches!(request, Request::Local);
         if self.write_request(Some(self.request_id), request) {
             self.starting_local = starting_local;
+            self.pairing = pairing;
             self.pending = true;
             self.error = None;
         }
@@ -735,6 +769,12 @@ impl Desktop {
             } else {
                 self.sidebar_layout.width = width;
                 self.sidebar_layout.open = open.unwrap_or(true);
+            }
+            return;
+        }
+        if let Reply::PairingOffer { offer } = message.reply {
+            if !self.pairing_offers.contains(&offer) {
+                self.pairing_offers.push_back(offer);
             }
             return;
         }
@@ -881,7 +921,7 @@ impl Desktop {
         }
         if refresh {
             self.workspace.refresh_request = None;
-        } else {
+        } else if !landing {
             self.pending = false;
             self.starting_local = false;
             self.error = None;
@@ -957,6 +997,10 @@ impl Desktop {
                 terminal_read,
                 terminal_write,
             } => {
+                if self.pairing && self.environment.is_some() {
+                    self.clear_environment();
+                }
+                self.pairing = false;
                 self.landing = Default::default();
                 self.workspace.set_clock_offset(0);
                 self.stage = stage;
@@ -1080,6 +1124,7 @@ impl Desktop {
             | Reply::SidebarLayout { .. }
             | Reply::Typography { .. }
             | Reply::RestartUpdated { .. }
+            | Reply::PairingOffer { .. }
             | Reply::ReleaseCheck { .. }
             | Reply::WindowZoom { .. }
             | Reply::Appearance { .. }
@@ -1096,32 +1141,25 @@ impl Desktop {
                 unreachable!()
             }
             Reply::Error { message } => {
+                if !refresh && !landing {
+                    self.pairing = false;
+                }
                 if !refresh || self.waiting_for_settle() {
                     self.cancel_settle_navigation();
                 }
                 self.error = Some(message);
             }
             Reply::Disconnected | Reply::LocalClosed => {
-                self.sidebar_layout.end_drag();
                 let lost = matches!(message.reply, Reply::LocalClosed);
-                let output = self.output.take();
-                *self = Self {
-                    #[cfg(target_os = "linux")]
-                    frame: self.frame,
-                    output,
-                    last_id: self.last_id,
-                    request_id: self.request_id,
-                    sidebar_layout: self.sidebar_layout,
-                    appearance: self.appearance,
-                    font_smoothing: self.font_smoothing,
-                    saving_smoothing: self.saving_smoothing,
-                    error: lost.then(|| {
-                        "The local environment stopped. Reconnect to start it again.".to_owned()
-                    }),
-                    update: std::mem::take(&mut self.update),
-                    zoom: self.zoom,
-                    ..Self::new()
-                };
+                let pairing = lost && self.pairing;
+                self.clear_environment();
+                self.pending = pairing;
+                self.pairing = pairing;
+                if lost {
+                    self.error = Some(
+                        "The local environment stopped. Reconnect to start it again.".to_owned(),
+                    );
+                }
             }
         }
         self.close_stale_terminal();
@@ -1275,6 +1313,7 @@ fn connection(s: &Desktop, cx: &mut Cx<Desktop>, theme: tok::Theme) -> El {
     let mut overlays = Vec::new();
     appearance::overlay(s, cx, &theme, &mut overlays);
     updates::overlay(s, &theme, s.dark(cx), &mut overlays);
+    pairing_link::overlay(s, &theme, s.dark(cx), &mut overlays);
     rune_kit::root(root, overlays)
 }
 
@@ -1474,7 +1513,7 @@ fn start() -> io::Result<()> {
             if linux_menu::shortcut(s, ev, tx) {
                 return true;
             }
-            if s.update.open {
+            if !s.pairing_offers.is_empty() || s.update.open {
                 return false;
             }
             if s.zoom_key(ev, tx) {
@@ -1590,7 +1629,9 @@ fn start() -> io::Result<()> {
         families: (appearance::SANS, appearance::MONO),
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
-    let app = App::new(spec);
+    let app = App::new(spec).on_open_url(|s, url, _| {
+        s.write_request(None, Request::OpenUrl { url });
+    });
     #[cfg(target_os = "macos")]
     let app = app.font_smoothing(rune::FontSmoothing::Off);
     #[cfg(target_os = "macos")]

@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ThreadId,
 } from "@t3tools/contracts";
+import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { runeUpdates } from "./rune-updates.mjs";
@@ -816,6 +817,8 @@ function requestError(error, type, editing) {
     return type === "addproject"
       ? "Couldn’t add the project. Check that the folder exists on this environment and that you have permission."
       : "Couldn’t update the project. Refresh and try again.";
+  if (type === "pair")
+    return "Couldn’t pair with this environment. Check the pairing link and try again.";
   if (session)
     return type === "thread"
       ? "Couldn’t load this conversation. Try again."
@@ -824,7 +827,7 @@ function requestError(error, type, editing) {
     return isLocalServerStartupError(error)
       ? error.message
       : "Couldn’t start the local environment. Try again or paste a pairing link.";
-  return "Couldn’t pair with this environment. Check the pairing link and try again.";
+  return "Couldn’t load this workspace. Check the connection and try again.";
 }
 
 async function prepareDraft(owner, project, signal, reply) {
@@ -916,6 +919,7 @@ async function handleWorkspaceRequest(request, reply) {
   if (lifetime.signal.aborted) return;
   let reading;
   let editing = false;
+  let initialWorkspace;
   try {
     if (request.type === "disconnect") {
       leaveThread();
@@ -928,17 +932,21 @@ async function handleWorkspaceRequest(request, reply) {
       return;
     }
     if (request.type === "local" || request.type === "pair") {
+      const host = request.type === "local" ? localServer() : undefined;
+      const connected = host
+        ? await host.connect(lifetime.signal, openVisitDatabase)
+        : await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
+      try {
+        initialWorkspace = await readWorkspace(connected);
+        if (host && server !== host) throw new Error("Local server stopped");
+      } catch (error) {
+        connected.legacyVisits?.close();
+        throw error;
+      }
       leaveThread();
       session?.legacyVisits?.close();
-      if (request.type === "local") {
-        const host = localServer();
-        const connected = await host.connect(lifetime.signal, openVisitDatabase);
-        if (server !== host) throw new Error("Local server stopped");
-        session = localSession = connected;
-      } else {
-        session = await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
-        localSession = undefined;
-      }
+      session = connected;
+      localSession = host ? connected : undefined;
       stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
@@ -1192,7 +1200,7 @@ async function handleWorkspaceRequest(request, reply) {
       throw new Error("Invalid request");
     }
     reading = session;
-    const workspace = await readWorkspace(reading);
+    const workspace = initialWorkspace ?? (await readWorkspace(reading));
     if (session === reading) {
       if (watching && !workspace.view.threads.some((thread) => thread.id === watching.thread)) {
         leaveThread(watching.thread);
@@ -1235,6 +1243,18 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "openurl") {
+      const link = readPairingAppLink(request.url);
+      if (link) {
+        try {
+          const { httpBaseUrl } = resolveRemotePairingTarget({ pairingUrl: link });
+          write({ type: "pairingoffer", origin: new URL(httpBaseUrl).origin, link });
+        } catch {
+          // A malformed launch link must not interrupt the current environment.
+        }
+      }
+      continue;
+    }
     if (request?.type === "x11menu") {
       if (
         menuWindow?.id !== request.window &&

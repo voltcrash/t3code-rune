@@ -482,6 +482,11 @@ async function buildRunePackage() {
       plist.build({
         CFBundlePackageType: "APPL",
         CFBundleIdentifier: updateFeed ? DESKTOP_APP_ID : "com.t3tools.t3code.rune",
+        ...(updateFeed && {
+          CFBundleURLTypes: [
+            { CFBundleURLName: "T3 Code", CFBundleURLSchemes: ["t3code", "t3code-dev"] },
+          ],
+        }),
         CFBundleName: product,
         CFBundleDisplayName: product,
         CFBundleExecutable: "t3-code",
