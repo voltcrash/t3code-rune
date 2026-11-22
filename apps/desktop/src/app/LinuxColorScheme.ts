@@ -30,7 +30,7 @@ const settingsCall = (member: "ReadOne" | "Read") =>
 
 /**
  * Follows the desktop color scheme through the XDG settings portal. Without a session bus or
- * portal it reports nothing, so Chromium's own resolution stays in charge.
+ * portal it reports nothing, leaving the host's default in effect.
  */
 export function watchLinuxColorScheme(
   onChange: (scheme: LinuxColorScheme) => void,

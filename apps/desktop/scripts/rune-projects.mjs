@@ -735,6 +735,20 @@ const savedAppearance = readPreference("desktop-appearance");
 let appearance = validAppearance(savedAppearance) ? savedAppearance : "system";
 write({ type: "appearance", mode: appearance });
 
+if (Effect.runSync(HostProcess.Platform) === "linux") {
+  const fallbackDark = process.env.GTK_THEME?.split(":")[1] === "dark";
+  const publish = (scheme) =>
+    write({ type: "systemappearance", dark: scheme === null ? fallbackDark : scheme === "dark" });
+  publish(null);
+  void import("../src/app/LinuxColorScheme.ts")
+    .then(({ watchLinuxColorScheme }) => {
+      if (lifetime.signal.aborted) return;
+      const watcher = watchLinuxColorScheme(publish);
+      lifetime.signal.addEventListener("abort", watcher.stop, { once: true });
+    })
+    .catch(() => {});
+}
+
 function setAppearance(mode) {
   try {
     if (!validAppearance(mode)) throw new Error("Unknown appearance");

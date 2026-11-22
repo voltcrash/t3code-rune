@@ -59,7 +59,7 @@ impl Mode {
 impl Desktop {
     pub(crate) fn dark(&self, cx: &Cx<Desktop>) -> bool {
         match self.appearance {
-            Mode::System => cx.system_dark(),
+            Mode::System => self.system_dark.unwrap_or_else(|| cx.system_dark()),
             Mode::Light => false,
             Mode::Dark => true,
         }
