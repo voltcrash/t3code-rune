@@ -71,6 +71,10 @@ impl Draft {
         self.editor = TextEdit::new(&combined);
         self.operation = None;
     }
+    pub(super) fn paste_text(&mut self, value: &str) {
+        self.editor.paste(value);
+        self.operation = None;
+    }
     pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
         let before = self.files.len();
         change(&mut self.files);
@@ -251,8 +255,7 @@ pub(super) fn view(
     let field = if asking {
         super::questions::input(s, id, theme)
     } else {
-        let paste = target.clone();
-        text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
+        let field = text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
             .key("message-input")
             .label("Message")
             .w_full()
@@ -267,8 +270,8 @@ pub(super) fn view(
                     draft.operation = None;
                 }
             })
-            .on_submit(|s: &mut Desktop, _| s.send_message())
-            .on_input_paste(move |s: &mut Desktop, content, _| paste.paste(s, content))
+            .on_submit(|s: &mut Desktop, _| s.send_message());
+        target.input(field)
     };
     let pane = s
         .workspace

@@ -31,6 +31,7 @@ pub(super) enum Action {
     Cut,
     Copy,
     Paste,
+    PasteAsText,
     Delete,
     SelectAll,
     ActualSize,
@@ -80,8 +81,13 @@ impl Action {
             Self::Redo => ('z', true),
             Self::Cut => ('x', false),
             Self::Copy => ('c', terminal),
-            Self::Paste if !terminal => return tx.request_paste(),
-            Self::Paste => ('v', true),
+            Self::PasteAsText
+                if matches!(tx.focused(), Some("message-input" | "new-thread-prompt")) =>
+            {
+                ('v', true)
+            }
+            Self::Paste | Self::PasteAsText if !terminal => return tx.request_paste(),
+            Self::Paste | Self::PasteAsText => ('v', true),
             Self::SelectAll => ('a', terminal),
             Self::ActualSize => ('0', false),
             Self::ZoomIn => ('=', false),

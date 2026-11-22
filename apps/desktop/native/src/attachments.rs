@@ -99,31 +99,80 @@ pub(super) enum Target {
 }
 
 impl Target {
-    fn edit(&self, app: &mut Desktop, change: impl FnOnce(&mut Vec<Selection>)) {
-        if app.pending || !app.can_operate {
-            return;
-        }
+    fn active(&self, app: &Desktop) -> bool {
         match self {
-            Self::Project(id) if app.new_threads.active.as_ref() == Some(id) => {
-                if let Some(files) = app.new_threads.editable_files() {
-                    change(files)
-                }
-            }
-            Self::Thread(id)
-                if app.new_threads.active.is_none()
+            Self::Project(id) => app.new_threads.active.as_ref() == Some(id),
+            Self::Thread(id) => {
+                app.new_threads.active.is_none()
                     && !app.workspace.show_projects
                     && !app.workspace.questions.contains_key(id)
                     && app
                         .workspace
                         .conversation
                         .as_ref()
-                        .is_some_and(|c| c.id == *id) =>
-            {
+                        .is_some_and(|c| c.id == *id)
+            }
+        }
+    }
+
+    pub(super) fn input(&self, field: El) -> El {
+        let paste = self.clone();
+        let plain = self.clone();
+        field
+            .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
+            .on_input_key(move |app: &mut Desktop, key, tx| {
+                let extra = if cfg!(target_os = "macos") {
+                    key.mods.ctrl
+                } else {
+                    key.mods.logo
+                };
+                if !key.mods.shift || !key.mods.cmd || key.mods.alt || extra || !key.is_command('v')
+                {
+                    return false;
+                }
+                let target = plain.clone();
+                let focus = tx.focused().map(str::to_owned);
+                let request = app.request_id;
+                tx.read_clipboard(move |app: &mut Desktop, content, tx| {
+                    if app.pending
+                        || app.request_id != request
+                        || tx.focused() != focus.as_deref()
+                        || !target.active(app)
+                    {
+                        return;
+                    }
+                    if content.text().is_empty() {
+                        target.paste(app, content);
+                        return;
+                    }
+                    match target {
+                        Self::Project(_) => app.new_threads.paste_text(content.text()),
+                        Self::Thread(id) => {
+                            if let Some(draft) = app.workspace.drafts.get_mut(&id) {
+                                draft.paste_text(content.text());
+                            }
+                        }
+                    }
+                });
+                true
+            })
+    }
+
+    fn edit(&self, app: &mut Desktop, change: impl FnOnce(&mut Vec<Selection>)) {
+        if app.pending || !app.can_operate || !self.active(app) {
+            return;
+        }
+        match self {
+            Self::Project(_) => {
+                if let Some(files) = app.new_threads.editable_files() {
+                    change(files)
+                }
+            }
+            Self::Thread(id) => {
                 if let Some(draft) = app.workspace.drafts.get_mut(id) {
                     draft.edit_files(change)
                 }
             }
-            _ => {}
         }
     }
 
