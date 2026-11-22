@@ -27,8 +27,7 @@ impl Desktop {
             }
         }
         panel.clear_results();
-        let preferences = panel.summary.preferences();
-        self.usage_action(preferences);
+        self.save_usage_preferences();
     }
 }
 

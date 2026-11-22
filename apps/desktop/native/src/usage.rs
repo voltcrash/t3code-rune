@@ -18,7 +18,6 @@ pub(super) enum Action<'a> {
     Refresh,
     Summary { selection: u64, days: u32 },
     RefreshSummary,
-    Preferences { preferences: summary::Preferences },
     Manage { url: &'a str },
 }
 
@@ -116,7 +115,7 @@ pub(super) struct Snapshot {
 #[derive(Default)]
 pub(super) struct Panel {
     pub(super) open: bool,
-    providers_open: bool,
+    pub(super) providers_open: bool,
     revealed_email: Option<String>,
     pub(crate) summary: summary::Summary,
     pub(super) labels: Option<Labels>,
@@ -152,6 +151,11 @@ impl Desktop {
         if let Some(watch) = self.workspace.feed {
             self.write_request(None, Request::Usage { watch, action });
         }
+    }
+
+    fn save_usage_preferences(&mut self) {
+        let preferences = self.workspace.usage.summary.preferences();
+        self.write_request(None, Request::SetUsagePreferences { preferences });
     }
 
     pub(super) fn start_usage(&mut self) {

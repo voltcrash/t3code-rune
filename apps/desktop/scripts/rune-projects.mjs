@@ -1565,6 +1565,19 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "setusagepreferences") {
+      if (validUsagePreferences(request.preferences)) {
+        const hidden = new Set(request.preferences.hiddenProviders);
+        workspaceFeed?.usage.filter(hidden);
+        workspaceFeed?.usageTotals.filter(hidden);
+        try {
+          savePreference("desktop-usage", JSON.stringify(request.preferences));
+          unsavedUsagePreferences = undefined;
+        } catch {
+          unsavedUsagePreferences = request.preferences;
+          process.stderr.write("Couldn’t save usage preferences.\n");
+        }
+      }
     } else if (request?.type === "usage") {
       const feed = workspaceFeed;
       if (!feed || feed.watch !== request.watch) continue;
@@ -1577,20 +1590,6 @@ try {
           if (Number.isSafeInteger(request.selection) && [1, 7, 30, 90].includes(request.days)) {
             feed.usage.select(false);
             feed.usageTotals.select(request.selection, request.days);
-          }
-          break;
-        case "preferences":
-          if (validUsagePreferences(request.preferences)) {
-            const hidden = new Set(request.preferences.hiddenProviders);
-            feed.usage.filter(hidden);
-            feed.usageTotals.filter(hidden);
-            try {
-              savePreference("desktop-usage", JSON.stringify(request.preferences));
-              unsavedUsagePreferences = undefined;
-            } catch {
-              unsavedUsagePreferences = request.preferences;
-              process.stderr.write("Couldn’t save usage preferences.\n");
-            }
           }
           break;
         case "refreshsummary":

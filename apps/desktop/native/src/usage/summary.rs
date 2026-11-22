@@ -172,13 +172,11 @@ impl Summary {
         }
     }
 
-    pub(super) fn preferences(&self) -> Action<'static> {
-        Action::Preferences {
-            preferences: Preferences {
-                hidden_providers: self.hidden.clone(),
-                metric: self.metric,
-                days: self.days,
-            },
+    pub(super) fn preferences(&self) -> Preferences {
+        Preferences {
+            hidden_providers: self.hidden.clone(),
+            metric: self.metric,
+            days: self.days,
         }
     }
 
@@ -244,7 +242,6 @@ impl Desktop {
         }
         let previous = summary.metric;
         summary.metric = metric;
-        let preferences = summary.preferences();
         if metric == Metric::Limits || previous == Metric::Limits {
             self.workspace.usage.clear_results();
             let request = self.workspace.usage.summary.request();
@@ -252,7 +249,7 @@ impl Desktop {
         } else if let Some(reply) = summary.reply.take() {
             summary.receive(reply);
         }
-        self.usage_action(preferences);
+        self.save_usage_preferences();
     }
 
     pub(crate) fn select_usage_period(&mut self, days: u32) {
@@ -262,10 +259,9 @@ impl Desktop {
         }
         summary.clear();
         summary.days = days;
-        let preferences = summary.preferences();
         let request = summary.request();
         self.usage_action(request);
-        self.usage_action(preferences);
+        self.save_usage_preferences();
     }
 }
 
