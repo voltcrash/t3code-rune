@@ -166,28 +166,30 @@ function withSettingsWriteLock<A, E, R>(
   });
 }
 
-export const setClientFontSmoothing = Effect.fn("desktop.clientSettings.setFontSmoothing")(
-  function (settingsPath: string, fontSmoothing: boolean) {
-    return withSettingsWriteLock(settingsPath, (target) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const raw = yield* fs.readFileString(target).pipe(
-          Effect.catchIf(
-            (error) => error.reason._tag === "NotFound",
-            () => Effect.succeed("{}"),
-          ),
-        );
-        const { document, values, settings, wrapped } = yield* decodeClientSettingsJson(raw);
-        const updated = { ...values, fontSmoothing };
-        const encoded = yield* encodeSettingsRecord(
-          wrapped ? { ...document, settings: updated } : updated,
-        );
-        yield* writeFileStringAtomically({ filePath: target, contents: encoded + "\n" });
-        return { ...settings, fontSmoothing };
-      }),
-    );
-  },
-);
+export const setClientTypography = Effect.fn("desktop.clientSettings.setTypography")(function (
+  settingsPath: string,
+  changes: Partial<Pick<ClientSettings, "fontSmoothing" | "fontFamilySans" | "fontFamilyCode">>,
+) {
+  return withSettingsWriteLock(settingsPath, (target) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const raw = yield* fs.readFileString(target).pipe(
+        Effect.catchIf(
+          (error) => error.reason._tag === "NotFound",
+          () => Effect.succeed("{}"),
+        ),
+      );
+      const { document, values, wrapped } = yield* decodeClientSettingsJson(raw);
+      const updated = { ...values, ...changes };
+      const settings = yield* decodeClientSettingsValue(updated);
+      const encoded = yield* encodeSettingsRecord(
+        wrapped ? { ...document, settings: updated } : updated,
+      );
+      yield* writeFileStringAtomically({ filePath: target, contents: encoded + "\n" });
+      return settings;
+    }),
+  );
+});
 
 const writeClientSettings = Effect.fnUntraced(function* (input: {
   readonly fileSystem: FileSystem.FileSystem;

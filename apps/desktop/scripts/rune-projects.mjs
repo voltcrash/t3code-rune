@@ -12,10 +12,7 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
-import {
-  readClientSettings,
-  setClientFontSmoothing,
-} from "../src/settings/DesktopClientSettings.ts";
+import { readClientSettings, setClientTypography } from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -653,11 +650,20 @@ let typographyWrites = Effect.runPromise(
   publishTypography();
 });
 
-async function setFontSmoothing(smoothing) {
+async function setTypography(request) {
   try {
-    if (typeof smoothing !== "boolean") throw new Error("Invalid font smoothing");
+    let changes;
+    if (request.type === "setfontsmoothing" && typeof request.smoothing === "boolean") {
+      changes = { fontSmoothing: request.smoothing };
+    } else if (
+      request.type === "setfontfamily" &&
+      (request.slot === "sans" || request.slot === "code") &&
+      typeof request.family === "string"
+    ) {
+      changes = { [request.slot === "sans" ? "fontFamilySans" : "fontFamilyCode"]: request.family };
+    } else throw new Error("Invalid font setting");
     typographySettings = await Effect.runPromise(
-      setClientFontSmoothing(clientSettingsPath, smoothing).pipe(
+      setClientTypography(clientSettingsPath, changes).pipe(
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
         Effect.provideService(Logger.LogToStderr, true),
@@ -665,7 +671,7 @@ async function setFontSmoothing(smoothing) {
     );
     publishTypography();
   } catch {
-    publishTypography("Couldn’t save font smoothing on this computer.");
+    publishTypography("Couldn’t save the font setting on this computer.");
   }
 }
 
@@ -1297,8 +1303,8 @@ try {
     }
     if (request?.type === "setappearance") {
       setAppearance(request.mode);
-    } else if (request?.type === "setfontsmoothing") {
-      typographyWrites = typographyWrites.then(() => setFontSmoothing(request.smoothing));
+    } else if (request?.type === "setfontsmoothing" || request?.type === "setfontfamily") {
+      typographyWrites = typographyWrites.then(() => setTypography(request));
     } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {
       setSidebarLayout(request);
     } else if (request?.type === "visitthread") {

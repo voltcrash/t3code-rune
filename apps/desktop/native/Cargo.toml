@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 avif-rust = "0.3"
 base64 = "0.22"
+fontique = "0.12"
 image = { version = "0.25", default-features = false, features = [
   "bmp",
   "gif",
