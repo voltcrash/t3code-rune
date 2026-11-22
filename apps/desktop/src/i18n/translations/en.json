@@ -163,5 +163,7 @@
   "d8a6a99fbdda0d3e": "{share} of tokens · {cost}",
   "fce17caaa0d1a45b": "Unpriced",
   "953b6473de4b9ad6": "This connection does not have access to diagnostics and usage.",
-  "0d572342fd560670": "Couldn’t load usage. Try again."
+  "0d572342fd560670": "Couldn’t load usage. Try again.",
+  "e0cfab9ded209e81": "Reconnect",
+  "68883cb3342998e5": "Reconnect to the environment and try again."
 }

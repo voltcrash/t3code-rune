@@ -497,19 +497,12 @@ pub(super) fn body(
             })
     };
     let row_name = |name: &str| workspace::label(name, 13., 500., theme.text).truncate();
-    let Some(reply) = &summary.reply else {
-        return body.child(workspace::label(
-            &labels.loading,
-            14.,
-            400.,
-            theme.text_secondary,
-        ));
-    };
-    if let Some(error) = &reply.error {
+    let reply = summary.reply.as_ref();
+    if let Some(error) = reply.and_then(|r| r.error.as_deref()) {
         body = body.child(workspace::label(error, 14., 400., theme.text).wrap());
     }
-    let Some(data) = &reply.data else {
-        return if reply.loading {
+    let Some(data) = reply.and_then(|r| r.data.as_ref()) else {
+        return if !desktop.workspace.paused && reply.is_none_or(|r| r.loading) {
             body.child(workspace::label(
                 &labels.loading,
                 14.,

@@ -1913,7 +1913,12 @@ fn start() -> io::Result<()> {
                 if ev.mods.shift
                     && let Some((_, days)) = [('1', 1), ('2', 7), ('3', 30), ('4', 90)]
                         .into_iter()
-                        .find(|(key, _)| ev.is_command(*key))
+                        .find(|(key, _)| {
+                            rune::Chord::new(rune::ChordKey::Char(*key))
+                                .with(rune::ChordMod::Primary)
+                                .with(rune::ChordMod::Shift)
+                                .matches_tx(ev, tx)
+                        })
                 {
                     if !tx.key_repeat() {
                         s.select_usage_period(days);

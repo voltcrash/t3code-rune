@@ -51,6 +51,8 @@ pub(super) struct Labels {
     usage: String,
     limits: String,
     refresh: String,
+    reconnect: String,
+    disconnected: String,
     close: String,
     manage: String,
     reveal: String,
@@ -274,6 +276,18 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .scroll(ScrollSpec {
             stick_bottom: false,
         });
+    let paused = s.workspace.paused;
+    if paused {
+        body = body.child(
+            workspace::label(
+                s.error.as_deref().unwrap_or(&labels.disconnected),
+                14.,
+                400.,
+                theme.text,
+            )
+            .wrap(),
+        );
+    }
     if panel.summary.metric != summary::Metric::Limits {
         if width < 860. {
             body = body.child(summary::periods(s, labels, theme));
@@ -323,7 +337,7 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                         .child(workspace::label(message, 13., 400., theme.text_secondary).wrap());
                 }
             }
-        } else {
+        } else if !paused {
             body = body.child(workspace::label(
                 &labels.loading,
                 14.,
@@ -340,20 +354,29 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .key("usage-close")
         .autofocus()
         .on_press(Desktop::close_usage);
-    let can_refresh = if panel.summary.metric == summary::Metric::Limits {
+    let can_refresh = if paused {
+        !s.pending && s.workspace.refresh_request.is_none()
+    } else if panel.summary.metric == summary::Metric::Limits {
         snapshot.is_some_and(|v| v.result.is_some() && !v.refreshing)
     } else {
         panel.summary.ready()
     };
     let refresh = rune_kit::IconButton::new(&workspace::palette::REFRESH)
         .variant(rune_kit::IconButtonVariant::Ghost)
-        .label(&labels.refresh)
+        .label(if paused {
+            &labels.reconnect
+        } else {
+            &labels.refresh
+        })
         .build(&kit)
         .key("usage-refresh")
         .size(26., 26.)
         .disabled(!can_refresh);
     let refresh = if can_refresh {
         refresh.on_press(|s: &mut Desktop| {
+            if s.workspace.paused {
+                return s.send(Request::Refresh);
+            }
             s.usage_action(
                 if s.workspace.usage.summary.metric == summary::Metric::Limits {
                     Action::Refresh

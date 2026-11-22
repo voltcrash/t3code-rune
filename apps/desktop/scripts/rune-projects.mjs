@@ -843,7 +843,9 @@ function validUsagePreferences(value) {
     ["cost", "tokens", "limits"].includes(value?.metric) && [1, 7, 30, 90].includes(value.days)
   );
 }
+let unsavedUsagePreferences;
 function usagePreferences() {
+  if (unsavedUsagePreferences) return unsavedUsagePreferences;
   try {
     const saved = JSON.parse(readPreference("desktop-usage") ?? "null");
     if (validUsagePreferences(saved)) return saved;
@@ -1558,7 +1560,7 @@ try {
       void prepareLanding(request.project, reply);
     } else if (request?.type === "usage") {
       const feed = workspaceFeed;
-      if (feed?.watch !== request.watch || !feed) return;
+      if (!feed || feed.watch !== request.watch) continue;
       switch (request.action) {
         case "open":
           feed.usageTotals.close();
@@ -1572,7 +1574,13 @@ try {
           break;
         case "preferences":
           if (validUsagePreferences(request.preferences)) {
-            savePreference("desktop-usage", JSON.stringify(request.preferences));
+            try {
+              savePreference("desktop-usage", JSON.stringify(request.preferences));
+              unsavedUsagePreferences = undefined;
+            } catch {
+              unsavedUsagePreferences = request.preferences;
+              process.stderr.write("Couldn’t save usage preferences.\n");
+            }
           }
           break;
         case "refreshsummary":

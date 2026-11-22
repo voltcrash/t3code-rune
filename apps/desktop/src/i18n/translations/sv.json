@@ -163,5 +163,7 @@
   "d8a6a99fbdda0d3e": "{share} av token · {cost}",
   "fce17caaa0d1a45b": "Utan pris",
   "953b6473de4b9ad6": "Den här anslutningen har inte åtkomst till diagnostik och användning.",
-  "0d572342fd560670": "Det gick inte att läsa in användningen. Försök igen."
+  "0d572342fd560670": "Det gick inte att läsa in användningen. Försök igen.",
+  "e0cfab9ded209e81": "Återanslut",
+  "68883cb3342998e5": "Återanslut till miljön och försök igen."
 }

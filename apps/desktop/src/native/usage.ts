@@ -57,6 +57,8 @@ export function usageLabels() {
     more: m(msg("Show more")),
     limits: m(msg("Limits")),
     refresh: m(msg("Refresh")),
+    reconnect: m(msg("Reconnect")),
+    disconnected: m(msg("Reconnect to the environment and try again.")),
     close: m(msg("Close")),
     manage: m(msg("Manage usage")),
     reveal: m(msg("Click to reveal email")),
