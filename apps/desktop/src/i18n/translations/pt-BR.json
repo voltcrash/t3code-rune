@@ -138,5 +138,13 @@
   "65b5018ac22b546c": "Dispensar aviso de provedor {provider} pronto",
   "6e796ec1045abb1a": "Atualizar o status do provedor {provider}",
   "eaa6c91a05d95ce7": "Atualizar",
-  "af3785d7e40b2523": "Atualizando..."
+  "af3785d7e40b2523": "Atualizando...",
+  "a81e2642e49609ee": "Não foi possível salvar a visibilidade dos detalhes da conversa.",
+  "e58a1d884fa1d8f2": "Detalhes da thread",
+  "8413f3e7f703f14e": "Alternar painel de detalhes da thread",
+  "44ad5a6f7fd4f644": "Contexto de execução: {context}",
+  "eb9abdcd6098fa3b": "Checkout atual",
+  "bc90899d284f2b0a": "Checkout local",
+  "c7fe4313def0ef2f": "Novo worktree",
+  "854ac9752dd178d6": "Copiar caminho completo"
 }

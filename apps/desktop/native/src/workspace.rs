@@ -23,6 +23,8 @@ mod plan;
 mod sidebar_header;
 #[path = "thread_actions.rs"]
 mod thread_actions;
+#[path = "thread_details.rs"]
+pub(crate) mod thread_details;
 #[path = "workspace_files.rs"]
 pub(crate) mod workspace_files;
 #[path = "workspace_tree.rs"]
@@ -47,10 +49,10 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 pub(super) struct Project {
-    id: String,
+    pub(super) id: String,
     icon: Option<crate::project_icon::ProjectIcon>,
     favicon: Option<project_favicon::Target>,
-    title: String,
+    pub(super) title: String,
     #[serde(skip)]
     search_title: String,
     path: String,
@@ -271,6 +273,7 @@ pub(super) struct Workspace {
     pub(super) feed: Option<u64>,
     pub(super) refresh_request: Option<u64>,
     pub(super) refresh_after_edit: Option<u64>,
+    pub(crate) details: thread_details::Details,
     actions: thread_actions::Actions,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
@@ -314,6 +317,7 @@ impl Workspace {
             feed: None,
             refresh_request: None,
             refresh_after_edit: None,
+            details: Default::default(),
             actions: Default::default(),
             row_clock: Default::default(),
             paused: false,
@@ -1499,7 +1503,7 @@ fn timeline(
     pane: &Conversation,
     theme: &tok::Theme,
     dark: bool,
-    lane_inset: f32,
+    lane: thread_details::Lane,
     overlays: &mut Vec<El>,
 ) -> El {
     let kit = s.contrast.kit(dark);
@@ -1589,14 +1593,15 @@ fn timeline(
     for request in &pane.approvals {
         content = content.child(approval::view(s, request, &kit, theme, overlays));
     }
-    col()
-        .key(format!("timeline-{}", pane.id))
-        .grow(1.0)
-        .min_h(0.0)
-        .w_full()
-        .px(lane_inset)
-        .scroll(ScrollSpec { stick_bottom: true })
-        .child(content)
+    lane.pad(
+        col()
+            .key(format!("timeline-{}", pane.id))
+            .grow(1.0)
+            .min_h(0.0)
+            .w_full()
+            .scroll(ScrollSpec { stick_bottom: true }),
+    )
+    .child(content)
 }
 
 #[derive(Clone, Copy)]
@@ -1648,6 +1653,15 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
+    let measured_width = cx.layout_size("thread-titlebar").map_or(0., |size| size[0]);
+    let layout = thread_details::layout(
+        s,
+        measured_width,
+        viewport[1] - bar.height,
+        chat_lane_inset(viewport[0]),
+        !panel_open || split_panel,
+    );
+    let kit = s.contrast.kit(dark);
     let mut header = row()
         .key("thread-titlebar")
         .w_full()
@@ -1682,7 +1696,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             s,
             thread,
             theme,
-            &s.contrast.kit(dark),
+            &kit,
             &mut overlays,
         ));
     } else if !empty && !landing {
@@ -1718,6 +1732,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             header = header.child(label(status, 12.0, 400.0, theme.text_secondary));
         }
     }
+    header = header.children(thread_details::header(
+        s,
+        theme,
+        &kit,
+        &mut overlays,
+        &layout,
+    ));
     if s.terminal_available() {
         header = header.child(crate::terminal::button(theme));
     }
@@ -1754,26 +1775,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         if let Some(id) = composing
             && let Some(project) = s.workspace.project(id)
         {
-            super::new_thread::view(
-                s,
-                id,
-                &project.title,
-                project.scratch,
-                theme,
-                cx,
-                &mut overlays,
-            )
+            super::new_thread::view(s, project, theme, cx, layout.lane, &mut overlays)
         } else if !s.workspace.show_projects
             && let Some(pane) = &s.workspace.conversation
         {
-            timeline(
-                s,
-                pane,
-                theme,
-                dark,
-                chat_lane_inset(viewport[0]),
-                &mut overlays,
-            )
+            timeline(s, pane, theme, dark, layout.lane, &mut overlays)
         } else if matches!(s.landing, Landing::Failed(_)) {
             col()
                 .grow(1.)
@@ -1813,14 +1819,18 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             theme,
             cx,
             &mut overlays,
-            chat_lane_inset(viewport[0]),
+            layout.lane,
         ));
     }
     if let Some(drawer) = crate::terminal::view(s, theme, dark, viewport[1]) {
         main = main.child(drawer);
     }
-    if let Some([width, _]) = cx.layout_size("thread-titlebar")
-        && let Some(banner) = crate::provider_status::view(s, width, bar.height, theme, dark)
+    if layout.card {
+        main = main.children(thread_details::card(s, measured_width, bar.height, theme));
+    }
+    if measured_width > 0.
+        && let Some(banner) =
+            crate::provider_status::view(s, layout.banner_width, bar.height, theme, dark)
     {
         main = main.child(banner);
     }
@@ -1842,14 +1852,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 el().w(1.)
             });
     }
-    thread_actions::sidebar_menu(s, &s.contrast.kit(dark), &mut overlays);
+    thread_details::menu(s, &kit, &mut overlays);
+    thread_actions::sidebar_menu(s, &kit, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if panel_open {
         let bar = Topbar {
             leading: if split_panel { 0. } else { bar.leading },
             ..bar
         };
-        let kit = s.contrast.kit(dark);
         let panel = if diff_open {
             file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {

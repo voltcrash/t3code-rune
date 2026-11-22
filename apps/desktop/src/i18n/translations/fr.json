@@ -138,5 +138,13 @@
   "65b5018ac22b546c": "Ignorer l’avis « fournisseur {provider} prêt »",
   "6e796ec1045abb1a": "Actualiser le statut du fournisseur {provider}",
   "eaa6c91a05d95ce7": "Actualiser",
-  "af3785d7e40b2523": "Actualisation..."
+  "af3785d7e40b2523": "Actualisation...",
+  "a81e2642e49609ee": "Impossible d’enregistrer la visibilité des détails de la discussion.",
+  "e58a1d884fa1d8f2": "Détails du fil",
+  "8413f3e7f703f14e": "Afficher/masquer le panneau des détails du fil",
+  "44ad5a6f7fd4f644": "Contexte d’exécution : {context}",
+  "eb9abdcd6098fa3b": "Checkout actuel",
+  "bc90899d284f2b0a": "Checkout local",
+  "c7fe4313def0ef2f": "Nouveau worktree",
+  "854ac9752dd178d6": "Copier le chemin complet"
 }

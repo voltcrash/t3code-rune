@@ -21,6 +21,7 @@ enum Action {
     ToggleTerminal,
     GoToFile,
     ToggleFiles,
+    ToggleDetails,
     OpenFile,
     Settings,
     CheckUpdates,
@@ -50,6 +51,7 @@ impl Action {
             Self::ToggleTerminal => "toggle-terminal".into(),
             Self::GoToFile => "go-to-file".into(),
             Self::ToggleFiles => "toggle-files".into(),
+            Self::ToggleDetails => "toggle-thread-details".into(),
             Self::OpenFile => unreachable!(),
         }
     }
@@ -65,6 +67,16 @@ impl Action {
             Self::Settings => "Settings",
             Self::GoToFile => "Go to file",
             Self::ToggleFiles => "Toggle right panel",
+            Self::ToggleDetails => {
+                return ws
+                    .details
+                    .settings
+                    .as_ref()
+                    .map_or("Toggle thread details panel", |settings| {
+                        settings.toggle_label()
+                    })
+                    .into();
+            }
             Self::OpenFile => unreachable!(),
             Self::Back => "Go back",
             Self::Forward => "Go forward",
@@ -92,6 +104,8 @@ impl Action {
             Self::ToggleTerminal => "Ctrl+J",
             Self::GoToFile if cfg!(target_os = "macos") => "⌘P",
             Self::GoToFile => "Ctrl+P",
+            Self::ToggleDetails if cfg!(target_os = "macos") => "⇧⌘B",
+            Self::ToggleDetails => "Ctrl+Shift+B",
             Self::ToggleFiles if cfg!(target_os = "macos") => "⌥⌘B",
             Self::ToggleFiles => "Ctrl+Alt+B",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
@@ -106,6 +120,7 @@ impl Action {
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
             Self::ToggleFiles => &super::workspace_tree::PANEL_ICON,
+            Self::ToggleDetails => &super::thread_details::DETAILS_ICON,
             Self::Settings => &crate::appearance::GEAR,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
@@ -136,6 +151,7 @@ enum Page {
 struct Available {
     terminal: bool,
     files: bool,
+    details: bool,
 }
 
 struct Item {
@@ -233,6 +249,9 @@ impl Palette {
                 command(Action::Settings);
                 command(Action::CheckUpdates);
                 command(Action::ToggleSidebar);
+                if available.details {
+                    command(Action::ToggleDetails);
+                }
                 if available.files {
                     command(Action::GoToFile);
                     command(Action::ToggleFiles);
@@ -466,6 +485,7 @@ impl Desktop {
         let available = Available {
             terminal: self.terminal_available(),
             files: self.file_location().is_some(),
+            details: self.can_show_details(),
         };
         if let Some(palette) = self.palette.as_mut() {
             palette.filter(
@@ -528,6 +548,7 @@ impl Desktop {
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::ToggleTerminal => self.toggle_terminal(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
+            Action::ToggleDetails => self.toggle_details(tx),
             Action::Refresh => self.refresh_visible(),
             Action::AddProject => {
                 self.show_projects();

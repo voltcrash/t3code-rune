@@ -9,6 +9,11 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
+import {
+  hiddenThreadDetails,
+  setThreadDetailsVisibility,
+  threadDetailsLabels,
+} from "../src/native/threadDetails.ts";
 import { runeUpdates } from "./rune-updates.mjs";
 import { selectLanguage, m } from "../src/i18n/catalog.ts";
 import { msg } from "gt-i18n";
@@ -807,12 +812,13 @@ function setSidebarLayout(request) {
   }
 }
 
-function openVisitDatabase() {
+function openDesktopDatabase(name) {
   NodeFS.mkdirSync(homes.preferences, { recursive: true });
-  return new NodeSqlite.DatabaseSync(NodePath.join(homes.preferences, "desktop-visits.sqlite"), {
-    timeout: 1000,
-  });
+  return new NodeSqlite.DatabaseSync(NodePath.join(homes.preferences, name), { timeout: 1000 });
 }
+const openVisitDatabase = () => openDesktopDatabase("desktop-visits.sqlite");
+const openLayoutDatabase = () => openDesktopDatabase("desktop-layout.sqlite");
+
 function localServer() {
   if (!server) {
     const cwd = packaged
@@ -1003,6 +1009,7 @@ async function handleWorkspaceRequest(request, reply) {
         : await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
       try {
         initialWorkspace = await readWorkspace(connected);
+        await clientSettingsWrites;
         if (host && server !== host) throw new Error("Local server stopped");
       } catch (error) {
         connected.legacyVisits?.close();
@@ -1015,9 +1022,22 @@ async function handleWorkspaceRequest(request, reply) {
       stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
+      let hiddenDetails;
+      try {
+        hiddenDetails = hiddenThreadDetails(openLayoutDatabase, session.environmentId);
+      } catch {
+        process.stderr.write("Couldn’t read thread details visibility.\n");
+      }
       reply({
         type: "connected",
         label: session.label,
+        details: {
+          hidden: hiddenDetails,
+          machine: initialWorkspace.machine,
+          windows: session.platform === "windows",
+          environment: clientSettings.threadDetailsItems.environment !== false,
+          labels: threadDetailsLabels(),
+        },
         local: localSession?.sameFilesystem ?? false,
         can_operate: session.canOperate,
         can_read_files: session.canBrowse,
@@ -1371,6 +1391,25 @@ try {
       request?.type === "setcontrast"
     ) {
       clientSettingsWrites = clientSettingsWrites.then(() => setClientAppearance(request));
+    } else if (request?.type === "setdetailsvisible") {
+      if (session && workspaceFeed?.watch === request.watch) {
+        const { watch, target, draft, visible } = request;
+        try {
+          setThreadDetailsVisibility(
+            openLayoutDatabase,
+            session.environmentId,
+            target,
+            draft,
+            visible,
+          );
+        } catch {
+          reply({
+            type: "detailssaveerror",
+            watch,
+            error: m(msg("Couldn’t save thread details visibility.")),
+          });
+        }
+      }
     } else if (request?.type === "setsidebarwidth" || request?.type === "setsidebaropen") {
       setSidebarLayout(request);
     } else if (request?.type === "visitthread") {

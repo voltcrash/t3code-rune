@@ -138,5 +138,13 @@
   "65b5018ac22b546c": "Dismiss {provider} provider ready",
   "6e796ec1045abb1a": "Refresh {provider} provider status",
   "eaa6c91a05d95ce7": "Refresh",
-  "af3785d7e40b2523": "Refreshing..."
+  "af3785d7e40b2523": "Refreshing...",
+  "a81e2642e49609ee": "Couldn’t save thread details visibility.",
+  "e58a1d884fa1d8f2": "Thread details",
+  "8413f3e7f703f14e": "Toggle thread details panel",
+  "44ad5a6f7fd4f644": "Run context: {context}",
+  "eb9abdcd6098fa3b": "Current checkout",
+  "bc90899d284f2b0a": "Local checkout",
+  "c7fe4313def0ef2f": "New worktree",
+  "854ac9752dd178d6": "Copy full path"
 }
