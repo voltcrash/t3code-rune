@@ -19,13 +19,26 @@ import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import {
-  DEFAULT_LINUX_PASSWORD_STORE,
-  normalizeLinuxPasswordStorePreference,
-  type LinuxPasswordStorePreference,
-} from "../linuxSecretStorage.ts";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import { isValidDistroName } from "../wsl/wslPathParsing.ts";
+
+type LinuxPasswordStorePreference =
+  | "auto"
+  | "gnome-libsecret"
+  | "kwallet"
+  | "kwallet5"
+  | "kwallet6";
+
+const DEFAULT_LINUX_PASSWORD_STORE: LinuxPasswordStorePreference = "auto";
+
+function normalizeLinuxPasswordStorePreference(value: unknown): LinuxPasswordStorePreference {
+  return value === "gnome-libsecret" ||
+    value === "kwallet" ||
+    value === "kwallet5" ||
+    value === "kwallet6"
+    ? value
+    : DEFAULT_LINUX_PASSWORD_STORE;
+}
 
 export interface DesktopSettings {
   readonly localEnvironmentEnabled: boolean;
@@ -52,7 +65,7 @@ const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 // Fits half and third tiles of common scaled displays (down to 480x432 DIP) on
 // Wayland, where Electron's client-side frame adds 32x42 DIP to the enforced
 // minimum. The web layout already handles phone widths.
-export const MIN_MAIN_WINDOW_SIZE = {
+const MIN_MAIN_WINDOW_SIZE = {
   width: 400,
   height: 360,
 } as const;
@@ -63,11 +76,6 @@ export const DesktopWindowBoundsSchema = Schema.Struct({
   height: Schema.Int.check(Schema.isGreaterThanOrEqualTo(MIN_MAIN_WINDOW_SIZE.height)),
 });
 export type DesktopWindowBounds = typeof DesktopWindowBoundsSchema.Type;
-export const DEFAULT_MAIN_WINDOW_SIZE = {
-  width: 1100,
-  height: 780,
-} as const;
-
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   localEnvironmentEnabled: true,
   linuxPasswordStore: DEFAULT_LINUX_PASSWORD_STORE,
@@ -204,7 +212,7 @@ function normalizeWslDistro(value: unknown): string | null {
   return typeof value === "string" && isValidDistroName(value) ? value : null;
 }
 
-export function normalizeMainWindowBounds(value: unknown): DesktopWindowBounds | null {
+function normalizeMainWindowBounds(value: unknown): DesktopWindowBounds | null {
   return Option.getOrNull(decodeDesktopWindowBounds(value));
 }
 

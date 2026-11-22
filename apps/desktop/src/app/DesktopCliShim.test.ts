@@ -44,7 +44,9 @@ const REPORTER =
 const fakeAppImage = (canMount = true, app = REPORTER) => {
   const root = tempRoot();
   const image = NodePath.join(root, "image");
-  writeExecutable(NodePath.join(image, "t3code"), app);
+  const executableName = "opt/T3 Code (Beta)/resources/node";
+  const entry = "opt/T3 Code (Beta)/resources/server/dist/bin.mjs";
+  writeExecutable(NodePath.join(image, executableName), app);
   const appImage = NodePath.join(root, "T3 Code.AppImage");
   writeExecutable(
     appImage,
@@ -62,8 +64,8 @@ const fakeAppImage = (canMount = true, app = REPORTER) => {
       "",
     ].join("\n"),
   );
-  const shim = writeShim(root, { kind: "appimage", appImage, executableName: "t3code" });
-  return { root, image, appImage, shim };
+  const shim = writeShim(root, { kind: "appimage", appImage, executableName, entry });
+  return { root, appImage, shim, entry };
 };
 
 // Stays up after a signal until the test lets it finish, like a server shutting down.
@@ -142,26 +144,11 @@ describe("renderCliShim", () => {
   );
 
   it("extracts the AppImage where it cannot be mounted", () => {
-    const { root, image, appImage, shim } = fakeAppImage(false);
-    const result = run(shim, ["--version"], { APPIMAGE_EXTRACT_AND_RUN: "1" });
-    expect(result.status).toBe(3);
-    expect(result.stdout).toMatch(
-      /squashfs-root\/resources\/app\.asar\/apps\/server\/dist\/bin\.mjs/,
-    );
-
-    const executableName = "opt/T3 Code (Beta)/resources/node";
-    const entry = "opt/T3 Code (Beta)/resources/server/dist/bin.mjs";
-    writeExecutable(NodePath.join(image, executableName), REPORTER);
-    writeExecutable(
-      shim,
-      renderCliShim({
-        target: { kind: "appimage", appImage, executableName, entry },
-        runtime: "node",
-        shimPath: shim,
-        t3Home: root,
-      }),
-    );
-    const native = run(shim, ["--version"], { ELECTRON_RUN_AS_NODE: "1" });
+    const { shim, entry } = fakeAppImage(false);
+    const native = run(shim, ["--version"], {
+      APPIMAGE_EXTRACT_AND_RUN: "1",
+      ELECTRON_RUN_AS_NODE: "1",
+    });
     expect(native.status).toBe(3);
     expect(native.stdout).toContain("node= cli=");
     expect(native.stdout).toContain("squashfs-root/" + entry);
@@ -196,10 +183,10 @@ describe("renderCliShim", () => {
     const shim = writeShim(root, {
       kind: "direct",
       executable,
-      entry: "/opt/T3's/app.asar/bin.mjs",
+      entry: "/opt/T3's/resources/server/bin.mjs",
     });
     expect(run(shim, ["browser", "setup"]).stdout.split("\n").slice(1)).toEqual([
-      "/opt/T3's/app.asar/bin.mjs",
+      "/opt/T3's/resources/server/bin.mjs",
       "browser",
       "setup",
       "",
@@ -209,7 +196,7 @@ describe("renderCliShim", () => {
   it("writes a Windows launcher that keeps cmd from reinterpreting paths", () => {
     const executable = "C:\\Apps\\R&whoami&X 100%\\!CHANNEL!\\T3 Code.exe";
     const script = renderCliShim({
-      target: { kind: "windows", executable, entry: "C:\\Apps\\server.asar\\bin.mjs" },
+      target: { kind: "windows", executable, entry: "C:\\Apps\\server\\bin.mjs" },
       shimPath: "C:\\Users\\José\\.t3\\bin\\t3.cmd",
       t3Home: "C:\\Users\\José\\.t3",
     });

@@ -6,15 +6,12 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Random from "effect/Random";
 
-import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopComponentLogger.ts";
 
 // AppImage mounts change each run; the launcher must mount the image itself.
 const { logInfo, logWarning } = makeComponentLogger("desktop-cli-shim");
 
-export const MARKER = "Written by T3 Code: runs the desktop app's bundled t3 CLI.";
-
-const SERVER_ENTRY = "apps/server/dist/bin.mjs";
+const MARKER = "Written by T3 Code: runs the desktop app's bundled t3 CLI.";
 
 const shellWord = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 /** cmd.exe expands `%` even inside quotes; Windows paths cannot contain `"`. */
@@ -28,7 +25,7 @@ export type CliShimTarget =
       readonly kind: "appimage";
       readonly appImage: string;
       readonly executableName: string;
-      readonly entry?: string;
+      readonly entry: string;
     }
   | { readonly kind: "direct"; readonly executable: string; readonly entry: string }
   | { readonly kind: "windows"; readonly executable: string; readonly entry: string };
@@ -36,12 +33,10 @@ export type CliShimTarget =
 /** Embed this install's home and executable path so `sudo`, which clears the environment, uses the same install. */
 export const renderCliShim = (input: {
   readonly target: CliShimTarget;
-  readonly runtime?: "node" | "electron";
   readonly shimPath: string;
   readonly t3Home: string;
 }) => {
   const { target } = input;
-  const node = input.runtime === "node";
   if (target.kind === "windows") {
     const utf8 = [target.executable, target.entry, input.shimPath, input.t3Home].some((value) =>
       [...value].some((character) => character.codePointAt(0)! > 0x7f),
@@ -61,9 +56,8 @@ export const renderCliShim = (input: {
         : []),
       `set "T3CODE_CLI_PATH=${cmdText(input.shimPath)}"`,
       `if not defined T3CODE_HOME set "T3CODE_HOME=${cmdText(input.t3Home)}"`,
-      `set "ELECTRON_RUN_AS_NODE=${node ? "" : "1"}"`,
-      // Electron's Windows executable starts without stdin; this tells the CLI to reopen the console.
-      `set "T3CODE_DESKTOP_CLI_LAUNCHER=${node ? "" : "1"}"`,
+      'set "ELECTRON_RUN_AS_NODE="',
+      'set "T3CODE_DESKTOP_CLI_LAUNCHER="',
       // A goto, not a parenthesized block: "Program Files (x86)" would close the block early.
       `if exist ${cmdWord(target.executable)} goto run`,
       ...restore,
@@ -83,9 +77,7 @@ export const renderCliShim = (input: {
     `export T3CODE_CLI_PATH=${shellWord(input.shimPath)}`,
     `home=${shellWord(input.t3Home)}`,
     'export T3CODE_HOME="${T3CODE_HOME:-$home}"',
-    node
-      ? "unset ELECTRON_RUN_AS_NODE T3CODE_DESKTOP_CLI_LAUNCHER"
-      : "export ELECTRON_RUN_AS_NODE=1",
+    "unset ELECTRON_RUN_AS_NODE T3CODE_DESKTOP_CLI_LAUNCHER",
     `app=${shellWord(target.kind === "appimage" ? target.appImage : target.executable)}`,
     'if [ ! -x "$app" ]; then',
     `  echo "${MOVED}" >&2`,
@@ -96,7 +88,7 @@ export const renderCliShim = (input: {
     return [...header, `exec "$app" ${shellWord(target.entry)} "$@"`, ""].join("\n");
   }
   const run = (root: string) =>
-    `"${root}/"${shellWord(target.executableName)} "${root}/"${shellWord(target.entry ?? "resources/app.asar/" + SERVER_ENTRY)} "$@"`;
+    `"${root}/"${shellWord(target.executableName)} "${root}/"${shellWord(target.entry)} "$@"`;
   return [
     ...header,
     // Extract-and-run would make the runtime start the app instead of mounting it.
@@ -127,36 +119,6 @@ export const renderCliShim = (input: {
   ].join("\n");
 };
 
-export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment["Service"]) =>
-  environment.path.join(
-    environment.baseDir,
-    "bin",
-    environment.platform === "win32" ? "t3.cmd" : "t3",
-  );
-
-export const install = Effect.gen(function* () {
-  const environment = yield* DesktopEnvironment.DesktopEnvironment;
-  if (!environment.isPackaged) return Option.none<string>();
-  const path = environment.path;
-  const windows = environment.platform === "win32";
-  const shimPath = launcherPath(environment);
-  const entry = path.join(environment.serverRoot, SERVER_ENTRY);
-  const target: CliShimTarget = windows
-    ? { kind: "windows", executable: process.execPath, entry }
-    : Option.match(environment.appImagePath, {
-        onSome: (appImage) => ({
-          kind: "appimage" as const,
-          appImage,
-          executableName: path.basename(process.execPath),
-        }),
-        onNone: () => ({ kind: "direct" as const, executable: process.execPath, entry }),
-      });
-  return yield* writeCliShim(
-    { target, shimPath, t3Home: environment.baseDir },
-    path.dirname(shimPath),
-  );
-});
-
 export const installBundledNode = Effect.fn("desktop.cliShim.installBundledNode")(function* (
   t3Home: string,
   entry: string,
@@ -182,7 +144,7 @@ export const installBundledNode = Effect.fn("desktop.cliShim.installBundledNode"
     if (inside(executableName) && inside(serverEntry))
       target = { kind: "appimage", appImage: env.APPIMAGE, executableName, entry: serverEntry };
   }
-  return yield* writeCliShim({ target, shimPath, t3Home, runtime: "node" }, path.dirname(shimPath));
+  return yield* writeCliShim({ target, shimPath, t3Home }, path.dirname(shimPath));
 });
 
 const writeCliShim = Effect.fn("desktop.cliShim.write")(function* (

@@ -193,7 +193,6 @@ export function HostedBrowserWebview(props: {
       );
     };
     const guestPointerDown = (event: Event) => {
-      // Mirrors POINTER_DOWN_HOST_CHANNEL in apps/desktop/src/preview/GuestProtocol.ts.
       if ((event as Event & { channel?: string }).channel === "preview:pointer-down") {
         dismissHostPopups();
       }

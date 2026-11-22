@@ -443,6 +443,7 @@ export interface DesktopSshPasswordPromptRequest {
   expiresAt: string;
 }
 
+/** @public */
 export const DesktopSshPasswordPromptCancelledType = "ssh-password-prompt-cancelled" as const;
 
 export const DesktopSshPasswordPromptCancelledResultSchema = Schema.Struct({
