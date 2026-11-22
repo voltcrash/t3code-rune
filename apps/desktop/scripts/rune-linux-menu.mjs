@@ -45,7 +45,7 @@ function menuItems() {
       item("cut", msg("Cut", { $context: "Edit menu item" }), "Control", "x"),
       item("copy", msg("Copy", { $context: "Edit menu item" }), "Control", "c"),
       item("paste", msg("Paste", { $context: "Edit menu item" }), "Control", "v"),
-      item("paste", msg("Paste as Text"), "Control", "Shift", "v"),
+      item("paste-as-text", msg("Paste as Text"), "Control", "Shift", "v"),
       item("delete", msg("Delete", { $context: "Edit menu item" })),
       separator(),
       item("select-all", msg("Select All", { $context: "Edit menu item" }), "Control", "a"),

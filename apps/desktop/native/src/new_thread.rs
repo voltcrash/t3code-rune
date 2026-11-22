@@ -308,7 +308,7 @@ impl Desktop {
         }
     }
     fn launch(&mut self) {
-        if self.pending || !self.can_operate {
+        if self.pending || !self.can_operate || self.submit_after_paste() {
             return;
         }
         let Some(project) = self.new_threads.active.clone() else {
@@ -357,7 +357,6 @@ pub(super) fn view(
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
     let target = super::attachments::Target::Project(project.to_owned());
-    let paste = target.clone();
     let field = text_input(&draft.prompt, TextStyle::new(14.0, 400.0).lh(21.0))
         .key("new-thread-prompt")
         .label("Message")
@@ -366,8 +365,8 @@ pub(super) fn view(
         .placeholder("Ask anything...", theme.text_secondary)
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
-        .on_submit(|s: &mut Desktop, _| s.launch())
-        .on_input_paste(move |s: &mut Desktop, content, _| paste.paste(s, content));
+        .on_submit(|s: &mut Desktop, _| s.launch());
+    let field = target.input(field);
     let options = draft
         .choices
         .iter()
