@@ -252,6 +252,11 @@ export function workspaceRows(
 ) {
   const listed = snapshot.threads.filter(visibleThread);
   return {
+    legacyScripts: new Map(
+      snapshot.projects
+        .filter((project) => project.scripts.length)
+        .map((project) => [String(project.id), project.scripts]),
+    ),
     visitRows: new Map<string, ReturnType<typeof visitInput>>(
       listed.map((t) => [t.id, visitInput(session.environmentId, t)]),
     ),

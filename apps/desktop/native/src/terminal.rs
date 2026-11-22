@@ -1,5 +1,5 @@
 use crate::{Desktop, Request};
-use rune::{Color, El, Family, Icon, Key, KeyEvent, TextStyle, Tx, col, el, icon, text, tok};
+use rune::{Color, El, Family, Icon, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text, tok};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use uuid::Uuid;
@@ -19,6 +19,10 @@ const CH: f32 = 16.;
 )]
 pub(crate) enum Input {
     Open {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        script: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        terminal_id: Option<String>,
         cols: u16,
         rows: u16,
         dark: bool,
@@ -78,7 +82,16 @@ pub(crate) struct Frame {
     cursor: Option<[u32; 4]>,
     patches: Vec<(usize, Vec<Run>)>,
 }
+#[derive(Deserialize)]
+pub(crate) struct Session {
+    id: String,
+    label: String,
+}
 pub(crate) struct Panel {
+    sessions: Vec<Session>,
+    active: Option<String>,
+    select: Option<String>,
+    script: Option<String>,
     watch: u64,
     operation: String,
     requested_copy: u64,
@@ -158,13 +171,32 @@ impl Desktop {
             self.close_terminal();
             return;
         }
+        self.open_thread_terminal(None, None, tx);
+    }
+    pub(crate) fn open_thread_terminal(
+        &mut self,
+        script: Option<String>,
+        select: Option<String>,
+        tx: &mut Tx,
+    ) {
         if !self.terminal_available() {
             return;
         }
         let Some(watch) = self.workspace.terminal_watch() else {
             return;
         };
+        let sessions = self
+            .terminal
+            .as_mut()
+            .filter(|p| p.watch == watch)
+            .map(|p| std::mem::take(&mut p.sessions))
+            .unwrap_or_default();
+        self.close_terminal();
         self.terminal = Some(Panel {
+            sessions,
+            active: select.clone(),
+            select,
+            script,
             watch,
             operation: Uuid::new_v4().to_string(),
             grid: None,
@@ -253,11 +285,34 @@ impl Desktop {
         if previous == Some((cols, rows, dark)) {
             return;
         }
+        let script = panel.script.take();
+        let terminal_id = panel.select.take();
         self.terminal_input(if previous.is_none() {
-            Input::Open { cols, rows, dark }
+            Input::Open {
+                cols,
+                rows,
+                dark,
+                script,
+                terminal_id,
+            }
         } else {
             Input::Resize { cols, rows, dark }
         });
+    }
+    pub(crate) fn terminal_sessions(
+        &mut self,
+        watch: u64,
+        operation: &str,
+        active: String,
+        rows: Vec<Session>,
+    ) {
+        if let Some(panel) = &mut self.terminal
+            && panel.watch == watch
+            && panel.operation == operation
+        {
+            panel.sessions = rows;
+            panel.active = Some(active);
+        }
     }
     pub(crate) fn terminal_frame(&mut self, watch: u64, operation: &str, frame: Frame) {
         let Some(panel) = &mut self.terminal else {
@@ -386,14 +441,18 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
         .focusable(true)
         .fill(panel.background.map(color).unwrap_or(theme.bg))
         .child(
-            el().key(format!("terminal-layout-{dark}-{}", cell_width.to_bits()))
-                .absolute(0., 0.)
-                .w_full()
-                .h_full()
-                .a11y_hidden()
-                .on_layout(move |s: &mut Desktop, rect| {
-                    s.terminal_layout(rect[2], rect[3], cell_width, dark)
-                }),
+            el().key(format!(
+                "terminal-layout-{}-{dark}-{}",
+                panel.operation,
+                cell_width.to_bits()
+            ))
+            .absolute(0., 0.)
+            .w_full()
+            .h_full()
+            .a11y_hidden()
+            .on_layout(move |s: &mut Desktop, rect| {
+                s.terminal_layout(rect[2], rect[3], cell_width, dark)
+            }),
         )
         .cursor(rune::Cursor::Text)
         .on_drag(move |s: &mut Desktop, d, tx| {
@@ -525,6 +584,49 @@ pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> 
             }
         });
     let mut drawer = col().key("thread-terminal").w_full().h(shown).child(resize);
+    if panel.sessions.len() > 1 {
+        let mut tabs = row()
+            .key("thread-terminal-tabs")
+            .role("radiogroup")
+            .w_full()
+            .h(28.)
+            .center_y()
+            .scroll_x();
+        for session in &panel.sessions {
+            let id = session.id.clone();
+            let active = panel.active.as_deref() == Some(id.as_str());
+            let mut tab = el()
+                .key(&id)
+                .role("radio")
+                .label(&session.label)
+                .checked(active)
+                .focusable(true)
+                .min_w(64.)
+                .h(24.)
+                .px(8.)
+                .center()
+                .radius(5.)
+                .hover(theme.hover)
+                .child(
+                    text(&session.label)
+                        .font(TextStyle::new(12., 500.))
+                        .color(if active {
+                            theme.text
+                        } else {
+                            theme.text_secondary
+                        }),
+                );
+            if active {
+                tab = tab.fill(theme.hover);
+            } else {
+                tab = tab.on_press_tx(move |s: &mut Desktop, tx| {
+                    s.open_thread_terminal(None, Some(id.clone()), tx)
+                });
+            }
+            tabs = tabs.child(tab);
+        }
+        drawer = drawer.child(tabs);
+    }
     let feedback = panel.error.as_deref().or(match panel.status.as_str() {
         "connecting" => Some("Connecting…"),
         "closed" | "exited" => Some("Terminal session ended."),

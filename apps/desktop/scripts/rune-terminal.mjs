@@ -1,8 +1,15 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import { nextTerminalId } from "@t3tools/shared/terminalLabels";
+import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabelsCopy";
+import { m } from "../src/i18n/catalog.ts";
+import {
+  projectScriptRuntimeEnv,
+  projectScriptTerminalInput,
+} from "@t3tools/shared/projectScripts";
 import { GhosttyTerminalCore } from "@t3tools/client-runtime/terminal/ghostty/core";
 import { GhosttySelection } from "@t3tools/client-runtime/terminal/ghostty/selection";
 import { GhosttyRuntime } from "@t3tools/client-runtime/terminal/ghostty/runtime";
@@ -16,6 +23,7 @@ import {
 import {
   nextTerminalAttachSeedState,
   applyTerminalAttachStreamEvent,
+  applyTerminalMetadataStreamEvent,
   INITIAL_TERMINAL_OUTPUT_CURSOR,
   readTerminalOutputUpdate,
 } from "@t3tools/client-runtime/state/terminal-session";
@@ -99,7 +107,7 @@ function runs(row, background, dark) {
   return result;
 }
 
-export function openTerminal(watch, request, write) {
+export function openTerminal(watch, request, write, resolveScript) {
   const { owner, state } = watch;
   const operable = owner.canOperateTerminal;
   if (!operable && !owner.canReadTerminal) return;
@@ -121,7 +129,14 @@ export function openTerminal(watch, request, write) {
     dark = request.dark;
   let status = "connecting",
     error = null;
-  const id = { threadId: watch.thread, terminalId: DEFAULT_TERMINAL_ID };
+  const terminalId = request.script
+    ? nextTerminalId(
+        [...new Set([DEFAULT_TERMINAL_ID, ...(watch.sessions ?? []).map((s) => s.terminalId)])],
+        request.operation,
+      )
+    : (request.terminalId ?? watch.lastTerminal ?? DEFAULT_TERMINAL_ID);
+  const id = { threadId: watch.thread, terminalId };
+  let runScript = Boolean(request.script);
   const run = (effect) => Effect.runPromise(effect.pipe(Effect.provide(owner.http)), { signal });
   let selection;
   let drag;
@@ -337,9 +352,55 @@ export function openTerminal(watch, request, write) {
       );
       selection = new GhosttySelection(core);
       rpc = yield* openEnvironmentRpc(owner);
+      if (request.terminalId && !watch.sessions?.some((s) => s.terminalId === request.terminalId)) {
+        status = "closed";
+        invalidate();
+        return;
+      }
+      if (owner.canReadTerminal) {
+        let published;
+        yield* rpc[WS_METHODS.subscribeTerminalMetadata]({}).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              if (
+                event.type !== "snapshot" &&
+                (event.type === "remove" ? event.threadId : event.terminal.threadId) !==
+                  watch.thread
+              )
+                return;
+              const filtered =
+                event.type === "snapshot"
+                  ? {
+                      ...event,
+                      terminals: event.terminals.filter((t) => t.threadId === watch.thread),
+                    }
+                  : event;
+              watch.sessions = applyTerminalMetadataStreamEvent(watch.sessions ?? [], filtered);
+              const rows = watch.sessions.map((t) => ({
+                id: t.terminalId,
+                label: resolveTerminalSessionLabel(t.terminalId, t, m),
+              }));
+              rows.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+              if (!NodeUtil.isDeepStrictEqual(published, rows)) {
+                published = rows;
+                reply({ type: "terminalsessions", active: terminalId, rows });
+              }
+            }),
+          ),
+          Effect.ignore,
+          Effect.forkScoped,
+        );
+      }
       const thread = state.projection.thread;
       const cwd = thread.worktreePath ?? state.projectRoot;
       reportedGrid = { cols, rows };
+      const script = runScript ? resolveScript() : undefined;
+      if (runScript && !script) {
+        error = "Project script is unavailable. Reopen Thread Details and try again.";
+        status = "error";
+        invalidate();
+        return;
+      }
       const stream = operable
         ? rpc[WS_METHODS.terminalAttach]({
             ...id,
@@ -348,7 +409,8 @@ export function openTerminal(watch, request, write) {
             cols,
             rows,
             providerInstanceId: thread.providerInstanceId,
-            restartIfNotRunning: true,
+            ...(request.terminalId ? { resume: true } : { restartIfNotRunning: true }),
+            ...(script && { stopOnSettle: script.stopOnSettle ?? false }),
             ...(state.projectRoot && {
               env: projectScriptRuntimeEnv({
                 project: { cwd: state.projectRoot },
@@ -375,7 +437,19 @@ export function openTerminal(watch, request, write) {
               core.resize(cols, rows, 7.23, 16);
               force = true;
             }
-            if (previous.status !== "running" && status === "running") reportGrid();
+            if (previous.status !== "running" && status === "running") {
+              reportGrid();
+              watch.lastTerminal = terminalId;
+              if (runScript) {
+                runScript = false;
+                const current = resolveScript();
+                if (current) {
+                  send(projectScriptTerminalInput(current.command));
+                } else {
+                  error = "Project script changed before its terminal was ready.";
+                }
+              }
+            }
             const update = readTerminalOutputUpdate(buffer.output, cursor);
             cursor = update.cursor;
             if (update.type === "reset") {

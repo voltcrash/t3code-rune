@@ -184,9 +184,20 @@ function startWorkspaceFeed(owner, initial, watch) {
     ...feed,
   };
   if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
+  if (watching?.owner === owner) watchThreadScripts(watching);
+}
+
+function watchThreadScripts(record) {
+  const feed = workspaceFeed;
+  if (!feed || clientSettings.threadDetailsItems.scripts === false) return;
+  feed.scripts.select(record.state.projection.thread.projectId, (rows) => {
+    if (watching === record && workspaceFeed === feed)
+      write({ type: "projectscripts", watch: record.id, rows });
+  });
 }
 
 function stopWatching() {
+  workspaceFeed?.scripts.clear();
   const prior = watching;
   watching = undefined;
   prior?.controller.abort();
@@ -206,6 +217,7 @@ function watch(owner, thread, id, state) {
     synchronized: false,
   };
   watching = record;
+  watchThreadScripts(record);
   updateVisibleVisit();
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(
@@ -1544,8 +1556,22 @@ try {
     } else if (request?.type === "terminal") {
       const record = watching;
       if (record && record.id === request.watch) {
-        if (request.action === "open") openTerminal(record, request, write);
-        else if (record.terminal?.operation === request.operation) {
+        if (request.action === "open") {
+          const resolveScript = () => {
+            const feed = workspaceFeed;
+            if (
+              !feed?.activeRpc() ||
+              !record.synchronized ||
+              !record.owner.canOperateTerminal ||
+              clientSettings.threadDetailsItems.scripts === false ||
+              feed.fileRoot(record.thread) !==
+                (record.state.projection.thread.worktreePath ?? record.state.projectRoot)
+            )
+              return;
+            return feed.scripts.lookup(record.state.projection.thread.projectId, request.script);
+          };
+          openTerminal(record, request, write, resolveScript);
+        } else if (record.terminal?.operation === request.operation) {
           if (request.action === "close") {
             record.terminal.close();
             record.terminal = undefined;
