@@ -1,6 +1,6 @@
 use super::workspace::Conversation;
 use super::{Desktop, Request, Workspace};
-use crate::attachments::{self, Selection as Attachment};
+use crate::attachments::Selection as Attachment;
 use rune::{
     Color, Cx, El, Icon, Shadow, TextEdit, TextStyle, auto_grow, col, el, icon, row, spacer,
     text_input, tok,
@@ -106,7 +106,7 @@ impl Draft {
             permission: self.permission.clone(),
             model: self.model.clone(),
             text: self.editor.text.clone(),
-            files: attachments::paths(&self.files),
+            files: self.files.clone(),
             operation,
         })
     }
@@ -546,7 +546,10 @@ mod tests {
         };
         assert_eq!(retry, operation);
         assert!(text.is_empty());
-        assert_eq!(files, ["document.pdf"]);
+        assert_eq!(
+            serde_json::to_value(&files).unwrap(),
+            serde_json::json!(["document.pdf"])
+        );
         let replay = || crate::models::Handoff {
             project: "project".into(),
             source: "codex".into(),

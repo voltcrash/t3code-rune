@@ -1,5 +1,5 @@
 use super::{Desktop, Request, composer};
-use crate::attachments::{self, Selection as Attachment};
+use crate::attachments::Selection as Attachment;
 use rune::{El, TextEdit, TextStyle, col, row, spacer, text, text_input, tok};
 use rune_kit::{Combobox, ComboboxOption, ComboboxState};
 use serde::Deserialize;
@@ -327,7 +327,7 @@ impl Desktop {
             project,
             model: draft.model.clone().unwrap(),
             text: draft.prompt.text.clone(),
-            files: attachments::paths(&draft.files),
+            files: draft.files.clone(),
             operation: draft.operation.clone(),
             base: draft.worktree.then(|| draft.base.text.trim().to_owned()),
         };
@@ -671,7 +671,7 @@ mod tests {
         assert!(drafts.current().prompt.text.is_empty());
         drafts.configure("a".into(), vec![choice("one")], modes(), false, "main");
         assert_eq!(drafts.current().operation, original);
-        assert_eq!(attachments::paths(&drafts.current().files), ["photo.png"]);
+        assert_eq!(drafts.current().files[0].path, "photo.png");
         assert!(drafts.editable_files().is_none());
         drafts.configure(
             "a".into(),

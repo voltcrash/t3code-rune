@@ -511,7 +511,7 @@ enum Request<'a> {
         runtime_override: Option<String>,
         model: String,
         text: String,
-        files: Vec<String>,
+        files: Vec<attachments::Selection>,
         operation: String,
         base: Option<String>,
     },
@@ -604,7 +604,7 @@ enum Request<'a> {
         permission: Option<permissions::Selection>,
         thread: String,
         text: String,
-        files: Vec<String>,
+        files: Vec<attachments::Selection>,
         operation: String,
     },
     AddProject {
@@ -669,6 +669,7 @@ struct Desktop {
     palette: Option<workspace::palette::Palette>,
     last_id: u64,
     request_id: u64,
+    clipboard_uploads: std::collections::HashMap<u64, Vec<std::rc::Rc<tempfile::TempPath>>>,
     pending: bool,
     starting_local: bool,
     error: Option<String>,
@@ -719,6 +720,7 @@ impl Desktop {
             palette: None,
             last_id: 0,
             request_id: 0,
+            clipboard_uploads: Default::default(),
             pending: false,
             starting_local: false,
             error: None,
@@ -734,6 +736,7 @@ impl Desktop {
             output: self.output.take(),
             last_id: self.last_id,
             request_id: self.request_id,
+            clipboard_uploads: std::mem::take(&mut self.clipboard_uploads),
             sidebar_layout: self.sidebar_layout,
             appearance: self.appearance,
             system_dark: self.system_dark,
@@ -822,6 +825,7 @@ impl Desktop {
         self.answer_advance = None;
         self.request_id = self.next_request_id();
         let starting_local = matches!(request, Request::Local);
+        self.hold_clipboard_files(self.request_id, &request);
         if self.write_request(Some(self.request_id), request) {
             self.starting_local = starting_local;
             self.pairing = pairing;
@@ -853,6 +857,9 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Some(id) = message.id {
+            self.clipboard_uploads.remove(&id);
+        }
         if let Reply::GitStatus { watch, non_repo } = message.reply {
             self.git_status(watch, message.id, non_repo);
             return;

@@ -2,18 +2,22 @@ use crate::Desktop;
 use rune::{El, FileDialogOptions, Icon, TextStyle, col, el, icon, row, text, tok};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use tempfile::TempPath;
 
+#[derive(Clone, serde::Serialize)]
+#[serde(transparent)]
 pub(super) struct Selection {
     pub(super) path: String,
-    _clipboard_file: Option<TempPath>,
+    #[serde(skip)]
+    clipboard_file: Option<Rc<TempPath>>,
 }
 
 impl Selection {
     pub(super) fn local(path: &str) -> Self {
         Self {
             path: path.to_owned(),
-            _clipboard_file: None,
+            clipboard_file: None,
         }
     }
 
@@ -27,13 +31,40 @@ impl Selection {
         let path = file.to_str().ok_or(io::ErrorKind::InvalidData)?.to_owned();
         Ok(Self {
             path,
-            _clipboard_file: Some(file),
+            clipboard_file: Some(Rc::new(file)),
         })
     }
 }
 
-pub(super) fn paths(files: &[Selection]) -> Vec<String> {
-    files.iter().map(|file| file.path.clone()).collect()
+impl Desktop {
+    pub(super) fn hold_clipboard_files(&mut self, id: u64, request: &crate::Request<'_>) {
+        let (crate::Request::LaunchThread { files, .. }
+        | crate::Request::SendMessage { files, .. }) = request
+        else {
+            return;
+        };
+        let leases: Vec<_> = files
+            .iter()
+            .filter_map(|f| f.clipboard_file.clone())
+            .collect();
+        if !leases.is_empty() {
+            self.clipboard_uploads.insert(id, leases);
+        }
+    }
+}
+
+fn describes_paths(text: &str, paths: &[PathBuf]) -> bool {
+    let mut lines = text.lines();
+    paths.iter().all(|path| {
+        lines.next().is_some_and(|line| {
+            path == Path::new(line)
+                || url::Url::parse(line)
+                    .ok()
+                    .and_then(|url| url.to_file_path().ok())
+                    .as_ref()
+                    == Some(path)
+        })
+    }) && lines.next().is_none()
 }
 
 const FILE_LIMIT: usize = 100;
@@ -107,13 +138,16 @@ impl Target {
                         .and_then(|e| e.to_str())
                         .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
             });
-            if image.is_none() && !contains_image && !content.text().is_empty() {
+            if !contains_image
+                && !content.text().is_empty()
+                && !describes_paths(content.text(), paths)
+            {
                 return false;
             }
             self.add(app, paths);
             return true;
         }
-        let Some(image) = image else {
+        let Some(image) = image.filter(|_| content.text().is_empty()) else {
             return false;
         };
         let mut error = None;
@@ -260,12 +294,23 @@ mod tests {
         assert!(!target.paste(&mut app, &mixed));
         assert!(app.new_threads.editable_files().unwrap().is_empty());
 
+        let pdf = std::env::temp_dir().join("copied report.pdf");
+        let uri = url::Url::from_file_path(&pdf).unwrap();
+        let copied = ClipboardContent::new(format!("{uri}\r\n")).with_files([pdf.clone()]);
+        assert!(target.paste(&mut app, &copied));
+        let files = app.new_threads.editable_files().unwrap();
+        assert_eq!(files[0].path, pdf.to_str().unwrap());
+        files.clear();
+
         let mut png = io::Cursor::new(Vec::new());
         image::RgbaImage::new(1, 1)
             .write_to(&mut png, image::ImageFormat::Png)
             .unwrap();
         let bytes = png.into_inner();
         let image = rune::ClipboardImage::from_png(bytes.clone()).unwrap();
+        let with_text = ClipboardContent::new("editable cell contents").with_image(image.clone());
+        assert!(!target.paste(&mut app, &with_text));
+        assert!(app.new_threads.editable_files().unwrap().is_empty());
         let clipboard = ClipboardContent::new("").with_image(image);
         app.can_operate = false;
         target.paste(&mut app, &clipboard);
@@ -276,6 +321,46 @@ mod tests {
         let path = PathBuf::from(&files[0].path);
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         files.clear();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_pruned_draft_keeps_its_clipboard_file_until_the_upload_reply() {
+        let (_reader, writer) = std::io::pipe().unwrap();
+        #[cfg(unix)]
+        let writer = std::os::fd::OwnedFd::from(writer);
+        #[cfg(windows)]
+        let writer = std::os::windows::io::OwnedHandle::from(writer);
+        let mut app = Desktop::new();
+        app.output = Some(writer.into());
+        app.new_threads
+            .configure("project".into(), vec![], Default::default(), false, "main");
+        let file = Selection::png(b"staged clipboard bytes").unwrap();
+        let path = PathBuf::from(&file.path);
+        let files = app.new_threads.editable_files().unwrap();
+        files.push(file);
+        let request = crate::Request::LaunchThread {
+            project: "project".into(),
+            model: "model".into(),
+            runtime: "runtime".into(),
+            runtime_override: None,
+            text: String::new(),
+            files: files.clone(),
+            operation: "launch".into(),
+            base: None,
+        };
+        app.send(request);
+        let id = app.request_id;
+        app.new_threads.forget("project");
+        app.receive(crate::WorkerMessage {
+            id: Some(id + 1),
+            reply: crate::Reply::Unchanged,
+        });
+        assert_eq!(std::fs::read(&path).unwrap(), b"staged clipboard bytes");
+        app.receive(crate::WorkerMessage {
+            id: Some(id),
+            reply: crate::Reply::Unchanged,
+        });
         assert!(!path.exists());
     }
 }
