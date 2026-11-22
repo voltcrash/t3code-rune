@@ -250,6 +250,7 @@ enum Reply {
         project: String,
         available: bool,
         rows: Vec<workspace::thread_details::scripts::Script>,
+        imports: Vec<workspace::thread_details::scripts::Stored>,
     },
     TerminalCopy {
         watch: u64,
@@ -468,12 +469,14 @@ enum Request<'a> {
     WatchProjectScripts {
         watch: u64,
         project: Option<&'a str>,
+        thread: Option<&'a str>,
     },
     SaveProjectScript {
         watch: u64,
         project: &'a str,
         key: Option<&'a str>,
         input: Option<&'a workspace::thread_details::scripts::Input>,
+        from_file: bool,
     },
     WatchGit {
         watch: u64,
@@ -1051,9 +1054,10 @@ impl Desktop {
             project,
             available,
             rows,
+            imports,
         } = message.reply
         {
-            self.receive_scripts(watch, &project, message.id, available, rows);
+            self.receive_scripts(watch, &project, message.id, available, rows, imports);
             return;
         }
         if let Reply::ProjectScriptSaved {

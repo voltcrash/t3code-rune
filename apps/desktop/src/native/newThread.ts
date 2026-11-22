@@ -7,12 +7,11 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
   ThreadId,
-  T3_PROJECT_FILE_NAME,
   WS_METHODS,
   type OrchestrationV2ThreadLaunchInput,
   type ServerConfig,
 } from "@t3tools/contracts";
-import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
+import { readProjectFile } from "./projectFile.ts";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -57,16 +56,7 @@ const launchContext = Effect.fn("nativeDesktop.launchContext")(function* (
     session.canBrowse &&
     resolveProjectSettings(config.settings, projectId, record).settings.defaultThreadEnvMode ===
       null
-      ? yield* rpc[WS_METHODS.projectsReadFile]({
-          cwd: record.workspaceRoot,
-          relativePath: T3_PROJECT_FILE_NAME,
-          allowMissing: true,
-        }).pipe(
-          Effect.map((file) =>
-            file.exists === false || file.truncated ? null : parseT3ProjectFile(file.contents),
-          ),
-          Effect.orElseSucceed(() => null),
-        )
+      ? yield* readProjectFile(rpc, record.workspaceRoot)
       : null;
   const projectSettings = resolveProjectSettings(config.settings, projectId, record, projectFile);
   const { settings } = projectSettings;

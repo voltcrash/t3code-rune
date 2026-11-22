@@ -1508,7 +1508,9 @@ try {
       const feed = workspaceFeed;
       if (feed && feed.watch === request.watch) {
         if (request.project && clientSettings.threadDetailsItems.scripts !== false) {
-          feed.scripts.select(request.project, (rows, available) => {
+          feed.scripts.clear();
+          feed.selectScriptTarget({ project: request.project, thread: request.thread ?? null });
+          feed.scripts.select(request.project, (rows, available, imports) => {
             if (feed === workspaceFeed)
               reply({
                 type: "projectscripts",
@@ -1516,9 +1518,13 @@ try {
                 project: request.project,
                 rows,
                 available,
+                imports,
               });
           });
-        } else feed.scripts.clear();
+        } else {
+          feed.scripts.clear();
+          feed.selectScriptTarget(undefined);
+        }
       }
     } else if (request?.type === "saveprojectscript") {
       const feed = workspaceFeed;
@@ -1529,7 +1535,14 @@ try {
         clientSettings.threadDetailsItems.scripts !== false
       ) {
         void feed.scripts
-          .save(request.project, request.key, request.input, feed.activeRpc, feed.controller.signal)
+          .save(
+            request.project,
+            request.key,
+            request.input,
+            feed.activeRpc,
+            feed.controller.signal,
+            request.from_file ? feed.fileActions.current : undefined,
+          )
           .then((warning) => reply({ type: "projectscriptsaved", watch: request.watch, warning }))
           .catch((error) =>
             reply({

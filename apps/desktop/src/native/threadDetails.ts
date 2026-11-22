@@ -5,7 +5,9 @@ import { m } from "../i18n/catalog.ts";
 export function threadDetailsLabels() {
   return {
     panel: m(msg("Thread details")),
-    scripts: m(msg("Project scripts")),
+    scripts: m(msg("Choose project action")),
+    importFrom: m(msg("Import from t3.json")),
+    import: m(msg("Import", { $context: "verb, import an action from t3.json" })),
     form: {
       add: m(msg("Add project script")),
       addTitle: m(msg("Add Action")),
