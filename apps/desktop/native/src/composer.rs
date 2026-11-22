@@ -71,10 +71,6 @@ impl Draft {
         self.editor = TextEdit::new(&combined);
         self.operation = None;
     }
-    pub(super) fn paste_text(&mut self, value: &str) {
-        self.editor.paste(value);
-        self.operation = None;
-    }
     pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
         let before = self.files.len();
         change(&mut self.files);

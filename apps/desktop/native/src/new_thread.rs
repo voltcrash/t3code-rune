@@ -125,12 +125,6 @@ impl NewThreads {
             self.active = None;
         }
     }
-    pub(super) fn paste_text(&mut self, value: &str) {
-        let draft = self.current();
-        if !draft.uncertain {
-            draft.prompt.paste(value);
-        }
-    }
     pub(super) fn editable_files(&mut self) -> Option<&mut Vec<Attachment>> {
         let draft = self.current();
         (!draft.uncertain).then_some(&mut draft.files)

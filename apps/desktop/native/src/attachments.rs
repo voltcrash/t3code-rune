@@ -121,13 +121,10 @@ impl Target {
         field
             .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
             .on_input_key(move |app: &mut Desktop, key, tx| {
-                let extra = if cfg!(target_os = "macos") {
-                    key.mods.ctrl
-                } else {
-                    key.mods.logo
-                };
-                if !key.mods.shift || !key.mods.cmd || key.mods.alt || extra || !key.is_command('v')
-                {
+                const PASTE_AS_TEXT: rune::Chord = rune::Chord::new(rune::ChordKey::Char('v'))
+                    .with(rune::ChordMod::Primary)
+                    .with(rune::ChordMod::Shift);
+                if !PASTE_AS_TEXT.matches_tx(key, tx) {
                     return false;
                 }
                 let target = plain.clone();
@@ -143,15 +140,8 @@ impl Target {
                     }
                     if content.text().is_empty() {
                         target.paste(app, content);
-                        return;
-                    }
-                    match target {
-                        Self::Project(_) => app.new_threads.paste_text(content.text()),
-                        Self::Thread(id) => {
-                            if let Some(draft) = app.workspace.drafts.get_mut(&id) {
-                                draft.paste_text(content.text());
-                            }
-                        }
+                    } else {
+                        tx.paste_text(content.text());
                     }
                 });
                 true
