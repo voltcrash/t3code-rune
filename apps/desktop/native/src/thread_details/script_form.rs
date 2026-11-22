@@ -252,15 +252,20 @@ pub(crate) fn overlay(
         .on_close(Desktop::close_script_form);
     if f.confirming {
         dialog = dialog.child(
-            label(
-                &format!("{} — {}", f.stored_name, l.confirm),
-                14.,
-                400.,
-                theme.text_secondary,
-            )
-            .px(16.)
-            .max_h((height - 170.).clamp(32., 92.))
-            .truncate(),
+            col()
+                .w_full()
+                .px(16.)
+                .gap(6.)
+                .child(
+                    label(&f.stored_name, 14., 500., theme.text)
+                        .w_full()
+                        .truncate(),
+                )
+                .child(
+                    label(&l.confirm, 14., 400., theme.text_secondary)
+                        .w_full()
+                        .wrap(),
+                ),
         );
     } else {
         dialog = dialog.child(

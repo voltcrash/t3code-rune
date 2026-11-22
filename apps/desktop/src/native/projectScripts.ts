@@ -43,15 +43,13 @@ export function watchProjectScripts(
         : null;
     if (NodeUtil.isDeepStrictEqual(previous, scripts)) return;
     previous = scripts;
-    const prior = new Map([...byKey].map(([key, script]) => [script.id, { key, script }]));
+    const prior = Map.groupBy(byKey, ([, script]) => script.id);
     byKey.clear();
     const primary = primaryProjectScript(scripts ?? []);
     const rows = (scripts ?? []).map((script) => {
-      const retained = prior.get(script.id);
-      const key =
-        retained && NodeUtil.isDeepStrictEqual(retained.script, script)
-          ? retained.key
-          : String(++nextScriptKey);
+      const candidates = prior.get(script.id) ?? [];
+      const match = candidates.findIndex(([, old]) => NodeUtil.isDeepStrictEqual(old, script));
+      const key = match >= 0 ? candidates.splice(match, 1)[0]![0] : String(++nextScriptKey);
       byKey.set(key, script);
       return {
         key,
@@ -94,6 +92,13 @@ export function watchProjectScripts(
       if (!rpc || !settings || target?.project !== project || (key && !original)) {
         throw new Error(m(msg("Failed to save action.")));
       }
+      let occurrence = 0;
+      if (original) {
+        for (const [rowKey, script] of byKey) {
+          if (rowKey === key) break;
+          if (NodeUtil.isDeepStrictEqual(script, original)) occurrence++;
+        }
+      }
       const config = await Effect.runPromise(
         rpc[WS_METHODS.serverGetConfig]({}).pipe(Effect.timeout("20 seconds")),
         { signal },
@@ -107,6 +112,7 @@ export function watchProjectScripts(
         { id: ProjectId.make(project), scripts: legacy },
         original,
         input,
+        occurrence,
       );
       const saved = await Effect.runPromise(
         rpc[WS_METHODS.serverUpdateSettings]({ patch }).pipe(Effect.timeout("20 seconds")),

@@ -25,12 +25,13 @@ export function scriptSettingsPatch(
   project: { id: ProjectId; scripts: readonly ProjectScript[] },
   original: ProjectScript | undefined,
   input: ProjectScriptInput | null,
+  occurrence = 0,
 ) {
   const scripts = resolveProjectScripts(settings, project);
-  if (
-    (!original && !input) ||
-    (original && !scripts.some((s) => NodeUtil.isDeepStrictEqual(s, original)))
-  ) {
+  const index = original
+    ? scripts.findIndex((s) => NodeUtil.isDeepStrictEqual(s, original) && occurrence-- === 0)
+    : -1;
+  if ((!original && !input) || (original && index < 0)) {
     throw new Error(m(msg("Script not found.")));
   }
   let updated: readonly ProjectScript[];
@@ -52,10 +53,10 @@ export function scriptSettingsPatch(
       previewUrl: input.previewUrl?.trim() || null,
     });
     if (!isProjectScript(script)) throw new Error(m(msg("Failed to save action.")));
-    updated = scripts.map((s) => (s.id === original?.id ? script : releaseClaimedRoles(s, input)));
+    updated = scripts.map((s, i) => (i === index ? script : releaseClaimedRoles(s, input)));
     if (!original) updated = [...updated, script];
   } else {
-    updated = scripts.filter((s) => s.id !== original?.id);
+    updated = scripts.filter((_, i) => i !== index);
   }
   // The server merges this field into the current project override under its settings lock.
   return { projectScriptOverrides: { [project.id]: updated } };

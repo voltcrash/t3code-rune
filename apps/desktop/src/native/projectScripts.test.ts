@@ -16,9 +16,11 @@ it("invalidates displayed actions when their command, project, or environment co
     (id) => (id === "p" ? [action] : undefined),
     () => new Map(),
   );
+  let keys: string[] = [];
   let key: string | undefined;
   const receive = (rows: readonly { key: string }[]) => {
-    key = rows[0]?.key;
+    keys = rows.map((row) => row.key);
+    key = keys[0];
   };
   scripts.select("p", receive);
   expect(key).toBeUndefined();
@@ -50,6 +52,17 @@ it("invalidates displayed actions when their command, project, or environment co
   expect(key).toBe(updated);
   scripts.configure({ ...settings });
   expect(key).toBe(updated);
+  const duplicates = [action, { ...action, command: "different" }, { ...action }];
+  const setRows = (rows: ProjectScript[]) =>
+    scripts.configure({
+      ...settings,
+      projectSettingsOverrides: { [ProjectId.make("p")]: { defaultProjectScripts: rows } },
+    });
+  setRows(duplicates);
+  const priorKeys = [...keys];
+  setRows([duplicates[1]!, duplicates[0]!, duplicates[2]!, { ...action, id: "another" }]);
+  expect(keys.slice(0, 3)).toEqual([priorKeys[1], priorKeys[0], priorKeys[2]]);
+  expect(new Set(keys).size).toBe(keys.length);
   scripts.configure(undefined);
   expect(scripts.lookup("p", updated!)).toBeUndefined();
   expect(key).toBeUndefined();
@@ -92,11 +105,22 @@ it("edits the project's effective scripts without replacing other project settin
   expect(settings.defaultProjectScripts).toEqual([existing]);
   const concurrent = {
     ...settings,
-    projectSettingsOverrides: { p: { newWorktreesStartFromOrigin: true } },
+    projectSettingsOverrides: { [project.id]: { newWorktreesStartFromOrigin: true } },
   };
   expect(
-    applyServerSettingsPatch(concurrent, patch(existing, null)).projectSettingsOverrides.p,
+    applyServerSettingsPatch(concurrent, patch(existing, null)).projectSettingsOverrides[
+      project.id
+    ],
   ).toEqual({ newWorktreesStartFromOrigin: true, defaultProjectScripts: [] });
+  const duplicate = { ...existing, command: "another", runOnWorktreeCreate: false };
+  const sameIds = { ...settings, defaultProjectScripts: [existing, duplicate, { ...existing }] };
+  expect(scripts(scriptSettingsPatch(sameIds, project, duplicate, null))).toEqual([
+    existing,
+    existing,
+  ]);
+  expect(
+    scripts(scriptSettingsPatch(sameIds, project, existing, input, 1))?.map((s) => s.command),
+  ).toEqual(["old", "another", "new"]);
   const binding = {
     command: "script.setup.run",
     shortcut: {
