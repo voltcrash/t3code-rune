@@ -1,4 +1,4 @@
-use rune::{Color, El, Icon, Image, Pixels, TextStyle, el, icon, row, text, tok};
+use rune::{Color, El, Icon, Pixels, TextStyle, el, icon, row, text, tok};
 use serde::Deserialize;
 use std::{
     cell::{OnceCell, RefCell},
@@ -117,7 +117,7 @@ enum RegistryIcon {
     Loading(String),
     Missing,
     Ready {
-        image: Image,
+        image: image::RgbaImage,
         tinted: RefCell<Option<(Color, Pixels)>>,
     },
 }
@@ -133,8 +133,7 @@ impl RegistryIcon {
         {
             return Some(pixels.clone());
         }
-        let original = image.pixels();
-        let mut rgba = original.rgba();
+        let mut rgba = image.as_raw().clone();
         let rgb =
             [color.r, color.g, color.b].map(|v| (rune::color::srgb_encode(v) * 255.).round() as u8);
         for pixel in rgba.as_chunks_mut::<4>().0 {
@@ -142,7 +141,7 @@ impl RegistryIcon {
             pixel[3] = (f32::from(pixel[3]) * color.a).round() as u8;
         }
         let mask = Pixels::new();
-        let (w, h) = original.size();
+        let (w, h) = image.dimensions();
         mask.set(w, h, rgba);
         *cached = Some((color, mask.clone()));
         Some(mask)
@@ -175,7 +174,7 @@ impl crate::Desktop {
         watch: u64,
         url: &str,
         operation: &str,
-        image: Option<Image>,
+        image: Option<image::RgbaImage>,
     ) {
         if self.workspace.feed != Some(watch) {
             return;
@@ -359,6 +358,18 @@ impl Catalog {
 mod tests {
     use crate::Desktop;
     use serde_json::json;
+
+    #[test]
+    fn registry_mask_preserves_source_alpha_across_theme_changes() {
+        let icon = super::RegistryIcon::Ready {
+            image: image::RgbaImage::from_raw(2, 1, vec![20, 30, 40, 0, 20, 30, 40, 128]).unwrap(),
+            tinted: Default::default(),
+        };
+        let white = icon.mask(rune::Color::WHITE).unwrap();
+        assert_eq!(white.rgba(), [255, 255, 255, 0, 255, 255, 255, 128]);
+        let black = icon.mask(rune::Color::BLACK.alpha(0.5)).unwrap();
+        assert_eq!(black.rgba(), [0, 0, 0, 0, 0, 0, 0, 64]);
+    }
 
     #[test]
     fn rows_keep_their_provider_until_the_new_feeds_config_or_a_different_environment_arrives() {

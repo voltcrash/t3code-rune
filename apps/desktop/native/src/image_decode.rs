@@ -1,8 +1,8 @@
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits};
-use rune::{Image, ImageCache};
+use rune::ImageCache;
 use std::io::Cursor;
 
-fn thumbnail(cache: &ImageCache, bytes: &[u8], size: u32) -> Option<Image> {
+fn thumbnail(bytes: &[u8], size: u32) -> Option<image::RgbaImage> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -16,24 +16,22 @@ fn thumbnail(cache: &ImageCache, bytes: &[u8], size: u32) -> Option<Image> {
     decoder.set_limits(limits).ok()?;
     let orientation = decoder.orientation().ok()?;
     let image = DynamicImage::from_decoder(decoder).ok()?;
-    Some(resize(cache, image, size, orientation))
+    Some(resize(image, size, orientation))
 }
 
 fn resize(
-    cache: &ImageCache,
     mut image: DynamicImage,
     size: u32,
     orientation: image::metadata::Orientation,
-) -> Image {
+) -> image::RgbaImage {
     if image.width() > size || image.height() > size {
         image = image.thumbnail(size, size);
     }
     image.apply_orientation(orientation);
-    let pixels = image.into_rgba8();
-    cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())
+    image.into_rgba8()
 }
 
-fn avif_badge(cache: &ImageCache, bytes: &[u8], size: u32) -> Option<Image> {
+fn avif_badge(bytes: &[u8], size: u32) -> Option<image::RgbaImage> {
     use avif_rust::{NativeDecodeLimits, decode_frame_bytes_strict_with_limits};
     const MIB: usize = 1024 * 1024;
     // Bound the AV1 frame, its auxiliary planes, and decoder scratch before allocating pixels.
@@ -61,18 +59,17 @@ fn avif_badge(cache: &ImageCache, bytes: &[u8], size: u32) -> Option<Image> {
         pixels.rgba,
     )?;
     Some(resize(
-        cache,
         image.into(),
         size,
         image::metadata::Orientation::NoTransforms,
     ))
 }
 
-fn project_icon(cache: &ImageCache, bytes: &[u8]) -> Option<Image> {
+fn badge(bytes: &[u8]) -> Option<image::RgbaImage> {
     const SIZE: u32 = 48;
     match image::guess_format(bytes) {
-        Ok(image::ImageFormat::Avif) => return avif_badge(cache, bytes, SIZE),
-        Ok(_) => return thumbnail(cache, bytes, SIZE),
+        Ok(image::ImageFormat::Avif) => return avif_badge(bytes, SIZE),
+        Ok(_) => return thumbnail(bytes, SIZE),
         Err(_) => {}
     }
     let xml = std::str::from_utf8(bytes)
@@ -83,7 +80,7 @@ fn project_icon(cache: &ImageCache, bytes: &[u8]) -> Option<Image> {
         return None;
     }
     let (w, h, pixels) = rune::image::svg_rgba(xml.as_bytes(), SIZE).ok()?;
-    Some(cache.rgba(w, h, pixels))
+    image::RgbaImage::from_raw(w, h, pixels)
 }
 
 pub(crate) enum Kind {
@@ -107,19 +104,27 @@ pub(crate) fn start(handle: rune::AppHandle<super::Desktop>) -> std::sync::mpsc:
         use base64::Engine;
         let cache = ImageCache::new(std::sync::Arc::new(|| {}));
         for job in recv {
+            let mut mask = None;
+            let cache_pixels = |pixels: image::RgbaImage| {
+                cache.rgba(pixels.width(), pixels.height(), pixels.into_raw())
+            };
             let image = job
                 .data
                 .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
                 .and_then(|bytes| match job.kind {
                     Kind::Preview => Some(cache.load(bytes)),
-                    Kind::Thumbnail => thumbnail(&cache, &bytes, 512),
-                    Kind::Registry | Kind::Project { .. } => project_icon(&cache, &bytes),
+                    Kind::Thumbnail => thumbnail(&bytes, 512).map(cache_pixels),
+                    Kind::Project { .. } => badge(&bytes).map(cache_pixels),
+                    Kind::Registry => {
+                        mask = badge(&bytes);
+                        None
+                    }
                 });
             let image = image.filter(|image| image.wait().is_ok());
             handle.update(move |s, _| {
                 match job.kind {
                     Kind::Registry => {
-                        s.registry_icon_result(job.watch, &job.key, &job.operation, image)
+                        s.registry_icon_result(job.watch, &job.key, &job.operation, mask)
                     }
                     Kind::Project { retryable } => s.project_favicon_result(
                         job.watch,
@@ -153,26 +158,24 @@ mod tests {
         let source = DynamicImage::new_rgb8(2048, 1024);
         let mut png = Cursor::new(Vec::new());
         source.write_to(&mut png, ImageFormat::Png).unwrap();
-        let cache = ImageCache::new(std::sync::Arc::new(|| {}));
-        let thumb = thumbnail(&cache, png.get_ref(), 512).unwrap();
-        assert_eq!(thumb.wait(), Ok([512, 256]));
-        let badge = project_icon(&cache, png.get_ref()).unwrap();
-        assert_eq!(badge.wait(), Ok([48, 24]));
+        let thumb = thumbnail(png.get_ref(), 512).unwrap();
+        assert_eq!(thumb.dimensions(), (512, 256));
+        assert_eq!(badge(png.get_ref()).unwrap().dimensions(), (48, 24));
         let small = source.thumbnail(96, 48).into_rgba8();
         for format in [ImageFormat::Ico, ImageFormat::Tiff, ImageFormat::Bmp] {
             let mut file = Cursor::new(Vec::new());
             small.write_to(&mut file, format).unwrap();
             assert_eq!(
-                project_icon(&cache, file.get_ref())
+                badge(file.get_ref())
                     .unwrap_or_else(|| panic!("decoding {format:?}"))
-                    .wait(),
-                Ok([48, 24])
+                    .dimensions(),
+                (48, 24)
             );
         }
         let avif = include_bytes!("../testdata/project-icon.avif");
-        assert_eq!(project_icon(&cache, avif).unwrap().wait(), Ok([32, 16]));
+        assert_eq!(badge(avif).unwrap().dimensions(), (32, 16));
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20"><circle cx="5" cy="5" r="4"/></svg>"#;
-        assert_eq!(project_icon(&cache, svg).unwrap().wait(), Ok([24, 48]));
-        assert!(project_icon(&cache, b"not an image").is_none());
+        assert_eq!(badge(svg).unwrap().dimensions(), (24, 48));
+        assert!(badge(b"not an image").is_none());
     }
 }
