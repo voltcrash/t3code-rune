@@ -329,7 +329,8 @@ pub(super) fn view(
         .map_or(840., |size| size[0]);
     let [viewport_width, viewport_height] = cx.layout_size("workspace").unwrap_or([1100., 780.]);
     let lane_inset = super::workspace::chat_lane_inset(viewport_width);
-    let heading_width = (width - 2. * lane_inset).clamp(0., 736.);
+    let heading_width =
+        (width - 2. * lane_inset).clamp(0., s.chat_width.limit().unwrap_or(1024.).min(1024.));
     let compact = width < 404.;
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
@@ -384,7 +385,7 @@ pub(super) fn view(
         .gap(8.0)
         .center_y()
         .child(target.button(theme, locked));
-    let mut footer = row().w_full().max_w(736.).self_center().center_y().gap(6.);
+    let mut footer = s.chat_width.lane(row()).center_y().gap(6.);
     if !scratch {
         let checkout = if draft.worktree {
             "New worktree"
@@ -535,7 +536,7 @@ pub(super) fn view(
     }
     let list = target.list(&draft.files, theme, locked);
     let surface = composer::surface(
-        "new-thread",
+        s.chat_width.lane(col()).key("composer-new-thread"),
         field,
         controls,
         theme,

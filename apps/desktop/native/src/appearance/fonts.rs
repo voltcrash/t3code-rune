@@ -119,7 +119,7 @@ pub(super) fn row(
     };
     let kit = Kit::neutral(dark);
     let field_label = format!("{title} family");
-    let disabled = s.font_smoothing.is_none() || s.saving_typography;
+    let disabled = s.font_smoothing.is_none() || s.saving_client_appearance;
     let trigger = Select::new::<&str>(key, &[])
         .label(&field_label)
         .current(Some(if name.is_empty() { default } else { name }))
@@ -155,7 +155,7 @@ pub(super) fn row(
                 return;
             }
         }
-        s.saving_typography = s.write_request(
+        s.saving_client_appearance = s.write_request(
             None,
             Request::SetFontFamily {
                 slot,

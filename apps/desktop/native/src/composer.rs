@@ -344,7 +344,15 @@ pub(super) fn view(
         target.list(&draft.files, theme, s.pending)
     };
     target.drop_area(
-        surface(id, field, controls, theme, list, None, lane_inset),
+        surface(
+            s.chat_width.lane(col()).key(format!("composer-{id}")),
+            field,
+            controls,
+            theme,
+            list,
+            None,
+            lane_inset,
+        ),
         asking || s.pending,
     )
 }
@@ -372,7 +380,7 @@ pub(super) fn send_button(caption: &str, enabled: bool, run: fn(&mut Desktop)) -
 }
 
 pub(super) fn surface(
-    id: &str,
+    column: El,
     field: El,
     controls: El,
     theme: &tok::Theme,
@@ -380,11 +388,7 @@ pub(super) fn surface(
     footer: Option<El>,
     lane_inset: f32,
 ) -> El {
-    let surface = col()
-        .key(format!("composer-{id}"))
-        .w_full()
-        .max_w(736.0)
-        .self_center()
+    let surface = column
         .radius(16.0)
         .border(1.0, theme.separator)
         .fill(theme.text.alpha(0.055))
