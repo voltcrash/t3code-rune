@@ -27,6 +27,8 @@ describe("projectScripts helpers", () => {
     expect(nextProjectScriptId("Run Tests", [])).toBe("run-tests");
     expect(nextProjectScriptId("Run Tests", ["run-tests"])).toBe("run-tests-2");
     expect(nextProjectScriptId("!!!", [])).toBe("script");
+    const taken = Array.from({ length: 9999 }, (_, i) => (i === 0 ? "run" : `run-${i + 1}`));
+    expect(nextProjectScriptId("Run", taken)).toBe("run-10000");
   });
 
   it("resolves primary, setup, and settle scripts", () => {

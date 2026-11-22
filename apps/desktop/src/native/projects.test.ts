@@ -39,6 +39,7 @@ it("restricts the pairing credential exchange to the confirmed endpoint", async 
     http,
   );
   expect(session.canWriteGit).toBe(false);
+  expect(session.canWriteSettings).toBe(false);
   expect(exchange).toEqual({ url: origin + "/oauth/token", redirect: "error" });
 });
 

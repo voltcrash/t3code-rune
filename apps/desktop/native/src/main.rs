@@ -240,8 +240,14 @@ enum Reply {
         active: String,
         rows: Vec<terminal::Session>,
     },
+    ProjectScriptSaved {
+        watch: u64,
+        error: Option<String>,
+    },
     ProjectScripts {
         watch: u64,
+        project: String,
+        available: bool,
         rows: Vec<workspace::thread_details::scripts::Script>,
     },
     TerminalCopy {
@@ -457,6 +463,16 @@ enum Request<'a> {
     PrepareScratch,
     PrepareLanding {
         project: Option<String>,
+    },
+    WatchProjectScripts {
+        watch: u64,
+        project: Option<&'a str>,
+    },
+    SaveProjectScript {
+        watch: u64,
+        project: &'a str,
+        key: Option<&'a str>,
+        input: Option<&'a workspace::thread_details::scripts::Input>,
     },
     WatchGit {
         watch: u64,
@@ -1029,10 +1045,18 @@ impl Desktop {
             self.terminal_sessions(watch, &operation, active, rows);
             return;
         }
-        if let Reply::ProjectScripts { watch, rows } = message.reply {
-            if self.workspace.terminal_watch() == Some(watch) {
-                self.workspace.details.scripts = Some((watch, rows));
-            }
+        if let Reply::ProjectScripts {
+            watch,
+            project,
+            available,
+            rows,
+        } = message.reply
+        {
+            self.receive_scripts(watch, &project, message.id, available, rows);
+            return;
+        }
+        if let Reply::ProjectScriptSaved { watch, error } = message.reply {
+            self.script_saved(watch, message.id, error);
             return;
         }
         if let Reply::Terminal {
@@ -1339,6 +1363,7 @@ impl Desktop {
             | Reply::ThreadModels { .. }
             | Reply::ThreadPermissions { .. }
             | Reply::TerminalSessions { .. }
+            | Reply::ProjectScriptSaved { .. }
             | Reply::ProjectScripts { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
@@ -1749,6 +1774,7 @@ fn start() -> io::Result<()> {
             s.sync_draft_model_watch();
             let banner = s.sync_provider_status();
             let git = s.sync_git();
+            let scripts = s.sync_project_scripts();
             let details = s.reconcile_details();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
@@ -1763,6 +1789,7 @@ fn start() -> io::Result<()> {
                 || contrast
                 || banner
                 || git
+                || scripts
                 || details
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
@@ -1770,7 +1797,7 @@ fn start() -> io::Result<()> {
             if linux_menu::shortcut(s, ev, tx) {
                 return true;
             }
-            if !s.pairing_offers.is_empty() || s.update.open {
+            if !s.pairing_offers.is_empty() || s.update.open || s.script_editor_open() {
                 return false;
             }
             if s.zoom_key(ev, tx) {

@@ -1,5 +1,6 @@
-import { DEFAULT_SERVER_SETTINGS, type ProjectScript } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, ProjectId, type ProjectScript } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
+import { scriptSettingsPatch } from "./scriptMutations.ts";
 import { watchProjectScripts } from "./projectScripts.ts";
 
 it("invalidates displayed actions when their command, project, or environment config changes", () => {
@@ -40,3 +41,41 @@ it("invalidates displayed actions when their command, project, or environment co
   scripts.select("other", receive);
   expect(key).toBeUndefined();
 });
+
+it.each([true, false])(
+  "edits the project's effective scripts and preserves competing changes (overrides %s)",
+  (supportsOverrides) => {
+    const existing = {
+      id: "setup",
+      name: "Setup",
+      icon: "build",
+      command: "old",
+      runOnWorktreeCreate: true,
+    } as const;
+    const project = { id: ProjectId.make("p"), scripts: [] };
+    const settings = { ...DEFAULT_SERVER_SETTINGS, defaultProjectScripts: [existing] };
+    const input = {
+      name: " Setup ",
+      command: " new ",
+      icon: "test",
+      runOnWorktreeCreate: true,
+      waitForSetup: true,
+      runOnSettle: false,
+      stopOnSettle: true,
+      previewUrl: null,
+      autoOpenPreview: false,
+    } as const;
+    const patch = (original: ProjectScript | undefined, form: typeof input | null) =>
+      scriptSettingsPatch(settings, supportsOverrides, project, original, form);
+    const scripts = (p: ReturnType<typeof patch>) =>
+      p.projectSettingsOverrides?.p?.defaultProjectScripts ?? p.projectScriptOverrides?.p;
+    expect(scripts(patch(undefined, input))).toMatchObject([
+      { id: "setup", runOnWorktreeCreate: false },
+      { id: "setup-2", command: "new", async: false, stopOnSettle: true },
+    ]);
+    expect(scripts(patch(existing, input))).toMatchObject([{ id: "setup", command: "new" }]);
+    expect(scripts(patch(existing, null))).toEqual([]);
+    expect(() => patch({ ...existing, command: "replaced" }, null)).toThrow();
+    expect(settings.defaultProjectScripts).toEqual([existing]);
+  },
+);

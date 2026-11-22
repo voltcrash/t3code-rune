@@ -26,6 +26,7 @@ impl Hidden {
 struct Labels {
     scripts: String,
     actions: String,
+    form: Box<scripts::Labels>,
     initialize_git: String,
     initializing: String,
     panel: String,
@@ -48,6 +49,10 @@ pub(crate) struct Settings {
     open_in: bool,
     #[serde(rename = "gitActions", default)]
     git_actions: bool,
+    #[serde(default)]
+    scripts: bool,
+    #[serde(rename = "scriptWrite", default)]
+    script_write: bool,
     #[serde(rename = "gitWrite", default)]
     git_write: bool,
     labels: Labels,
@@ -77,7 +82,8 @@ impl Settings {
 
 #[derive(Default)]
 pub(crate) struct Details {
-    pub(crate) scripts: Option<(u64, Vec<scripts::Script>)>,
+    scripts: Option<scripts::Catalog>,
+    script_form: Option<scripts::Form>,
     pub(crate) settings: Option<Settings>,
     pub(crate) editor: Option<editor::Catalog>,
     git: git::State,

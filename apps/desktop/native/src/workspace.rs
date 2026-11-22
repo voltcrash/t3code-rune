@@ -2007,6 +2007,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     } else {
         workspace
     };
+    thread_details::scripts::overlay(s, theme, &kit, viewport[1], &mut overlays);
     images::overlay(s, theme, &mut overlays);
     crate::appearance::overlay(s, cx, theme, &mut overlays);
     crate::updates::overlay(s, theme, dark, &mut overlays);

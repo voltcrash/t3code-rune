@@ -34,6 +34,7 @@ import {
   AuthFilesystemReadScope,
   AuthFilesystemWriteScope,
   AuthSourceControlWriteScope,
+  AuthSettingsWriteScope,
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
   WS_METHODS,
@@ -88,6 +89,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
       AuthFilesystemReadScope,
       AuthFilesystemWriteScope,
       AuthSourceControlWriteScope,
+      AuthSettingsWriteScope,
       AuthTerminalReadScope,
       AuthTerminalOperateScope,
     ],
@@ -116,6 +118,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     canWriteFiles: scopes.includes(AuthFilesystemWriteScope),
     canBrowse: scopes.includes(AuthFilesystemReadScope),
     canOperate: scopes.includes(AuthOrchestrationOperateScope),
+    canWriteSettings: scopes.includes(AuthSettingsWriteScope),
   };
 });
 

@@ -184,20 +184,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     ...feed,
   };
   if (activeVisit) activeVisit.update(feed.visitSource(activeVisit.id));
-  if (watching?.owner === owner) watchThreadScripts(watching);
-}
-
-function watchThreadScripts(record) {
-  const feed = workspaceFeed;
-  if (!feed || clientSettings.threadDetailsItems.scripts === false) return;
-  feed.scripts.select(record.state.projection.thread.projectId, (rows) => {
-    if (watching === record && workspaceFeed === feed)
-      write({ type: "projectscripts", watch: record.id, rows });
-  });
 }
 
 function stopWatching() {
-  workspaceFeed?.scripts.clear();
   const prior = watching;
   watching = undefined;
   prior?.controller.abort();
@@ -217,7 +206,6 @@ function watch(owner, thread, id, state) {
     synchronized: false,
   };
   watching = record;
-  watchThreadScripts(record);
   updateVisibleVisit();
   const signal = AbortSignal.any([owner.signal, controller.signal]);
   void followWindow(
@@ -1126,6 +1114,8 @@ async function handleWorkspaceRequest(request, reply) {
           windows: session.platform === "windows",
           environment: clientSettings.threadDetailsItems.environment !== false,
           openIn: clientSettings.threadDetailsItems.openIn !== false,
+          scripts: clientSettings.threadDetailsItems.scripts !== false,
+          scriptWrite: session.canWriteSettings && session.canOperate,
           gitActions: clientSettings.threadDetailsItems.gitActions !== false,
           gitWrite: session.canWriteGit,
           labels: threadDetailsLabels(),
@@ -1514,6 +1504,46 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "watchprojectscripts") {
+      const feed = workspaceFeed;
+      if (feed && feed.watch === request.watch) {
+        if (request.project && clientSettings.threadDetailsItems.scripts !== false) {
+          feed.scripts.select(request.project, (rows, available) => {
+            if (feed === workspaceFeed)
+              reply({
+                type: "projectscripts",
+                watch: feed.watch,
+                project: request.project,
+                rows,
+                available,
+              });
+          });
+        } else feed.scripts.clear();
+      }
+    } else if (request?.type === "saveprojectscript") {
+      const feed = workspaceFeed;
+      if (
+        feed?.watch === request.watch &&
+        session?.canOperate &&
+        session?.canWriteSettings &&
+        clientSettings.threadDetailsItems.scripts !== false
+      ) {
+        void feed.scripts
+          .save(request.project, request.key, request.input, feed.activeRpc, feed.controller.signal)
+          .then(() => reply({ type: "projectscriptsaved", watch: request.watch }))
+          .catch((error) =>
+            reply({
+              type: "projectscriptsaved",
+              watch: request.watch,
+              error: error.message || m(msg("Failed to save action.")),
+            }),
+          );
+      } else
+        reply({
+          type: "projectscriptsaved",
+          watch: request.watch,
+          error: m(msg("This connection cannot change project actions.")),
+        });
     } else if (request?.type === "watchgit") {
       if (workspaceFeed?.watch === request.watch)
         workspaceFeed.git.select(request.id, request.selection ?? null, (nonRepo) =>
