@@ -32,7 +32,8 @@ export default defineConfig({
       },
       // Packaging stages the Linux browser secret helper per architecture.
       "build:electron:bundle": {
-        command: "node scripts/build-preview-annotation-css.mjs && vp pack",
+        command:
+          "node scripts/build-preview-annotation-css.mjs && vp pack && node scripts/verify-preload-bundle.mjs",
         dependsOn: ["t3#build"],
         cache: false,
       },

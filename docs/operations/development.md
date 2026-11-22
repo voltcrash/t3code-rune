@@ -396,7 +396,7 @@ keeps the explicit flush needed when Windows force-kills the backend.
 
 ### Linux AppImage prerequisites
 
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
+The legacy Electron AppImage must be built on Linux because its browser-secret helper links against the host's libsecret. Install
 C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
 Bytecode preparation also runs packaged Electron and requires GTK, NSS, ALSA, and GBM runtime libraries.
 Install Rust 1.95 or newer through [rustup](https://rust-lang.org/install), using the stable
@@ -424,7 +424,7 @@ Arch Linux:
 sudo pacman -S base-devel libsecret pkgconf imagemagick gtk3 nss alsa-lib mesa
 ```
 
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
+The Linux browser-import helper tests also need the C toolchain, pkg-config, and libsecret headers.
 
 ### macOS DMG prerequisites
 
