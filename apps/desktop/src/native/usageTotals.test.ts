@@ -95,15 +95,28 @@ it("distinguishes retryable read failures from a server denying diagnostics afte
   const feed = watchUsageTotals(owner, lifetime.signal, (reply) => {
     if (!reply.loading) result.resolve(reply);
   });
-  const connect = (error: UsageReadError | EnvironmentAuthorizationError) =>
-    feed.configure(settings, {
+  const connect = (
+    error: UsageReadError | EnvironmentAuthorizationError,
+    config: NonNullable<Parameters<typeof feed.configure>[0]> = settings,
+  ) =>
+    feed.configure(config, {
       [WS_METHODS.serverGetUsageSummary]: () => Effect.fail(error),
       [WS_METHODS.serverRefreshUsageRates]: () => Effect.never,
     });
   try {
     feed.select(1, 7);
-    connect(new UsageReadError({ reason: "scanFailed", detail: "Temporary failure" }));
-    expect(await result.promise).toMatchObject({ selection: 1, retryable: true });
+    const failure = new UsageReadError({ reason: "scanFailed", detail: "Temporary failure" });
+    connect(failure);
+    const original = await result.promise;
+    expect(original).toMatchObject({ selection: 1, retryable: true });
+    expect(original.scope).toBeTruthy();
+    feed.configure(undefined, undefined);
+    result = Promise.withResolvers<Reply>();
+    connect(failure);
+    expect((await result.promise).scope).toBe(original.scope);
+    result = Promise.withResolvers<Reply>();
+    connect(failure, { ...settings, usageModelFilter: { exclude: [{ model: "example" }] } });
+    expect((await result.promise).scope).not.toBe(original.scope);
     feed.configure(undefined, undefined);
     result = Promise.withResolvers<Reply>();
     connect(

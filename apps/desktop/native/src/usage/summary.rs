@@ -120,6 +120,7 @@ struct Totals {
 #[derive(Deserialize)]
 pub(crate) struct Reply {
     selection: u64,
+    scope: Option<String>,
     loading: bool,
     #[serde(default)]
     restricted: bool,
@@ -212,8 +213,11 @@ impl Summary {
         if reply.data.is_none()
             && !reply.restricted
             && (reply.retryable || (reply.loading && reply.error.is_none()))
+            && let Some(previous) = &mut self.reply
+            && (reply.scope == previous.scope || (reply.loading && reply.scope.is_none()))
         {
-            reply.data = self.reply.as_mut().and_then(|r| r.data.take());
+            reply.data = previous.data.take();
+            reply.scope = previous.scope.take();
         }
         self.reply = Some(reply);
     }
@@ -851,6 +855,25 @@ mod tests {
             has_data(&desktop),
             "the same chart survives a second disconnect"
         );
+
+        let mut previous_settings = loaded.clone();
+        previous_settings["scope"] = json!("original pricing and filter");
+        publish(&mut desktop, previous_settings);
+        publish(&mut desktop, waiting.clone());
+        publish(
+            &mut desktop,
+            json!({"selection":0, "loading":true, "scope":"new model filter"}),
+        );
+        assert!(
+            !has_data(&desktop),
+            "a new filter must not display the previous chart"
+        );
+        publish(
+            &mut desktop,
+            json!({"selection":0, "loading":false, "scope":"new model filter", "retryable":true, "error":"Read failed"}),
+        );
+        assert!(!has_data(&desktop));
+        publish(&mut desktop, loaded.clone());
 
         desktop.select_usage_period(1);
         publish(&mut desktop, waiting.clone());

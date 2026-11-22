@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Tag the loading reply synchronously so a replaced query cannot publish with another query’s settings.
+import * as NodeCrypto from "node:crypto";
 import * as NodeUtil from "node:util";
 import { getProviderClient } from "@t3tools/client-runtime/provider-clients";
 import { usageSummaryInput } from "@t3tools/client-runtime/state/usage";
@@ -10,6 +12,7 @@ import {
   type UsageSummaryInput,
   type UsageProviderKind,
 } from "@t3tools/contracts";
+import { stableStringify } from "@t3tools/shared/relaySigning";
 import { niceScale, smoothCurve } from "@t3tools/shared/usageChart";
 import {
   enumerateDays,
@@ -206,8 +209,9 @@ function totals(owner: Environment, { summary, window }: Snapshot) {
 export function watchUsageTotals(
   owner: Environment,
   lifetime: AbortSignal,
-  emit: (reply: {
+  publish: (reply: {
     selection: number;
+    scope?: string;
     data?: NonNullable<ReturnType<typeof totals>["data"]>;
     error?: string;
     loading: boolean;
@@ -220,6 +224,9 @@ export function watchUsageTotals(
   let request: AbortController | undefined;
   let selected: { id: number; days: Period } | undefined;
   let last: Snapshot | undefined;
+  let scope: string | undefined;
+  const emit = (reply: Parameters<typeof publish>[0]) =>
+    publish(scope ? { ...reply, scope } : reply);
   const stop = () => {
     request?.abort();
     request = undefined;
@@ -243,6 +250,7 @@ export function watchUsageTotals(
     }
     const connected = rpc;
     if (!connected || !settings) {
+      scope = undefined;
       emit({ selection, loading: true });
       return;
     }
@@ -256,6 +264,19 @@ export function watchUsageTotals(
       selected.days === 1 ? "hour" : "day",
     );
     const input = usageSummaryInput(window, settings.usageModelFilter);
+    const nextScope = NodeCrypto.createHash("sha256")
+      .update(
+        stableStringify([
+          selected.days,
+          window.timeZone,
+          input.modelFilter,
+          settings.usagePriceOverrides,
+          settings.usageModelAliases,
+        ]),
+      )
+      .digest("hex");
+    if (nextScope !== scope) last = undefined;
+    scope = nextScope;
     emit({ selection, loading: true, ...(last && totals(owner, last)) });
     try {
       if (refresh)
