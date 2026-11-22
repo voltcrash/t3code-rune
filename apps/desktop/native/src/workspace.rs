@@ -1318,19 +1318,21 @@ fn sidebar(
         if width >= 232. {
             return action(caption, theme, !s.pending, run);
         }
-        el().key(caption)
+        let button = el()
+            .key(caption)
             .role("button")
             .label(caption)
             .help(caption)
             .size(28., 28.)
             .center()
             .radius(6.)
-            .hover(theme.separator)
             .no_window_drag()
-            .focusable(true)
-            .disabled(s.pending)
-            .child(icon(glyph, 16.).color(theme.text_secondary))
-            .on_press(run)
+            .child(icon(glyph, 16.).color(theme.text_secondary));
+        if s.pending {
+            button.disabled(true).opacity(0.5)
+        } else {
+            button.hover(theme.separator).focusable(true).on_press(run)
+        }
     };
     let content = sidebar.child(
         row()
