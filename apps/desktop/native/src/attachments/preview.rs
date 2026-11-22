@@ -18,7 +18,11 @@ struct Tile {
 
 impl Thumbnail {
     pub(super) fn for_path(path: &Path) -> Option<Self> {
-        let name = path.file_name()?.to_str()?.trim();
+        // JavaScript trims BOM and retains NEXT LINE when the uploader looks up the filename.
+        let name = path
+            .file_name()?
+            .to_str()?
+            .trim_matches(|c: char| c == '\u{feff}' || (c != '\u{85}' && c.is_whitespace()));
         let extension = name.rsplit('.').next()?.to_ascii_lowercase();
         matches!(
             extension.as_str(),
@@ -142,13 +146,27 @@ mod tests {
 
     #[test]
     fn image_names_match_the_worker_upload_types() {
-        for name in ["x.jpe", "x.JPEG ", ".png", "GIF", "image.webp"] {
+        for name in [
+            "x.jpe",
+            "photo.jpe\u{feff}",
+            "x.JPEG ",
+            ".png",
+            "GIF",
+            "image.webp",
+        ] {
             assert!(
                 Thumbnail::for_path(std::path::Path::new(name)).is_some(),
                 "{name}"
             );
         }
-        for name in ["x.jfif", "x.apng", "photo.png.zip", "icon.svg", "notes"] {
+        for name in [
+            "x.jfif",
+            "photo.jpg\u{85}",
+            "x.apng",
+            "photo.png.zip",
+            "icon.svg",
+            "notes",
+        ] {
             assert!(
                 Thumbnail::for_path(std::path::Path::new(name)).is_none(),
                 "{name}"
