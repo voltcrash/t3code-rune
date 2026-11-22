@@ -8,7 +8,7 @@ import { MIN_APPEARANCE_CONTRAST, MAX_APPEARANCE_CONTRAST } from "@t3tools/contr
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
-import { readRegistryIcon, watchSidebarProviders } from "../src/native/sidebarProviders.ts";
+import { watchSidebarProviders } from "../src/native/sidebarProviders.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import {
   hiddenThreadDetails,
@@ -34,7 +34,7 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
-import { readImage } from "../src/native/images.ts";
+import { readImage, readRegistryIcon } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
 import * as Option from "effect/Option";
 import { resolvePackagedRuneHomes } from "../src/app/DesktopStatePaths.ts";
@@ -404,12 +404,7 @@ async function loadRegistryIcon(request) {
   };
   if (!feed.hasRegistryIcon(request.url)) return write(result);
   const signal = AbortSignal.any([owner.signal, feed.controller.signal]);
-  await transferImage(
-    owner,
-    signal,
-    result,
-    Effect.tryPromise((abort) => readRegistryIcon(request.url, abort)),
-  );
+  await transferImage(owner, signal, result, readRegistryIcon(request.url));
 }
 
 async function loadProjectFavicon(request) {

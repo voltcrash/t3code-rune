@@ -306,10 +306,11 @@ pub(super) struct Workspace {
 impl Workspace {
     pub(super) fn update_providers(
         &mut self,
+        watch: u64,
         instances: Vec<crate::sidebar_providers::Instance>,
         art: HashMap<String, crate::sidebar_providers::Art>,
     ) {
-        self.providers.update(instances, art);
+        self.providers.update(watch, instances, art);
         self.refresh_provider_rows();
     }
 
@@ -1220,9 +1221,9 @@ fn sidebar(
     let query_empty = s.workspace.search.text.trim().is_empty();
     let count = s.workspace.filtered.len();
     let show_shelf = query_empty && (count > 0 || !s.workspace.settled.is_empty());
-    let mut list = col()
-        .key("thread-list")
-        .drawn_rect_into(&s.workspace.row_clock.viewport)
+    let mut list = s
+        .workspace
+        .sidebar_viewport(col().key("thread-list"))
         .w_full()
         .grow(1.0)
         .min_h(0.0)

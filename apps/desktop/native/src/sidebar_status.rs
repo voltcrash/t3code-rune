@@ -249,6 +249,26 @@ impl Clock {
     }
 }
 impl super::Workspace {
+    pub(crate) fn sidebar_viewport(&self, list: El) -> El {
+        list.drawn_rect_into(&self.row_clock.viewport)
+            .on_drawn_layout_tx(|s: &mut super::Desktop, _, tx| {
+                if s.workspace.providers.viewport_changed() {
+                    s.workspace.refresh_provider_rows();
+                } else {
+                    tx.live_only();
+                }
+            })
+    }
+
+    pub(crate) fn sidebar_intersects(&self, bounds: [f32; 4]) -> bool {
+        let viewport = self.row_clock.viewport.get();
+        intersects(bounds, viewport)
+            && bounds[2] > 0.
+            && viewport[2] > 0.
+            && bounds[0] < viewport[0] + viewport[2]
+            && bounds[0] + bounds[2] > viewport[0]
+    }
+
     pub(super) fn can_advance_to(&self, thread: &Thread) -> bool {
         !thread.settled
             && thread

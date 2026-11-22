@@ -14,7 +14,6 @@ import {
   resolveOfficialAcpRegistryIconUrl,
   type ServerConfig,
 } from "@t3tools/contracts";
-import { readBoundedImageBytes } from "@t3tools/client-runtime/project-favicon-cache";
 import * as NodeUtil from "node:util";
 
 type Mark = NonNullable<NonNullable<ReturnType<typeof getProviderClient>>["icon"]>;
@@ -91,19 +90,4 @@ export function watchSidebarProviders(
     }
     publish(instances, art);
   };
-}
-
-export async function readRegistryIcon(url: string, signal: AbortSignal) {
-  if (resolveOfficialAcpRegistryIconUrl(url) !== url) return null;
-  const response = await fetch(url, {
-    signal,
-    redirect: "error",
-    credentials: "omit",
-    referrerPolicy: "no-referrer",
-  });
-  if (!response.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("image/")) {
-    await response.body?.cancel();
-    return null;
-  }
-  return Buffer.from(await readBoundedImageBytes(response, 512 * 1024)).toString("base64");
 }

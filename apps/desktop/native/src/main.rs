@@ -835,7 +835,7 @@ impl Desktop {
         } = message.reply
         {
             if self.workspace.feed == Some(watch) {
-                self.workspace.update_providers(instances, art);
+                self.workspace.update_providers(watch, instances, art);
             }
             return;
         }

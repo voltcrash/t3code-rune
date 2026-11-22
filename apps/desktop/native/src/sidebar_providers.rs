@@ -104,7 +104,8 @@ impl Art {
 #[derive(Default)]
 pub(super) struct Catalog {
     environment: Option<String>,
-    feed: u64,
+    configured_feed: Option<u64>,
+    viewport_revision: u64,
     instances: HashMap<String, Instance>,
     art: HashMap<String, Art>,
     registry: HashMap<String, RegistryIcon>,
@@ -150,7 +151,9 @@ impl RegistryIcon {
 
 impl crate::Desktop {
     fn load_registry_icon(&mut self, watch: u64, url: &str) {
-        if self.workspace.feed != Some(watch) {
+        if self.workspace.feed != Some(watch)
+            || self.workspace.providers.configured_feed != Some(watch)
+        {
             return;
         }
         let Some(state @ RegistryIcon::Idle) = self.workspace.providers.registry.get_mut(url)
@@ -197,23 +200,42 @@ impl crate::Desktop {
 }
 
 impl Catalog {
+    pub(super) fn viewport_changed(&mut self) -> bool {
+        if self.configured_feed.is_some()
+            && self
+                .registry
+                .values()
+                .any(|icon| matches!(icon, RegistryIcon::Idle))
+        {
+            self.viewport_revision += 1;
+            return true;
+        }
+        false
+    }
+
     pub(super) fn set_environment(&mut self, id: String, watch: u64) {
         if self.environment.as_ref() != Some(&id) {
             *self = Self {
                 environment: Some(id),
                 ..Self::default()
             };
-        } else if self.feed != watch {
+        } else if self.configured_feed != Some(watch) {
+            self.configured_feed = None;
             for state in self.registry.values_mut() {
                 if !matches!(state, RegistryIcon::Ready { .. }) {
                     *state = RegistryIcon::Idle;
                 }
             }
         }
-        self.feed = watch;
     }
 
-    pub(super) fn update(&mut self, instances: Vec<Instance>, art: HashMap<String, Art>) {
+    pub(super) fn update(
+        &mut self,
+        watch: u64,
+        instances: Vec<Instance>,
+        art: HashMap<String, Art>,
+    ) {
+        self.configured_feed = Some(watch);
         let urls: HashSet<_> = instances
             .iter()
             .filter_map(|instance| instance.registry.as_ref())
@@ -281,18 +303,19 @@ impl Catalog {
                     .color(theme.text),
             )
         };
-        let logo = if let Some(url) = &instance.registry
+        let logo = if let Some(watch) = self.configured_feed
+            && let Some(url) = &instance.registry
             && matches!(remote, Some(RegistryIcon::Idle))
         {
             let url = url.clone();
-            let watch = self.feed;
-            logo.key(format!("registry-{watch}-{url}")).on_visible(
-                move |s: &mut crate::Desktop, visible, _| {
-                    if visible {
+            logo.key(format!("registry-{watch}-{}-{url}", self.viewport_revision))
+                .on_drawn_layout_tx(move |s: &mut crate::Desktop, bounds, tx| {
+                    if s.workspace.sidebar_intersects(bounds) {
                         s.load_registry_icon(watch, &url);
+                    } else {
+                        tx.live_only();
                     }
-                },
-            )
+                })
         } else {
             logo
         };
@@ -369,6 +392,96 @@ mod tests {
         assert_eq!(white.rgba(), [255, 255, 255, 0, 255, 255, 255, 128]);
         let black = icon.mask(rune::Color::BLACK.alpha(0.5)).unwrap();
         assert_eq!(black.rgba(), [0, 0, 0, 0, 0, 0, 0, 64]);
+    }
+
+    #[test]
+    fn registry_load_waits_for_the_feed_and_the_scroll_viewport() {
+        use super::{Colors, RegistryIcon};
+        use rune::{Cx, El, Env, Runtime, ScrollSpec, col, el, tok};
+
+        fn view(s: &Desktop, _: &mut Cx<Desktop>) -> El {
+            let ws = &s.workspace;
+            let theme = tok::theme(false);
+            let mark = ws.providers.icon(
+                &ws.providers.instances["agent"],
+                false,
+                false,
+                Colors {
+                    rest: theme.text,
+                    hovered: theme.text,
+                },
+                &theme,
+            );
+            col().w_full().h_full().child(el().h(40.)).child(
+                ws.sidebar_viewport(
+                    col()
+                        .key("list")
+                        .w_full()
+                        .h(80.)
+                        .scroll(ScrollSpec {
+                            stick_bottom: false,
+                        })
+                        .child(el().h(88.))
+                        .child(mark)
+                        .child(el().h(32.)),
+                ),
+            )
+        }
+
+        let mut app = Desktop::new();
+        let instances = || {
+            serde_json::from_value(json!([{"id":"agent", "driver":"acpRegistry",
+            "initials":"A", "badge":false, "registry":"icon"}]))
+            .unwrap()
+        };
+        app.workspace.feed = Some(1);
+        app.workspace.providers.set_environment("local".into(), 1);
+        app.workspace
+            .update_providers(1, instances(), Default::default());
+        let mut rt = Runtime::new(app, view, (240., 240.), Env::default());
+        let settle = |rt: &mut Runtime<Desktop>| {
+            for _ in 0..120 {
+                rt.frame(1. / 120.);
+            }
+        };
+        settle(&mut rt);
+        assert!(matches!(
+            rt.state.workspace.providers.registry["icon"],
+            RegistryIcon::Idle
+        ));
+        rt.update(|_, tx| tx.scroll_to_bottom("list"));
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Loading(_)
+            ),
+            "scroll into view"
+        );
+        rt.update(|s, _| {
+            s.workspace.feed = Some(2);
+            s.workspace.providers.set_environment("local".into(), 2);
+        });
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Idle
+            ),
+            "before first config"
+        );
+        rt.update(|s, _| {
+            s.workspace
+                .update_providers(2, instances(), Default::default())
+        });
+        settle(&mut rt);
+        assert!(
+            matches!(
+                rt.state.workspace.providers.registry["icon"],
+                RegistryIcon::Loading(_)
+            ),
+            "after first config"
+        );
     }
 
     #[test]
