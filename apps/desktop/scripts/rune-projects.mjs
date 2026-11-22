@@ -1,3 +1,5 @@
+import { usageLabels, watchUsage } from "../src/native/usage.ts";
+import { openExternalUrl } from "./rune-external.mjs";
 import {
   CommandId,
   DEFAULT_CLIENT_SETTINGS,
@@ -149,6 +151,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     save: (id) => savePreference("desktop-editor", id),
     publish: (catalog) => write({ type: "workspaceeditors", watch, catalog }),
   });
+  const usage = watchUsage(owner, signal, (view) => write({ type: "usage", watch, ...view }));
   let registryIcons = new Set();
   const configureProviders = watchSidebarProviders((instances, art) => {
     registryIcons = new Set(
@@ -172,6 +175,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     (projects) => write({ type: "refreshfavicons", watch, projects }),
     () => activeVisit,
     (config, rpc) => {
+      usage.configure(config, rpc);
       editors.configure(config, rpc);
       configureProviders(config);
     },
@@ -180,6 +184,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     watch,
     controller,
     editors,
+    usage,
     hasRegistryIcon: (url) => registryIcons.has(url),
     ...feed,
   };
@@ -1113,6 +1118,7 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
+        usage_labels: usageLabels(),
         update_labels: {
           check: m(msg("Check for updates")),
           checking: m(msg("Checking for updates…")),
@@ -1528,6 +1534,23 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "usage") {
+      const feed = workspaceFeed;
+      if (feed?.watch !== request.watch || !feed) return;
+      switch (request.action) {
+        case "open":
+          feed.usage.select(true);
+          break;
+        case "close":
+          feed.usage.select(false);
+          break;
+        case "refresh":
+          void feed.usage.refresh();
+          break;
+        case "manage":
+          void feed.usage.manage(request.url, openExternalUrl);
+          break;
+      }
     } else if (request?.type === "watchprojectscripts") {
       const feed = workspaceFeed;
       if (feed && feed.watch === request.watch) {

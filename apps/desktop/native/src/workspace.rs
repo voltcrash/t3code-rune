@@ -277,6 +277,7 @@ pub(super) struct Workspace {
     pub(super) refresh_after_edit: Option<u64>,
     pub(crate) details: thread_details::Details,
     actions: thread_actions::Actions,
+    pub(crate) usage: crate::usage::Panel,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
@@ -339,6 +340,7 @@ impl Workspace {
             refresh_after_edit: None,
             details: Default::default(),
             actions: Default::default(),
+            usage: Default::default(),
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
@@ -1341,6 +1343,7 @@ fn sidebar(
             .pt(4.)
             .center_y()
             .child(crate::appearance::trigger(theme))
+            .children(crate::usage::trigger(s, theme))
             .child(footer_action(
                 "Projects",
                 &rune_kit::glyphs::FOLDER,
@@ -2057,6 +2060,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         images::overlay(s, theme, &mut overlays);
     }
     crate::appearance::overlay(s, cx, theme, &mut overlays);
+    crate::usage::overlay(s, cx, theme, &mut overlays);
     crate::updates::overlay(s, theme, dark, &mut overlays);
     crate::pairing_link::overlay(s, theme, dark, &mut overlays);
     rune_kit::root(workspace, overlays)

@@ -32,6 +32,7 @@ mod sidebar_providers;
 mod stage;
 mod terminal;
 mod updates;
+mod usage;
 mod window_zoom;
 mod workspace;
 use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Workspace};
@@ -129,6 +130,11 @@ enum Reply {
         instances: Vec<sidebar_providers::Instance>,
         art: std::collections::HashMap<String, sidebar_providers::Art>,
     },
+    Usage {
+        watch: u64,
+        #[serde(flatten)]
+        view: usage::Snapshot,
+    },
     WorkspaceEditors {
         watch: u64,
         catalog: workspace::thread_details::editor::Catalog,
@@ -150,6 +156,7 @@ enum Reply {
         #[serde(default)]
         attachment_labels: attachments::Labels,
         update_labels: Option<Box<updates::Labels>>,
+        usage_labels: Option<Box<usage::Labels>>,
         details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
@@ -374,6 +381,11 @@ struct ClientMessage<'a> {
 enum Request<'a> {
     OpenUrl {
         url: &'a str,
+    },
+    Usage {
+        watch: u64,
+        #[serde(flatten)]
+        action: usage::Action<'a>,
     },
     CheckUpdates,
     DownloadUpdate,
@@ -885,6 +897,12 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::Usage { watch, view } = message.reply {
+            if self.workspace.feed == Some(watch) && self.workspace.usage.open {
+                self.workspace.usage.receive(view);
+            }
+            return;
+        }
         if let Reply::WorkspaceEditors { watch, catalog } = message.reply {
             self.update_editors(watch, catalog);
             return;
@@ -1226,6 +1244,7 @@ impl Desktop {
                 label,
                 attachment_labels,
                 update_labels,
+                usage_labels,
                 details,
                 stage,
                 local,
@@ -1253,6 +1272,7 @@ impl Desktop {
                 self.workspace.details.settings = details;
                 self.workspace.attachment_labels = attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
+                self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -1275,6 +1295,10 @@ impl Desktop {
                     .providers
                     .set_environment(environment_id, watch);
                 self.workspace.feed = Some(watch);
+                if self.workspace.usage.open {
+                    self.workspace.usage.view = None;
+                    self.usage_action(usage::Action::Open);
+                }
                 self.workspace.details.editor = editors;
                 self.workspace.paused = false;
                 self.workspace.scratch_available = scratch_available;
@@ -1376,6 +1400,7 @@ impl Desktop {
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }
             | Reply::WorkspaceProviders { .. }
+            | Reply::Usage { .. }
             | Reply::WorkspaceEditors { .. }
             | Reply::EditorError { .. }
             | Reply::EditorOpened { .. }
@@ -1829,7 +1854,30 @@ fn start() -> io::Result<()> {
             if linux_menu::shortcut(s, ev, tx) {
                 return true;
             }
-            if !s.pairing_offers.is_empty() || s.update.open || s.script_editor_open() {
+            if !ev.mods.shift
+                && !ev.mods.alt
+                && ev.is_command('u')
+                && tx.focused() != Some("thread-terminal-grid")
+                && s.environment.is_some()
+                && s.pairing_offers.is_empty()
+                && !s.update.open
+                && !s.script_editor_open()
+                && !s.settings_open
+            {
+                if !tx.key_repeat() {
+                    if s.workspace.usage.open {
+                        s.close_usage();
+                    } else {
+                        s.open_usage();
+                    }
+                }
+                return true;
+            }
+            if !s.pairing_offers.is_empty()
+                || s.update.open
+                || s.workspace.usage.open
+                || s.script_editor_open()
+            {
                 return false;
             }
             if s.zoom_key(ev, tx) {
@@ -2279,6 +2327,7 @@ mod tests {
             reply: Reply::Connected {
                 attachment_labels: Default::default(),
                 update_labels: None,
+                usage_labels: None,
                 label: "This computer".into(),
                 details: None,
                 stage: stage::Stage::Dev,

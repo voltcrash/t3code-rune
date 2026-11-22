@@ -26,6 +26,7 @@ enum Action {
     OpenFile,
     Settings,
     CheckUpdates,
+    Usage,
     Refresh,
     Project(usize),
     Thread(usize),
@@ -45,6 +46,7 @@ impl Action {
             Self::Projects => "projects".into(),
             Self::CheckUpdates => "check-updates".into(),
             Self::Settings => "settings".into(),
+            Self::Usage => "usage".into(),
             Self::Back => "go-back".into(),
             Self::Forward => "go-forward".into(),
             Self::ToggleSidebar => "toggle-sidebar".into(),
@@ -67,6 +69,7 @@ impl Action {
             Self::Projects => "Projects",
             Self::CheckUpdates => "Check for Updates…",
             Self::Settings => "Settings",
+            Self::Usage => return ws.usage.title().into(),
             Self::GoToFile => "Go to file",
             Self::ToggleFiles => "Toggle right panel",
             Self::OpenEditor => {
@@ -135,6 +138,7 @@ impl Action {
             Self::ToggleDetails => &super::thread_details::DETAILS_ICON,
             Self::OpenEditor => &super::thread_details::editor::OPEN,
             Self::Settings => &crate::appearance::GEAR,
+            Self::Usage => &crate::usage::CHART,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
@@ -261,6 +265,9 @@ impl Palette {
                 }
                 command(Action::Projects);
                 command(Action::Settings);
+                if ws.usage.labels.is_some() {
+                    command(Action::Usage);
+                }
                 command(Action::CheckUpdates);
                 command(Action::ToggleSidebar);
                 if available.editor {
@@ -575,6 +582,7 @@ impl Desktop {
             }
             Action::Projects => self.show_projects(),
             Action::Settings => self.open_settings(tx),
+            Action::Usage => self.open_usage(),
             Action::CheckUpdates => self.check_updates(tx),
             Action::PickProject | Action::Project(_) | Action::GoToFile | Action::OpenFile => {
                 unreachable!()

@@ -6,6 +6,7 @@
     "scripts/rune-projects.mjs",
     "scripts/rune-editors.mjs",
     "../../packages/client-runtime/src/state/providerStatus.ts",
+    "../../packages/shared/src/usageLimitsCopy.ts",
     "!**/*.test.ts"
   ],
   "files": {

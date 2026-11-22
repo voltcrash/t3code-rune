@@ -1,5 +1,6 @@
 import { resolveLocale } from "@t3tools/client-runtime/locales";
 import { decodeOptions, gtFallback } from "gt-i18n";
+import type { GTTranslationOptions, MFunctionType } from "gt-i18n/types";
 import { hashMessage } from "gt-i18n/internal";
 
 type Catalog = Readonly<Record<string, string>>;
@@ -26,11 +27,11 @@ let activeLocale = DEFAULT_LOCALE;
 let activeCatalog: Catalog = {};
 let requestedLocale = DEFAULT_LOCALE;
 
-/**
- * Resolves a `msg()` string in the active UI language at call time. Variables are strings so
- * ICU never reformats a number (a PID of 12345 would print "12,345").
- */
-export function m(message: string, variables: Readonly<Record<string, string>> = {}): string {
+function translateMessage(
+  message: string | null | undefined,
+  variables: GTTranslationOptions = {},
+): string | null | undefined {
+  if (message == null) return message;
   const decoded = decodeOptions(message);
   const source = typeof decoded?.$_source === "string" ? decoded.$_source : message;
   const options = typeof decoded?.$_source === "string" ? decoded : variables;
@@ -43,6 +44,9 @@ export function m(message: string, variables: Readonly<Record<string, string>> =
     ? gtFallback(source, { ...options, $locale: DEFAULT_LOCALE })
     : gtFallback(target, { ...options, $locale: activeLocale, $_fallback: source });
 }
+
+/** GT returns null and undefined unchanged and resolves every string in the active UI language. */
+export const m = translateMessage as MFunctionType;
 
 /** Runs `listener` after each switch to a different UI language. */
 export function onLocaleChange(listener: () => void): () => void {
