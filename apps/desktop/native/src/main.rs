@@ -25,6 +25,7 @@ mod new_thread;
 mod pairing_link;
 mod permissions;
 mod project_icon;
+mod provider_status;
 mod questions;
 mod sidebar_layout;
 mod stage;
@@ -256,6 +257,14 @@ enum Reply {
         thread: String,
         operation: String,
     },
+    ProviderStatus {
+        watch: u64,
+        banner: Option<provider_status::Banner>,
+    },
+    ProviderRefreshed {
+        watch: u64,
+        error: Option<String>,
+    },
     DraftModels {
         watch: u64,
         project: String,
@@ -386,6 +395,15 @@ enum Request<'a> {
     PrepareScratch,
     PrepareLanding {
         project: Option<String>,
+    },
+    WatchProviderStatus {
+        watch: u64,
+        project: Option<&'a str>,
+        instance: Option<&'a str>,
+    },
+    RefreshProvider {
+        watch: u64,
+        key: &'a str,
     },
     WatchDraftModels {
         watch: u64,
@@ -549,6 +567,7 @@ struct Desktop {
     new_threads: new_thread::NewThreads,
     permission_menu: Option<permissions::Menu>,
     models: models::Picker,
+    provider_status: provider_status::Status,
     palette: Option<workspace::palette::Palette>,
     last_id: u64,
     request_id: u64,
@@ -598,6 +617,7 @@ impl Desktop {
             new_threads: Default::default(),
             permission_menu: None,
             models: Default::default(),
+            provider_status: Default::default(),
             palette: None,
             last_id: 0,
             request_id: 0,
@@ -612,6 +632,7 @@ impl Desktop {
         *self = Self {
             #[cfg(target_os = "linux")]
             frame: self.frame,
+            provider_status: self.provider_status.for_new_connection(),
             output: self.output.take(),
             last_id: self.last_id,
             request_id: self.request_id,
@@ -734,6 +755,14 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::ProviderStatus { watch, banner } = message.reply {
+            self.receive_provider_status(message.id, watch, banner);
+            return;
+        }
+        if let Reply::ProviderRefreshed { watch, error } = message.reply {
+            self.refreshed_provider(message.id, watch, error);
+            return;
+        }
         if let Reply::DraftModels {
             watch,
             project,
@@ -1153,6 +1182,8 @@ impl Desktop {
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }
+            | Reply::ProviderStatus { .. }
+            | Reply::ProviderRefreshed { .. }
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
@@ -1575,12 +1606,13 @@ fn start() -> io::Result<()> {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_draft_model_watch();
+            let banner = s.sync_provider_status();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
             let contrast = s.contrast.cancel_unfocused_drag(tx);
-            s.poll_answer(tx) || stop || clock || renamed || resized || contrast
+            s.poll_answer(tx) || stop || clock || renamed || resized || contrast || banner
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
             #[cfg(target_os = "linux")]

@@ -5343,5 +5343,16 @@
   "ad208e3e32c85029": "Hide all",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Tool calls in chat",
-  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show."
+  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show.",
+  "07d380ebce7c7cba": "Open provider setup to install {provider} on this environment.",
+  "f1ab192c62a6e680": "Open provider setup to sign in with Google.",
+  "6457e38508a19b22": "Open provider setup to sign in.",
+  "6e43db58d4b2d877": "Sign in via the CLI to authenticate again.",
+  "361c3052d7669f01": "No models are available for this provider.",
+  "7d3850e5d84691a5": "{provider} provider is unavailable.",
+  "8c373cfba06c51f9": "{provider} provider has limited availability.",
+  "7869f98d80c5be6e": "{provider} is unauthenticated",
+  "60c47138e614902e": "{provider} {version} is known to be broken",
+  "a9c2d58d116bedfb": "{provider} {version} is unsupported",
+  "4d2ce7340c3903f0": "{provider} provider status"
 }

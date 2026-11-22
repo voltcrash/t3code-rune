@@ -83,7 +83,7 @@ export function watchWorkspace(
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
   const threads = rowsById(initial.view.threads);
-  const draftModels = watchDraftModels(signal, (id) => projects.get(id));
+  const draftModels = watchDraftModels(signal, (id) => projects.get(id), session.environmentId);
   const dirtyProjects = new Set<string>();
   const dirtyThreads = new Set<string>();
   function pickLandingProject() {
@@ -302,6 +302,8 @@ export function watchWorkspace(
   return {
     initialLanding,
     selectDraftModels: draftModels.select,
+    selectBanner: draftModels.selectBanner,
+    refreshProvider: draftModels.refreshProvider,
     draftConfig: draftModels.config,
     activeRpc: () => activeRpc,
     projectFavicon(id: string) {

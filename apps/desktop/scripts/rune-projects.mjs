@@ -10,6 +10,8 @@ import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/
 import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import { runeUpdates } from "./rune-updates.mjs";
+import { selectLanguage, m } from "../src/i18n/catalog.ts";
+import { msg } from "gt-i18n";
 import { handleCodexAuthLink } from "./rune-codex-auth.mjs";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
@@ -421,6 +423,23 @@ function inspectDetail(request) {
   if (detail) refreshDetail(record, detail);
 }
 
+async function refreshProvider(request, reply) {
+  const feed = workspaceFeed;
+  const result = { type: "providerrefreshed", watch: request.watch };
+  if (!session || !feed || feed.watch !== request.watch) return;
+  const refresh = feed.refreshProvider(request.key);
+  try {
+    if (!refresh) throw new Error("Provider status changed before refresh");
+    await Effect.runPromise(refresh.pipe(Effect.timeout("60 seconds")), {
+      signal: feed.controller.signal,
+    });
+    if (workspaceFeed === feed) reply(result);
+  } catch {
+    if (workspaceFeed === feed)
+      reply({ ...result, error: m(msg("Couldn’t refresh provider status. Try again.")) });
+  }
+}
+
 async function openThread(owner, request, reply) {
   const prior = stopWatching();
   const same = prior?.owner === owner && prior.thread === request.thread ? prior : undefined;
@@ -661,6 +680,7 @@ let clientSettingsWrites = Effect.runPromise(
 ).then((saved) => {
   clientSettings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
   publishClientAppearance();
+  return selectLanguage(clientSettings.language, [Intl.DateTimeFormat().resolvedOptions().locale]);
 });
 
 async function setClientAppearance(request) {
@@ -1359,6 +1379,14 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "watchproviderstatus") {
+      if (session && workspaceFeed?.watch === request.watch)
+        workspaceFeed.selectBanner(
+          request.project ? { project: request.project, instance: request.instance } : null,
+          (banner) => reply({ type: "providerstatus", watch: request.watch, banner }),
+        );
+    } else if (request?.type === "refreshprovider") {
+      void refreshProvider(request, reply);
     } else if (request?.type === "watchdraftmodels") {
       if (session?.canOperate && workspaceFeed?.watch === request.watch)
         workspaceFeed.selectDraftModels(request.project ?? null, (catalog) =>

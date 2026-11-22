@@ -5,7 +5,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 
-function humanizeSlug(slug: string): string {
+export function formatProviderDriverKindLabel(slug: string): string {
   return slug
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
@@ -17,10 +17,11 @@ export function resolveProviderInstanceDisplayName(
   snapshot: Pick<ServerProvider, "instanceId" | "driver" | "displayName">,
 ): string {
   const trimmedSnapshotName = snapshot.displayName?.trim();
-  const kindLabel = PROVIDER_DISPLAY_NAMES[snapshot.driver] ?? humanizeSlug(snapshot.driver);
+  const kindLabel =
+    PROVIDER_DISPLAY_NAMES[snapshot.driver] ?? formatProviderDriverKindLabel(snapshot.driver);
   if (trimmedSnapshotName && trimmedSnapshotName !== kindLabel) return trimmedSnapshotName;
   if (snapshot.instanceId !== defaultInstanceIdForDriver(snapshot.driver)) {
-    const humanized = humanizeSlug(snapshot.instanceId);
+    const humanized = formatProviderDriverKindLabel(snapshot.instanceId);
     if (humanized.length > 0) return humanized;
   }
   return trimmedSnapshotName || kindLabel;

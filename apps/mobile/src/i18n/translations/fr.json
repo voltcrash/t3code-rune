@@ -5336,5 +5336,16 @@
   "ad208e3e32c85029": "Tout masquer",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Appels d’outils dans la discussion",
-  "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours."
+  "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours.",
+  "07d380ebce7c7cba": "Ouvrez la configuration du fournisseur pour installer {provider} sur cet environnement.",
+  "f1ab192c62a6e680": "Ouvrez la configuration du fournisseur pour vous connecter avec Google.",
+  "6457e38508a19b22": "Ouvrez la configuration du fournisseur pour vous connecter.",
+  "6e43db58d4b2d877": "Connectez-vous via la CLI pour vous authentifier à nouveau.",
+  "361c3052d7669f01": "Aucun modèle n’est disponible pour ce fournisseur.",
+  "7d3850e5d84691a5": "Le fournisseur {provider} est indisponible.",
+  "8c373cfba06c51f9": "La disponibilité du fournisseur {provider} est limitée.",
+  "7869f98d80c5be6e": "{provider} n’est pas authentifié",
+  "60c47138e614902e": "{provider} {version} est connu pour être défectueux",
+  "a9c2d58d116bedfb": "{provider} {version} n’est pas pris en charge",
+  "4d2ce7340c3903f0": "Statut du fournisseur {provider}"
 }

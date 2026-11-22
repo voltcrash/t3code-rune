@@ -318,6 +318,7 @@
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"
     },
+    "./state/provider-status": "./src/state/providerStatus.ts",
     "./state/provider-instances": {
       "types": "./src/state/providerInstances.ts",
       "default": "./src/state/providerInstances.ts"
