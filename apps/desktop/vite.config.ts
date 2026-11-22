@@ -2,20 +2,7 @@ import "vite-plus/test/config";
 
 import { defaultInclude, defineConfig } from "vite-plus";
 
-import { isDesktopRuntimeExternalDependency } from "../../scripts/lib/desktop-external-packages.ts";
-import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
-
-const repoEnv = loadRepoEnv();
 const domTests = ["src/preview/PickPreload.test.ts"];
-
-// Install only bundle externals; the server bundle already carries its dependency tree.
-const isMainProcessExternal = (id: string) =>
-  id === "electron" || id.startsWith("electron/") || isDesktopRuntimeExternalDependency(id);
-const publicConfigDefine = {
-  __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
-    repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
-  ),
-};
 
 export default defineConfig({
   run: {
@@ -30,13 +17,6 @@ export default defineConfig({
         dependsOn: ["t3#build"],
         cache: false,
       },
-      // Packaging stages the Linux browser secret helper per architecture.
-      "build:electron:bundle": {
-        command:
-          "node scripts/build-preview-annotation-css.mjs && vp pack && node scripts/verify-preload-bundle.mjs",
-        dependsOn: ["t3#build"],
-        cache: false,
-      },
       dev: {
         command: "node scripts/launch-rune.mjs --watch",
         cache: false,
@@ -48,101 +28,6 @@ export default defineConfig({
       },
     },
   },
-  pack: [
-    {
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      define: publicConfigDefine,
-      outputOptions: { codeSplitting: false },
-      entry: ["src/main.ts"],
-      clean: true,
-      deps: {
-        alwaysBundle: (id) => !id.startsWith("node:") && !isMainProcessExternal(id),
-        neverBundle: isMainProcessExternal,
-        onlyBundle: false,
-      },
-    },
-    {
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      define: publicConfigDefine,
-      entry: [
-        "src/electron/WindowsForegroundFocusWorker.ts",
-        "src/snapShot/GlobalShiftShortcutWorker.ts",
-        "src/snapShot/RegionSnapShotWorker.ts",
-        "src/snapShot/SnapShotAccessibilityWorker.ts",
-      ],
-      clean: false,
-      deps: {
-        alwaysBundle: (id) => !id.startsWith("node:") && !isMainProcessExternal(id),
-        neverBundle: isMainProcessExternal,
-        onlyBundle: false,
-      },
-    },
-    {
-      // boot.cjs requires the other two at runtime, so all three stay separate files.
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      entry: ["src/boot.ts", "src/compileCache.ts", "src/serverCompileCache.ts"],
-      clean: false,
-      deps: {
-        neverBundle: (id) => id === "./main.cjs" || id === "./compileCache.cjs",
-      },
-    },
-    {
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      define: publicConfigDefine,
-      entry: ["src/preload.ts"],
-      deps: {
-        // Sandboxed preloads cannot resolve imports inside ASAR; bundle Clerk's bridge.
-        alwaysBundle: (id) => id === "@clerk/electron" || id.startsWith("@clerk/electron/"),
-      },
-    },
-    {
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      entry: ["src/preview-pick-preload.ts"],
-      deps: {
-        alwaysBundle: (id) =>
-          id === "react-grab" ||
-          id.startsWith("react-grab/") ||
-          id === "@t3tools/shared/keybindingMatching",
-      },
-    },
-    {
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      entry: ["src/preview-pip-preload.ts"],
-    },
-    {
-      // Sandboxed preloads must be self-contained, without shared runtime chunks.
-      format: "cjs",
-      outDir: "dist-electron",
-      dts: false,
-      sourcemap: true,
-      outExtensions: () => ({ js: ".cjs" }),
-      entry: ["src/mac-permission-preload.ts"],
-    },
-  ],
   test: {
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.

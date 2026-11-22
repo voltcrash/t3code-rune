@@ -318,10 +318,6 @@ produces a DMG and ZIP on macOS, an AppImage and Debian package on Linux, and an
 installer on Windows. Select an architecture with `--arch` or inspect an unpacked build
 with `--target dir`. For a single format, run `vp run dist:desktop:rune --target <format>`
 with `dmg` or `zip` on macOS, `AppImage` or `deb` on Linux, and `nsis` or `zip` on Windows.
-For older Electron formats, use the original builder on the matching host, for example
-`node scripts/build-desktop-artifact.ts --platform linux --target rpm` or
-`node scripts/build-desktop-artifact.ts --platform win --target portable`.
-To exercise the Electron updater locally, run `node scripts/build-desktop-artifact.ts --mock-updates`.
 
 Local artifact builds are unsigned by default and write to `release/`:
 
@@ -370,62 +366,11 @@ On Linux, install Java and jsign 7.6, then put the jsign launcher on PATH or set
 Supply signing credentials through `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`.
 Run `vp run dist:desktop:win --help` for all packaging flags.
 
-### Prepared server bytecode
-
-Electron artifact builds on native macOS, Windows, and Linux x64 and ARM64 generate server
-bytecode with the packaged Electron executable, after ASAR creation and before signing. Generation imports the CLI and server
-module declarations without launching server services; worker-only modules compile normally.
-AppImage backends use temporary links for each mount and remove them on normal exit. Later launches
-reclaim abandoned cache directories whose links point to gone mounts; AppImage main-process caching
-stays disabled. macOS x64 builds on ARM64 hosts run the packaged x64 Electron
-under Rosetta to generate the cache. Other cross-platform and cross-architecture builds skip
-generation explicitly. CLI, SEA and WSL runtimes keep their existing behavior.
-
-Electron's Node 24 cache has no read-only option and includes the producer UID in its directory
-name. The backend links individual prepared files into its writable cache with keys for the
-installed module paths. Node replaces files atomically, so regeneration cannot write through those
-links into signed resources. Windows uses hard links and falls back to normal caching when volumes
-differ or resource permissions prevent linking. Protected installations therefore may not reuse
-prepared bytecode. No cache bytes are copied during startup.
-
-The key calculation follows Node's internal portable ESM format. Generation checks that the
-packaged engine produced the expected CLI and server entries and fails the build if that format changes.
-The manifest also checks Electron, Node, OS, architecture and V8's flags-sensitive version tag.
-Missing or rejected entries compile from the shipped JavaScript. Prepared backends skip the
-explicit startup flush; Node can persist missing entries on normal exit. The writable fallback
-keeps the explicit flush needed when Windows force-kills the backend.
-
 ### Linux AppImage prerequisites
 
-The legacy Electron AppImage must be built on Linux because its browser-secret helper links against the host's libsecret. Install
-C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
-Bytecode preparation also runs packaged Electron and requires GTK, NSS, ALSA, and GBM runtime libraries.
-Install Rust 1.95 or newer through [rustup](https://rust-lang.org/install), using the stable
-toolchain as release CI does.
-The packaged ELF compatibility check uses binutils’ `readelf`, included by the C/C++ toolchain.
-
-Ubuntu 24.04 and Debian 13:
-
-```sh
-sudo apt-get update
-sudo apt-get install build-essential libsecret-1-dev pkg-config imagemagick libgtk-3-0t64 libnss3 libasound2t64 libgbm1
-```
-
-On Ubuntu 22.04 and Debian 12, use `libgtk-3-0` and `libasound2` instead of the `t64` packages.
-
-Fedora:
-
-```sh
-sudo dnf install gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick gtk3 nss alsa-lib mesa-libgbm
-```
-
-Arch Linux:
-
-```sh
-sudo pacman -S base-devel libsecret pkgconf imagemagick gtk3 nss alsa-lib mesa
-```
-
-The Linux browser-import helper tests also need the C toolchain, pkg-config, and libsecret headers.
+Build on a Linux host of the target architecture with Rust, a C/C++ toolchain, pkg-config,
+libsecret and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
+on PATH. The Debian target also uses `dpkg-deb` and `dpkg-shlibdeps` (install `dpkg-dev` on Debian or Ubuntu).
 
 ### macOS DMG prerequisites
 

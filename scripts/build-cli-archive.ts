@@ -44,7 +44,7 @@ const WorkspaceConfig = Schema.Struct({
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
 });
-const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
+export const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const StageWorkspaceConfig = Schema.Struct({
   supportedArchitectures: Schema.Struct({

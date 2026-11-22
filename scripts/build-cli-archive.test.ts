@@ -9,7 +9,11 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { awaitCliNotarization, signMacArchiveContents } from "./build-cli-archive.ts";
+import {
+  awaitCliNotarization,
+  decodeWorkspaceConfig,
+  signMacArchiveContents,
+} from "./build-cli-archive.ts";
 
 const signedEnv = {
   T3CODE_CLI_MAC_SIGN_IDENTITY: "Developer ID Application: Test (TEAM)",
@@ -71,6 +75,29 @@ const makeContent = Effect.fn("test.makeContent")(function* () {
 
 const notarySubcommands = (calls: ReadonlyArray<ReadonlyArray<string>>) =>
   calls.filter((argv) => argv[1] === "notarytool").map((argv) => argv.slice(2));
+
+it.layer(NodeServices.layer)("CLI archive build approvals", (it) => {
+  // pnpm writes "set this to true or false" placeholders into allowBuilds when a
+  // tarball changes. pnpm ignores them, but the release build decode rejects them.
+  it.effect("decodes the repo allowBuilds and every file: tarball it names exists", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const repoRoot = path.join(import.meta.dirname, "..");
+      const { allowBuilds = {} } = yield* decodeWorkspaceConfig(
+        yield* fs.readFileString(path.join(repoRoot, "pnpm-workspace.yaml")),
+      );
+      for (const key of Object.keys(allowBuilds)) {
+        const tarball = key.split("@file:")[1]?.replace(/\(patch_hash=[a-f0-9]+\)$/, "");
+        if (tarball === undefined) continue;
+        assert.isTrue(
+          yield* fs.exists(path.join(repoRoot, tarball)),
+          `allowBuilds names a missing tarball: ${key}`,
+        );
+      }
+    }),
+  );
+});
 
 it.layer(NodeServices.layer)("build-cli-archive notarization", (it) => {
   it.effect("records a deferred submission without waiting, then gates on Accepted", () =>

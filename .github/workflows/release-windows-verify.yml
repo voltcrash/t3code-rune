@@ -129,9 +129,14 @@ jobs:
             tar -C verify -xf verify/unpacked.tar
             echo "MONITOR=$(cygpath -w "$app_dir/resources/resource-monitor/t3-resource-monitor.exe")" >> "$GITHUB_ENV"
           fi
-          node verify/verify-windows-desktop-artifact.mjs \
-            --app-dir "$(cygpath -w "$app_dir")" \
-            --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --verbose "${args[@]}"
+          if [[ -f verify/verify-rune-windows.mjs ]]; then
+            env -u NODE_OPTIONS -u NODE_PATH timeout 35s "$app_dir/resources/node.exe" \
+              --no-global-search-paths verify/verify-rune-windows.mjs "${{ inputs.arch }}"
+          else
+            node verify/verify-windows-desktop-artifact.mjs \
+              --app-dir "$(cygpath -w "$app_dir")" \
+              --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --verbose "${args[@]}"
+          fi
 
       - name: Smoke-test CLI archive
         if: inputs.cli_archive
