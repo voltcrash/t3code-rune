@@ -370,7 +370,7 @@ Run `vp run dist:desktop:win --help` for all packaging flags.
 
 Build on a Linux host of the target architecture with Rust, a C/C++ toolchain, pkg-config,
 libsecret and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
-on PATH. The Debian target also uses `dpkg-deb`.
+on PATH. The Debian target also uses `dpkg-deb` and `dpkg-shlibdeps` (install `dpkg-dev` on Debian or Ubuntu).
 
 ### macOS DMG prerequisites
 
