@@ -1,5 +1,7 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
+mod fonts;
+pub(super) use fonts::{FontFamilies, FontSlot};
 use rune_kit::glyphs;
 use serde::{Deserialize, Serialize};
 
@@ -11,16 +13,16 @@ pub(crate) const SANS: &str = if cfg!(target_os = "macos") {
 pub(crate) const MONO: &str =
     "ui-monospace, SF Mono, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace";
 
-pub(crate) fn apply_fonts(tx: &mut Tx, sans: String, code: String, smoothing: bool) {
+pub(crate) fn apply_fonts(tx: &mut Tx, sans: &str, code: &str, smoothing: bool) {
     let stack = |saved: &str, fallback: &str| {
         let saved = saved.trim();
         if saved.is_empty() {
             fallback.to_owned()
         } else {
-            format!("{saved}, {fallback}")
+            format!("{}, {fallback}", fonts::saved_css(saved))
         }
     };
-    tx.set_font_families(stack(&sans, SANS), stack(&code, MONO));
+    tx.set_font_families(stack(sans, SANS), stack(code, MONO));
     if cfg!(target_os = "macos") {
         // Electron's checked setting uses CSS antialiased text, without CoreText dilation.
         tx.set_font_smoothing(if smoothing {
@@ -67,6 +69,7 @@ impl Desktop {
         self.models.close();
         self.permission_menu = None;
         self.close_sidebar_menus();
+        self.font_families.close();
         self.settings_open = true;
         self.typography_advanced = false;
         self.appearance_error = None;
@@ -79,8 +82,8 @@ impl Desktop {
     }
 
     fn set_font_smoothing(&mut self, smoothing: bool) {
-        if !self.saving_smoothing && self.font_smoothing.is_some_and(|value| value != smoothing) {
-            self.saving_smoothing =
+        if !self.saving_typography && self.font_smoothing.is_some_and(|value| value != smoothing) {
+            self.saving_typography =
                 self.write_request(None, Request::SetFontSmoothing { smoothing });
         }
     }
@@ -223,35 +226,48 @@ fn tile(mode: Mode, selected: bool, width: f32, theme: &tok::Theme) -> El {
         })
 }
 
-fn typography(s: &Desktop, narrow: bool, theme: &tok::Theme) -> El {
+fn typography(
+    s: &Desktop,
+    narrow: bool,
+    theme: &tok::Theme,
+    dark: bool,
+    popups: &mut Vec<El>,
+) -> El {
     let mut group = col()
         .w_full()
         .radius(12.)
         .border(1., theme.separator)
-        .child(
-            row()
-                .key("advanced-typography")
-                .role("button")
-                .label("Advanced")
-                .focusable(true)
-                .expanded(s.typography_advanced)
-                .w_full()
-                .h(40.)
-                .px(if narrow { 12. } else { 16. })
-                .gap(6.)
-                .center_y()
-                .radius(12.)
-                .hover(theme.separator)
-                .child(
-                    crate::disclosure_chevron(s.typography_advanced, 14.)
-                        .color(theme.text_secondary),
-                )
-                .child(label("Advanced", 12., 500., theme.text_secondary))
-                .on_press(|s: &mut Desktop| s.typography_advanced = !s.typography_advanced),
-        );
-    if s.typography_advanced {
+        .child(fonts::row(s, FontSlot::Sans, narrow, theme, dark, popups))
+        .child(el().w_full().h(1.).fill(theme.separator))
+        .child(fonts::row(s, FontSlot::Code, narrow, theme, dark, popups));
+    if cfg!(target_os = "macos") {
+        group = group
+            .child(el().w_full().h(1.).fill(theme.separator))
+            .child(
+                row()
+                    .key("advanced-typography")
+                    .role("button")
+                    .label("Advanced")
+                    .focusable(true)
+                    .expanded(s.typography_advanced)
+                    .w_full()
+                    .h(40.)
+                    .px(if narrow { 12. } else { 16. })
+                    .gap(6.)
+                    .center_y()
+                    .radius(12.)
+                    .hover(theme.separator)
+                    .child(
+                        crate::disclosure_chevron(s.typography_advanced, 14.)
+                            .color(theme.text_secondary),
+                    )
+                    .child(label("Advanced", 12., 500., theme.text_secondary))
+                    .on_press(|s: &mut Desktop| s.typography_advanced = !s.typography_advanced),
+            );
+    }
+    if cfg!(target_os = "macos") && s.typography_advanced {
         let checked = s.font_smoothing.unwrap_or(true);
-        let enabled = s.font_smoothing.is_some();
+        let enabled = s.font_smoothing.is_some() && !s.saving_typography;
         let thumb = if narrow { 20. } else { 16. };
         let toggle = el()
             .key("font-smoothing")
@@ -392,9 +408,8 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                         .map(|mode| tile(mode, s.appearance == mode, (content - 24.) / 3., theme)),
                 ),
         );
-    if cfg!(target_os = "macos") {
-        body = body.child(typography(s, w < 640., theme));
-    }
+    let mut popups = Vec::new();
+    body = body.child(typography(s, w < 640., theme, s.dark(cx), &mut popups));
     if let Some(err) = &s.appearance_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());
     }
@@ -466,4 +481,5 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             .center()
             .child(panel),
     );
+    overlays.extend(popups);
 }

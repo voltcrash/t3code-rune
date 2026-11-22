@@ -97,6 +97,21 @@ struct GridFont {
     cell_width: f32,
 }
 
+pub(super) fn fits_grid(mono: TextStyle) -> bool {
+    let width = rune::text::advance("0", mono);
+    let bold = TextStyle {
+        weight: 700.,
+        ..mono
+    };
+    [mono, mono.italic(), bold, bold.italic()]
+        .into_iter()
+        .all(|style| {
+            ["i", "M", "W", "0", "@", "#", ".", " "]
+                .into_iter()
+                .all(|glyph| (rune::text::advance(glyph, style) - width).abs() < 0.01)
+        })
+}
+
 impl Panel {
     fn grid_font(&self) -> GridFont {
         let epoch = rune::text::font_epoch();
@@ -106,16 +121,7 @@ impl Panel {
             return font;
         }
         let mono = TextStyle::new(12., 400.).mono();
-        let width = rune::text::advance("0", mono);
-        let bold = TextStyle::new(12., 700.).mono();
-        let fits_grid = [mono, mono.italic(), bold, bold.italic()]
-            .into_iter()
-            .all(|style| {
-                ["i", "M", "W", "0", "@", "#", ".", " "]
-                    .into_iter()
-                    .all(|glyph| (rune::text::advance(glyph, style) - width).abs() < 0.01)
-            });
-        let family = if fits_grid {
+        let family = if fits_grid(mono) {
             Family::Mono
         } else {
             Family::SystemMono

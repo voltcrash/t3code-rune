@@ -330,6 +330,10 @@ enum Request<'a> {
     SetAppearance {
         mode: appearance::Mode,
     },
+    SetFontFamily {
+        slot: appearance::FontSlot,
+        family: &'a str,
+    },
     SetFontSmoothing {
         smoothing: bool,
     },
@@ -502,7 +506,8 @@ struct Desktop {
     sidebar_layout: sidebar_layout::Layout,
     appearance: appearance::Mode,
     font_smoothing: Option<bool>,
-    saving_smoothing: bool,
+    saving_typography: bool,
+    font_families: appearance::FontFamilies,
     typography_advanced: bool,
     settings_open: bool,
     update: updates::Panel,
@@ -548,7 +553,8 @@ impl Desktop {
             answer_advance: None,
             appearance: Default::default(),
             font_smoothing: None,
-            saving_smoothing: false,
+            saving_typography: false,
+            font_families: Default::default(),
             typography_advanced: false,
             settings_open: false,
             update: Default::default(),
@@ -593,7 +599,8 @@ impl Desktop {
             sidebar_layout: self.sidebar_layout,
             appearance: self.appearance,
             font_smoothing: self.font_smoothing,
-            saving_smoothing: self.saving_smoothing,
+            saving_typography: self.saving_typography,
+            font_families: std::mem::take(&mut self.font_families),
             pairing_offers: std::mem::take(&mut self.pairing_offers),
             update: std::mem::take(&mut self.update),
             zoom: self.zoom,
@@ -1733,11 +1740,12 @@ fn start() -> io::Result<()> {
                 } = reply.reply
                 {
                     s.font_smoothing = Some(smoothing);
-                    if s.saving_smoothing {
+                    if s.saving_typography {
                         s.appearance_error = error;
-                        s.saving_smoothing = false;
+                        s.saving_typography = false;
                     }
-                    appearance::apply_fonts(tx, sans, code, smoothing);
+                    appearance::apply_fonts(tx, &sans, &code, smoothing);
+                    s.font_families.receive(sans, code);
                     return;
                 }
                 if let Reply::ThreadModels {

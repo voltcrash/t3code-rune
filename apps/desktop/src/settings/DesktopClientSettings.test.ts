@@ -262,11 +262,20 @@ describe("DesktopClientSettings", () => {
         if (Option.isSome(persisted)) {
           assert.equal(persisted.value.timestampFormat, "12-hour");
         }
-        const updated = yield* DesktopClientSettings.setClientFontSmoothing(
+        const updated = yield* DesktopClientSettings.setClientTypography(
           environment.clientSettingsPath,
-          false,
+          { fontSmoothing: false },
         );
         assert.isFalse(updated.fontSmoothing);
+        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+          fontFamilySans: "Georgia",
+        });
+        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+          fontFamilyCode: "Menlo",
+        });
+        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+          fontFamilySans: "",
+        });
         assert.deepEqual(
           JSON.parse(yield* fileSystem.readFileString(environment.clientSettingsPath)),
           {
@@ -274,6 +283,8 @@ describe("DesktopClientSettings", () => {
               timestampFormat: "12-hour",
               futurePreference: "keep",
               fontSmoothing: false,
+              fontFamilySans: "",
+              fontFamilyCode: "Menlo",
             },
             profileVersion: 2,
           },
@@ -299,10 +310,9 @@ describe("DesktopClientSettings", () => {
         assert.equal(error.operation, "decode-document");
         assert.equal(error.path, environment.clientSettingsPath);
         assert.instanceOf(error.cause, Schema.SchemaError);
-        yield* DesktopClientSettings.setClientFontSmoothing(
-          environment.clientSettingsPath,
-          false,
-        ).pipe(Effect.flip);
+        yield* DesktopClientSettings.setClientTypography(environment.clientSettingsPath, {
+          fontSmoothing: false,
+        }).pipe(Effect.flip);
         assert.equal(
           yield* fileSystem.readFileString(environment.clientSettingsPath),
           document.contents,

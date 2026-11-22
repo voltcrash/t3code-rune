@@ -3379,6 +3379,7 @@ dependencies = [
  "base64",
  "close_fds",
  "ctrlc",
+ "fontique",
  "image",
  "objc2-foundation 0.3.2",
  "pulldown-cmark",
