@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as String from "effect/String";
@@ -194,7 +195,12 @@ const parseNightlyTag = (
 
 export const resolvePreviousReleaseTag = Effect.fn(
   "resolve-previous-release-tag.resolvePreviousReleaseTag",
-)(function* (channel: ReleaseChannel, currentTag: string, tags: ReadonlyArray<string>) {
+)(function* (
+  channel: ReleaseChannel,
+  currentTag: string,
+  tags: ReadonlyArray<string>,
+  options?: { readonly desktopUpdate: boolean },
+) {
   if (channel === "stable") {
     const current = parseStableTag(currentTag);
     if (!current) {
@@ -209,6 +215,10 @@ export const resolvePreviousReleaseTag = Effect.fn(
       .filter((entry) => compareStableVersions(entry.parsed, current) < 0)
       .toSorted((left, right) => compareStableVersions(right.parsed, left.parsed));
 
+    if (options?.desktopUpdate && current.prerelease.length === 0) {
+      const previousStable = candidates.find((entry) => entry.parsed.prerelease.length === 0);
+      if (previousStable) return previousStable.tag;
+    }
     return candidates[0]?.tag;
   }
 
@@ -234,6 +244,8 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
       (acc, chunk) => acc + chunk,
     ),
   );
+
+const tagLines = (text: string) => text.split(/\r?\n/).map(String.trim).filter(String.isNonEmpty);
 
 export const listGitTags = Effect.fn("listGitTags")(function* (cwd = process.cwd()) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -299,7 +311,7 @@ export const listGitTags = Effect.fn("listGitTags")(function* (cwd = process.cwd
     });
   }
 
-  return stdout.split(/\r?\n/).map(String.trim).filter(String.isNonEmpty);
+  return tagLines(stdout);
 });
 
 export const writePreviousReleaseTagOutput = Effect.fn("writePreviousReleaseTagOutput")(function* (
@@ -342,16 +354,28 @@ const command = Command.make(
     currentTag: Flag.String("current-tag").pipe(
       Flag.withDescription("Current release tag to compare against."),
     ),
+    publishedDesktopTags: Flag.FileText("published-desktop-tags").pipe(
+      Flag.withDescription(
+        "Select the installed desktop update baseline from a file of published tags, one per line.",
+      ),
+      Flag.optional,
+    ),
     githubOutput: Flag.Boolean("github-output").pipe(
       Flag.withDescription("Write values to GITHUB_OUTPUT instead of stdout."),
       Flag.withDefault(false),
     ),
   },
-  ({ channel, currentTag, githubOutput }) =>
-    listGitTags().pipe(
-      Effect.flatMap((tags) => resolvePreviousReleaseTag(channel, currentTag, tags)),
-      Effect.flatMap((previousTag) => writePreviousReleaseTagOutput(previousTag, githubOutput)),
-    ),
+  Effect.fn("resolve-previous-release-tag.run")(function* ({
+    channel,
+    currentTag,
+    githubOutput,
+    publishedDesktopTags,
+  }) {
+    const desktopUpdate = Option.isSome(publishedDesktopTags);
+    const tags = desktopUpdate ? tagLines(publishedDesktopTags.value) : yield* listGitTags();
+    const previous = yield* resolvePreviousReleaseTag(channel, currentTag, tags, { desktopUpdate });
+    yield* writePreviousReleaseTagOutput(previous, githubOutput);
+  }),
 ).pipe(Command.withDescription("Resolve the previous release tag for a stable or nightly series."));
 
 if (import.meta.main) {

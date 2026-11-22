@@ -95,6 +95,14 @@ on:
       ref:
         required: true
         type: string
+      is_prerelease:
+        required: false
+        default: false
+        type: boolean
+      previous_mac_tag:
+        required: false
+        default: ""
+        type: string
       release_channel:
         required: true
         type: string
@@ -641,7 +649,7 @@ jobs:
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: true
         run: vp run dist:desktop:rune --platform linux --target AppImage,deb --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose
 
-      - name: Build Rune macOS preview
+      - name: Build Rune macOS artifacts
         if: inputs.target == 'dmg,zip' || steps.pr_launcher.outputs.native == 'true'
         shell: bash
         env:
@@ -657,6 +665,13 @@ jobs:
           args=(--platform mac --target "${{ inputs.target }}" --arch "${{ inputs.arch }}" --build-version "${{ inputs.version }}" --skip-build --verbose)
           if [[ "${{ steps.pr_launcher.outputs.native }}" == true ]]; then
             args+=(--prebuilt-mac-launcher)
+          fi
+          if [[ "${{ inputs.release_channel }}" != preview && "${{ inputs.untrusted_bundle }}" != true ]]; then
+            : "${T3CODE_CLI_MAC_SIGN_IDENTITY:?Release updates require Developer ID signing}"
+            : "${APPLE_API_KEY:?Release updates require notarization}"
+            : "${APPLE_API_KEY_ID:?Release updates require a notarization key ID}"
+            : "${APPLE_API_ISSUER:?Release updates require a notarization issuer}"
+            args+=(--update-feed)
           fi
           if [[ -n "${T3CODE_CLI_MAC_SIGN_IDENTITY:-}" ]]; then
             args+=(--signed)
@@ -852,6 +867,30 @@ jobs:
               xvfb-run -a "${check[@]}" --executable "$RUNNER_TEMP/squashfs-root/t3code"
             fi
           fi
+
+      - name: Verify macOS update before publication
+        if: inputs.target == 'dmg,zip' && inputs.release_channel != 'preview' && !inputs.untrusted_bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_mac_tag }}
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_ARCH: ${{ inputs.arch }}
+        run: |
+          set -euo pipefail
+          args=(--version "$RELEASE_VERSION" --arch "$RELEASE_ARCH" --channel "$RELEASE_CHANNEL"
+                --update-zip "release/T3-Code-$RELEASE_VERSION-$RELEASE_ARCH.zip"
+                --artifacts-dir "$RUNNER_TEMP/desktop-launch-check")
+          if [[ "$RELEASE_CHANNEL" == stable && "$IS_PRERELEASE" == true ]]; then args+=(--manual-prerelease); fi
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            old_version="${PREVIOUS_TAG#nightly-}"
+            old_zip="T3-Code-${old_version#v}-$RELEASE_ARCH.zip"
+            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$old_zip" --dir "$RUNNER_TEMP/previous-desktop"
+            args+=(--previous-zip "$RUNNER_TEMP/previous-desktop/$old_zip")
+          fi
+          python3 scripts/smoke-rune-mac-upgrade.py "${args[@]}"
 
       - name: Upload launch check output
         if: failure() && inputs.launch_check

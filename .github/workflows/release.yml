@@ -519,6 +519,8 @@ jobs:
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 30
     outputs:
+      mac_target: ${{ steps.bundle_build.outputs.mac_target }}
+      previous_mac_tag: ${{ steps.mac_baseline.outputs.previous_tag }}
       npm_launcher_artifact_id: ${{ steps.npm_launcher.outputs.artifact-id }}
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
@@ -585,8 +587,24 @@ jobs:
           else
             desktop_dist=dist-electron
           fi
+          if [[ "$RELEASE_CHANNEL" == preview || -f scripts/smoke-rune-mac-upgrade.py ]]; then
+            echo "mac_target=dmg,zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "mac_target=dmg" >> "$GITHUB_OUTPUT"
+          fi
           echo "script=$script" >> "$GITHUB_OUTPUT"
           echo "desktop_dist=$desktop_dist" >> "$GITHUB_OUTPUT"
+
+      - name: Find the previous published Mac release
+        id: mac_baseline
+        if: steps.bundle_build.outputs.mac_target == 'dmg,zip' && needs.preflight.outputs.release_channel != 'preview'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.preflight.outputs.release_channel }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > "$RUNNER_TEMP/published-tags"
+          node scripts/resolve-previous-release-tag.ts --channel "$CHANNEL" --current-tag "$TAG" --published-desktop-tags "$RUNNER_TEMP/published-tags" --github-output
 
       - if: steps.bundle_build.outputs.script == 'build:desktop'
         uses: ./.github/actions/setup-apt-mirrors
@@ -606,7 +624,11 @@ jobs:
           test -s apps/server/dist/bin.mjs
           desktop_dist="apps/desktop/${{ steps.bundle_build.outputs.desktop_dist }}"
           if [[ -d "$desktop_dist" ]]; then desktop_dist="$desktop_dist/main.cjs"; fi
-          test -f "$desktop_dist" && test -s "$desktop_dist"
+          test -s "$desktop_dist"
+          if [[ "${{ steps.bundle_build.outputs.mac_target }}" == dmg,zip && "${{ needs.preflight.outputs.release_channel }}" != preview ]]; then
+            node apps/desktop/scripts/bundle-rune-worker.mjs
+            test -s apps/desktop/dist/rune-bundle/rune-projects.mjs
+          fi
 
       # Consumers download into `apps` to restore the original layout.
       - name: Upload JS bundle
@@ -616,6 +638,7 @@ jobs:
           path: |
             apps/server/dist
             apps/desktop/${{ steps.bundle_build.outputs.desktop_dist }}
+            ${{ steps.bundle_build.outputs.mac_target == 'dmg,zip' && 'apps/desktop/dist/rune-bundle/rune-projects.mjs' || '' }}
           if-no-files-found: error
           retention-days: 1
 
@@ -660,7 +683,9 @@ jobs:
       label: macOS arm64
       runner: blacksmith-12vcpu-macos-26
       platform: mac
-      target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'dmg,zip' || 'dmg' }}
+      target: ${{ needs.build_bundle.outputs.mac_target }}
+      previous_mac_tag: ${{ needs.build_bundle.outputs.previous_mac_tag }}
+      is_prerelease: ${{ fromJSON(needs.preflight.outputs.is_prerelease) }}
       arch: arm64
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
@@ -686,11 +711,13 @@ jobs:
       label: macOS x64
       runner: blacksmith-12vcpu-macos-26
       platform: mac
-      target: ${{ needs.preflight.outputs.release_channel == 'preview' && 'dmg,zip' || 'dmg' }}
+      target: ${{ needs.build_bundle.outputs.mac_target }}
+      previous_mac_tag: ${{ needs.build_bundle.outputs.previous_mac_tag }}
+      is_prerelease: ${{ fromJSON(needs.preflight.outputs.is_prerelease) }}
       arch: x64
       rust_target: x86_64-apple-darwin
       resource_key: darwin-x64
-      launch_check: ${{ needs.preflight.outputs.release_channel == 'preview' }}
+      launch_check: ${{ needs.build_bundle.outputs.mac_target == 'dmg,zip' }}
       # No CLI archive: Node single-executables are unsupported on x64 macOS
       # (the SEA docs list macOS as arm64 only) and the built binary segfaults
       # on start. Both desktop packages ship a separate Node executable.
@@ -818,6 +845,10 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
+    concurrency:
+      group: publish-desktop-feed-${{ needs.preflight.outputs.release_channel }}
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: write
       # Release notes read PR bodies and authors.
@@ -834,6 +865,27 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Prevent a published Rune channel from reverting to Electron
+        if: needs.preflight.outputs.release_channel != 'preview' && hashFiles('scripts/smoke-rune-mac-upgrade.py') == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.preflight.outputs.release_channel }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > "$RUNNER_TEMP/published-desktop-tags"
+          while IFS= read -r tag; do
+            if [[ "$CHANNEL" == nightly ]]; then
+              [[ "$tag" =~ ^(nightly-)?v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || continue
+            else
+              [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+($|[-+]) && ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(nightly|preview)([.+]|$) ]] || continue
+            fi
+            launcher=$(git ls-tree "refs/tags/$tag" -- scripts/smoke-rune-mac-upgrade.py)
+            if [[ -n "$launcher" ]]; then
+              echo "Release $tag already ships Rune on $CHANNEL. Choose a release ref that supports Rune updates." >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/published-desktop-tags"
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ci-deps
