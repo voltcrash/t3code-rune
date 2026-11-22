@@ -37,6 +37,9 @@ impl Desktop {
         id: &str,
         tx: &mut rune::Tx,
     ) {
+        if self.pending {
+            return;
+        }
         let Some((attachment, details)) = self.timeline_attachment(watch, key, id) else {
             return;
         };
@@ -132,7 +135,7 @@ pub(super) fn header(
         )
         .child(label(&file.size, 12., 400., theme.text_secondary));
     if let Some(source) = &preview.source {
-        if file.kind == "markdown" {
+        if file.kind == "markdown" && source.can_render_markdown() {
             let (caption, glyph) = if preview.rendered {
                 (&labels.source, &glyphs::FILE_CODE)
             } else {

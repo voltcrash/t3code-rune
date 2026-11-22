@@ -99,7 +99,7 @@ fn file_card(
     let save = download_button(s, watch, &message.key, &file.id, name, download, theme);
     let trigger = super::workspace_files::attachment_trigger(&message.key, &file.id);
     let mut identity = row().grow(1.).min_w(0.).gap(8.).center_y().radius(8.);
-    if let Some(watch) = watch {
+    if let Some(watch) = watch.filter(|_| !s.pending) {
         let key = message.key.clone();
         let id = file.id.clone();
         let caption = labels.preview.replace("{name}", title);

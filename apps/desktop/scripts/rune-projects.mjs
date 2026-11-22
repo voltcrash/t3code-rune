@@ -1065,7 +1065,10 @@ function timelineFile(request) {
 async function previewAttachment(request, reply) {
   const record = watching;
   const result = { type: "filesource", operation: request.operation };
-  if (!record || record.id !== request.watch) return;
+  if (!record || record.id !== request.watch) {
+    if (!request.cancel) reply({ ...result, error: m(msg("The attachment is unavailable.")) });
+    return;
+  }
   if (request.cancel) {
     if (record.attachmentPreview?.operation === request.operation)
       record.attachmentPreview.controller.abort();
@@ -1100,9 +1103,11 @@ async function previewAttachment(request, reply) {
     );
     if (!signal.aborted && timelineFile(request)?.id === file.id)
       reply({ ...result, contents: source.text, truncated: source.truncated });
-    else if (!signal.aborted) reply({ ...result, error: m(msg("The attachment is unavailable.")) });
+    else if (!controller.signal.aborted)
+      reply({ ...result, error: m(msg("The attachment is unavailable.")) });
   } catch {
-    if (!signal.aborted) reply({ ...result, error: m(msg("Could not load this file.")) });
+    if (!controller.signal.aborted)
+      reply({ ...result, error: m(msg("Could not load this file.")) });
   } finally {
     if (record.attachmentPreview?.controller === controller) record.attachmentPreview = undefined;
   }

@@ -47,17 +47,30 @@ struct Source {
 }
 
 impl Source {
-    fn new(path: &str, contents: String, truncated: bool) -> Self {
-        let lines = std::iter::once(0)
+    fn new(path: &str, contents: String, truncated: bool, attachment: bool) -> Self {
+        let lines: Vec<_> = std::iter::once(0)
             .chain(contents.match_indices('\n').map(|(offset, _)| offset + 1))
             .collect();
-        let highlights = syntax::highlight(syntax::lang_for_path(path), &contents);
+        let highlights = if !attachment || Self::rich_text_fits(contents.len(), lines.len()) {
+            syntax::highlight(syntax::lang_for_path(path), &contents)
+        } else {
+            Rc::from([])
+        };
         Self {
             contents,
             lines,
             highlights,
             truncated,
         }
+    }
+
+    // Rune lays out rendered Markdown as one document. Larger attachments use virtual source rows.
+    fn rich_text_fits(bytes: usize, lines: usize) -> bool {
+        bytes <= 64 * 1024 && lines <= 512
+    }
+
+    fn can_render_markdown(&self) -> bool {
+        Self::rich_text_fits(self.contents.len(), self.lines.len())
     }
 
     fn line(&self, index: usize) -> Range<usize> {
@@ -217,7 +230,20 @@ impl Desktop {
         if let Some(p) = &mut self.workspace.file_preview
             && p.operation == operation
         {
-            p.source = contents.map(|text| Source::new(&p.path, text, truncated));
+            p.source = contents.map(|text| {
+                Source::new(
+                    &p.path,
+                    text,
+                    truncated,
+                    matches!(p.origin, Origin::Attachment(_)),
+                )
+            });
+            if p.source
+                .as_ref()
+                .is_some_and(|source| !source.can_render_markdown())
+            {
+                p.rendered = false;
+            }
             p.error = error;
         }
     }
@@ -330,7 +356,7 @@ fn source_view(app: &Desktop, preview: &Preview, theme: &tok::Theme, kit: &Kit) 
                 .child(super::action(
                     &labels.retry,
                     theme,
-                    true,
+                    !app.pending,
                     Desktop::reload_file_preview,
                 ));
         }
@@ -461,5 +487,21 @@ mod tests {
         assert_eq!(&source.contents[source.line(2)], "");
         let theme = syntax::SyntaxTheme::from_kit(&Kit::neutral(true));
         assert!(!source.spans(source.line(1), &theme).is_empty());
+        let preview = app.workspace.file_preview.as_mut().unwrap();
+        preview.path = "notes.md".into();
+        preview.origin = Origin::Attachment(Attachment {
+            watch: 3,
+            key: "row".into(),
+            id: "attachment".into(),
+            size: "600 KB".into(),
+            kind: "markdown".into(),
+        });
+        for text in ["a\n\n".repeat(200_000), "long paragraph ".repeat(8_000)] {
+            app.workspace.file_preview.as_mut().unwrap().rendered = true;
+            app.receive_file_source(12, Some(text), false, None);
+            let p = app.workspace.file_preview.as_ref().unwrap();
+            assert!(!p.rendered);
+            assert!(p.source.is_some());
+        }
     }
 }
