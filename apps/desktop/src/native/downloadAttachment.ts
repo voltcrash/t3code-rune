@@ -30,6 +30,35 @@ export const downloadDestination = Effect.fn("nativeDesktop.downloadDestination"
   }
 });
 
+export const downloadQueueKey = Effect.fn("nativeDesktop.downloadQueueKey")(function* (
+  destination: string,
+  active: Iterable<string>,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const folded = destination.normalize("NFD").toLowerCase();
+  for (const other of active) {
+    if (other === destination) return other;
+    if (other.normalize("NFD").toLowerCase() !== folded) continue;
+    let parent = path.dirname(destination);
+    while (!(yield* fs.exists(parent))) {
+      const next = path.dirname(parent);
+      if (parent === next) return yield* fs.realPath(parent);
+      parent = next;
+    }
+    const relative = path.relative(parent, destination);
+    const candidate = path.relative(parent, other);
+    if (candidate.startsWith(`..${path.sep}`) || path.isAbsolute(candidate)) continue;
+    // Ask the destination filesystem whether the two new names denote one entry.
+    const probe = yield* fs.makeTempDirectoryScoped({ directory: parent, prefix: ".t3-save-" });
+    const first = path.join(probe, relative);
+    yield* fs.makeDirectory(path.dirname(first), { recursive: true });
+    yield* fs.writeFile(first, new Uint8Array());
+    if (yield* fs.exists(path.join(probe, candidate))) return other;
+  }
+  return destination;
+}, Effect.scoped);
+
 export const downloadAttachment = Effect.fn("nativeDesktop.downloadAttachment")(function* (
   baseUrl: string,
   relativeUrl: string,

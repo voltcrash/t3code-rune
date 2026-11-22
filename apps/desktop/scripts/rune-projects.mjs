@@ -37,7 +37,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
-import { downloadAttachment, downloadDestination } from "../src/native/downloadAttachment.ts";
+import {
+  downloadAttachment,
+  downloadDestination,
+  downloadQueueKey,
+} from "../src/native/downloadAttachment.ts";
 import { AttachmentUnavailable } from "../src/native/attachments.ts";
 import { readImage, readRegistryIcon } from "../src/native/images.ts";
 import * as Semaphore from "effect/Semaphore";
@@ -1050,41 +1054,39 @@ async function prepareLanding(project, reply) {
   }
 }
 
-async function saveAttachment(request, reply) {
+function attachmentSave(request) {
   const record = watching;
   const row = record?.state.rows[record.state.indices.get(request.key)];
-  const attachment = row?.attachments.find((a) => a.file?.id === request.attachment);
-  if (!attachment?.file || record.id !== request.watch || record.owner !== session) {
-    return reply({ type: "downloaded", error: m(msg("The attachment is unavailable.")) });
-  }
+  const file = row?.attachments.find((a) => a.file?.id === request.attachment)?.file;
+  if (!file || record.id !== request.watch || record.owner !== session) return;
+  const owner = record.owner;
+  return (request, reply) => saveAttachment(owner, file, request.path, reply);
+}
+
+async function saveAttachment(owner, file, path, reply) {
   try {
     await Effect.runPromise(
-      openEnvironmentRpc(record.owner).pipe(
+      openEnvironmentRpc(owner).pipe(
         Effect.flatMap((rpc) =>
           rpc[WS_METHODS.assetsCreateUrl]({
             resource: {
               _tag: "attachment",
-              attachmentId: attachment.file.id,
+              attachmentId: file.id,
               disposition: "attachment",
             },
           }),
         ),
         Effect.flatMap(({ relativeUrl }) =>
-          downloadAttachment(
-            record.owner.httpBaseUrl,
-            relativeUrl,
-            attachment.file.bytes,
-            request.path,
-          ),
+          downloadAttachment(owner.httpBaseUrl, relativeUrl, file.bytes, path),
         ),
         Effect.scoped,
         attachmentDownloads.withPermits(1),
         Effect.timeout("5 minutes"),
-        Effect.provide(record.owner.http),
+        Effect.provide(owner.http),
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
       ),
-      { signal: record.owner.signal },
+      { signal: owner.signal },
     );
     reply({ type: "downloaded" });
   } catch {
@@ -1512,11 +1514,14 @@ try {
   let workspaceRequests = Promise.resolve();
   const downloads = new Map();
   let resolvingDownloads = Promise.resolve();
-  async function queueDownload(request, reply) {
-    let path;
+  async function queueDownload(request, reply, save) {
+    let path, key;
     try {
-      path = await Effect.runPromise(
+      [path, key] = await Effect.runPromise(
         downloadDestination(request.path).pipe(
+          Effect.flatMap((path) =>
+            downloadQueueKey(path, downloads.keys()).pipe(Effect.map((key) => [path, key])),
+          ),
           Effect.provide(NodeFileSystem.layer),
           Effect.provide(NodePathLayer.layer),
         ),
@@ -1526,8 +1531,6 @@ try {
       reply({ type: "downloaded", error: m(msg("Could not save file")) });
       return;
     }
-    const key = path.normalize("NFD").toLowerCase();
-    const save = request.type === "downloadplan" ? downloadPlan : saveAttachment;
     const previous = downloads.get(key) ?? Promise.resolve();
     const pending = previous.then(() => save({ ...request, path }, reply));
     downloads.set(key, pending);
@@ -1818,7 +1821,10 @@ try {
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
     } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {
-      resolvingDownloads = resolvingDownloads.then(() => queueDownload(request, reply));
+      const save = request.type === "downloadplan" ? downloadPlan : attachmentSave(request);
+      if (save)
+        resolvingDownloads = resolvingDownloads.then(() => queueDownload(request, reply, save));
+      else reply({ type: "downloaded", error: m(msg("The attachment is unavailable.")) });
     } else if (request?.type === "stoprun") {
       void interruptRun(session, request, reply);
     } else {

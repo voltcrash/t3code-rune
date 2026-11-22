@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { FetchHttpClient } from "effect/http";
-import { downloadAttachment, downloadDestination } from "./downloadAttachment.ts";
+import { downloadAttachment, downloadDestination, downloadQueueKey } from "./downloadAttachment.ts";
 
 it.effect("replaces the chosen file only after receiving the complete attachment", () =>
   Effect.gen(function* () {
@@ -21,6 +21,11 @@ it.effect("replaces the chosen file only after receiving the complete attachment
     yield* fs.remove(linkedFile);
     yield* fs.remove(linkedDirectory);
     yield* fs.writeFileString(path, "original");
+    const alternate = paths.join(directory, "REPORT.TXT");
+    const sameEntry = yield* fs.exists(alternate);
+    const upper = paths.join(directory, "NEW.TXT");
+    const lower = paths.join(directory, "new.txt");
+    expect(yield* downloadQueueKey(upper, [lower])).toBe(sameEntry ? lower : upper);
     const save = (content: string) =>
       downloadAttachment(
         "https://paired.example.test",
