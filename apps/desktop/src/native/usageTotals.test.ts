@@ -31,8 +31,42 @@ it("cancels the previous period read and publishes all hours of the newly select
     readAt: "2026-11-20T00:00:00Z",
     contractVersion: USAGE_CONTRACT_VERSION,
     scanDurationMs: 0,
-    buckets: [],
-    sources: [],
+    buckets: [
+      {
+        day: input.untilDay,
+        provider: "claude",
+        model: "example",
+        totals: {
+          uncachedInputTokens: 42,
+          cachedInputTokens: 0,
+          cacheCreationTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+        },
+        costUsd: 1,
+        cacheSavingsUsd: 0,
+        costSource: "modelPriced",
+        records: 1,
+        unpricedRecords: 0,
+        sessions: 1,
+      },
+    ],
+    sources: [
+      {
+        fingerprint: {
+          hostId: "fixture",
+          provider: "claude",
+          resolvedHomePath: "/fixture",
+          volumeId: "1",
+        },
+        status: "ok",
+        scannedFiles: 1,
+        skippedFiles: 0,
+        malformedRecords: 0,
+        distinctSessions: 1,
+        message: null,
+      },
+    ],
     pricing: { status: "unavailable", knownModels: 0, source: "fixture", fetchedAt: null },
   });
   const read = vi.fn((input: UsageSummaryInput) =>
@@ -57,6 +91,11 @@ it("cancels the previous period read and publishes all hours of the newly select
       publish.mock.calls.filter(([reply]) => !reply.loading).map(([reply]) => reply.selection),
     ).toEqual([2]);
     expect(publish.mock.lastCall?.[0].data?.periods).toHaveLength(24);
+    expect(publish.mock.lastCall?.[0].data?.total.tokens).toBe("42");
+    feed.filter(new Set(["claude"]));
+    expect(publish.mock.lastCall?.[0].data?.total.tokens).toBe("0");
+    feed.filter(new Set());
+    expect(publish.mock.lastCall?.[0].data?.total.tokens).toBe("42");
     feed.close();
     feed.refresh();
     expect(read).toHaveBeenCalledTimes(2);

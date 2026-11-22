@@ -1,5 +1,5 @@
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
-import { usageLabels, watchUsage } from "../src/native/usage.ts";
+import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
 import { openExternalUrl } from "./rune-external.mjs";
 import {
   CommandId,
@@ -156,6 +156,9 @@ function startWorkspaceFeed(owner, initial, watch) {
   const usageTotals = watchUsageTotals(owner, signal, (view) =>
     write({ type: "usagetotals", watch, ...view }),
   );
+  const hiddenProviders = new Set(usagePreferences().hiddenProviders);
+  usage.filter(hiddenProviders);
+  usageTotals.filter(hiddenProviders);
   let registryIcons = new Set();
   const configureProviders = watchSidebarProviders((instances, art) => {
     registryIcons = new Set(
@@ -840,7 +843,11 @@ function savePreference(name, value) {
 
 function validUsagePreferences(value) {
   return (
-    ["cost", "tokens", "limits"].includes(value?.metric) && [1, 7, 30, 90].includes(value.days)
+    ["cost", "tokens", "limits"].includes(value?.metric) &&
+    [1, 7, 30, 90].includes(value.days) &&
+    (value.hiddenProviders === undefined ||
+      (Array.isArray(value.hiddenProviders) &&
+        value.hiddenProviders.every((id) => usageProviders.includes(id))))
   );
 }
 let unsavedUsagePreferences;
@@ -1574,6 +1581,9 @@ try {
           break;
         case "preferences":
           if (validUsagePreferences(request.preferences)) {
+            const hidden = new Set(request.preferences.hiddenProviders);
+            feed.usage.filter(hidden);
+            feed.usageTotals.filter(hidden);
             try {
               savePreference("desktop-usage", JSON.stringify(request.preferences));
               unsavedUsagePreferences = undefined;

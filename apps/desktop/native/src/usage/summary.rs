@@ -2,6 +2,7 @@ use super::{Action, Labels};
 use crate::{Desktop, workspace};
 use rune::{Color, El, LineCap, Path, Shape, canvas, col, el, row, spacer, tok};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -12,8 +13,11 @@ pub(crate) enum Metric {
     Limits,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Preferences {
+    #[serde(default)]
+    hidden_providers: BTreeSet<String>,
     metric: Metric,
     days: u32,
 }
@@ -119,6 +123,8 @@ struct Totals {
 
 #[derive(Deserialize)]
 pub(crate) struct Reply {
+    #[serde(default, rename = "hiddenProviders")]
+    hidden: BTreeSet<String>,
     selection: u64,
     scope: Option<String>,
     loading: bool,
@@ -131,6 +137,7 @@ pub(crate) struct Reply {
 }
 
 pub(crate) struct Summary {
+    pub(super) hidden: BTreeSet<String>,
     pub(super) metric: Metric,
     days: u32,
     serial: u64,
@@ -142,6 +149,7 @@ pub(crate) struct Summary {
 impl Default for Summary {
     fn default() -> Self {
         Self {
+            hidden: BTreeSet::new(),
             metric: Metric::Limits,
             days: 30,
             serial: 0,
@@ -155,17 +163,19 @@ impl Default for Summary {
 impl Summary {
     pub(crate) fn restore(&mut self, preferences: Option<Preferences>) {
         if let Some(p) = preferences {
-            if self.metric != p.metric || self.days != p.days {
+            if self.metric != p.metric || self.days != p.days || self.hidden != p.hidden_providers {
                 self.clear();
             }
+            self.hidden = p.hidden_providers;
             self.metric = p.metric;
             self.days = p.days;
         }
     }
 
-    fn preferences(&self) -> Action<'static> {
+    pub(super) fn preferences(&self) -> Action<'static> {
         Action::Preferences {
             preferences: Preferences {
+                hidden_providers: self.hidden.clone(),
                 metric: self.metric,
                 days: self.days,
             },
@@ -200,7 +210,10 @@ impl Summary {
     }
 
     pub(crate) fn receive(&mut self, mut reply: Reply) {
-        if self.metric == Metric::Limits || reply.selection != self.serial {
+        if self.metric == Metric::Limits
+            || reply.selection != self.serial
+            || reply.hidden != self.hidden
+        {
             return;
         }
         if let Some(data) = &mut reply.data {
@@ -488,6 +501,36 @@ fn data_row(
         )))
 }
 
+pub(super) fn provider_mark(
+    desktop: &Desktop,
+    dark: bool,
+    theme: &tok::Theme,
+    provider: &str,
+    size: f32,
+) -> El {
+    let driver = if provider == "claude" {
+        "claudeAgent"
+    } else {
+        provider
+    };
+    let colors = crate::sidebar_providers::Colors {
+        rest: theme.text,
+        hovered: theme.text,
+    };
+    desktop
+        .workspace
+        .providers
+        .driver_mark(driver, false, dark, colors, size)
+        .unwrap_or_else(|| {
+            el().size(size, size).center().child(workspace::label(
+                &provider.chars().take(1).collect::<String>().to_uppercase(),
+                10.,
+                500.,
+                theme.text,
+            ))
+        })
+}
+
 pub(super) fn body(
     mut body: El,
     desktop: &Desktop,
@@ -497,29 +540,6 @@ pub(super) fn body(
     wide: bool,
 ) -> El {
     let summary = &desktop.workspace.usage.summary;
-    let provider_mark = |provider: &str, size| {
-        let driver = if provider == "claude" {
-            "claudeAgent"
-        } else {
-            provider
-        };
-        let colors = crate::sidebar_providers::Colors {
-            rest: theme.text,
-            hovered: theme.text,
-        };
-        desktop
-            .workspace
-            .providers
-            .driver_mark(driver, false, dark, colors, size)
-            .unwrap_or_else(|| {
-                el().size(size, size).center().child(workspace::label(
-                    &provider.chars().take(1).collect::<String>().to_uppercase(),
-                    10.,
-                    500.,
-                    theme.text,
-                ))
-            })
-    };
     let row_name = |name: &str| workspace::label(name, 13., 500., theme.text).truncate();
     let reply = summary.reply.as_ref();
     if let Some(error) = reply.and_then(|r| r.error.as_deref()) {
@@ -566,7 +586,7 @@ pub(super) fn body(
                         .gap(6.)
                         .center_y()
                         .child(el().size(8., 8.).radius(4.).fill(color(&p.driver, theme)))
-                        .child(provider_mark(&p.driver, 16.))
+                        .child(provider_mark(desktop, dark, theme, &p.driver, 16.))
                         .child(workspace::label(&p.name, 14., 500., theme.text).truncate())
                         .child(
                             workspace::label(&p.sessions, 11., 400., theme.text_secondary)
@@ -766,7 +786,7 @@ pub(super) fn body(
                             row()
                                 .gap(6.)
                                 .center_y()
-                                .child(provider_mark(&m.provider, 14.))
+                                .child(provider_mark(desktop, dark, theme, &m.provider, 14.))
                                 .child(row_name(&m.name)),
                         )
                         .child(

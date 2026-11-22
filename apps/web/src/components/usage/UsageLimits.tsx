@@ -11,6 +11,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
+  filterUsageLimitConfig,
   type LimitPace,
   paceOf,
   paceRemainingPercent,
@@ -399,30 +400,17 @@ export function UsageLimitsSection({
   readonly now: number;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
-  const hiddenDrivers = new Set<ServerProvider["driver"]>(
-    [...hiddenProviders].map((provider) => PROVIDER_PRESENTATION[provider].driverKind),
-  );
-  const isVisible = (driver: ServerProvider["driver"]) => !hiddenDrivers.has(driver);
   const selected = new Map(
     [...presentations].flatMap(([id, presentation]) => {
       if (selectedEnvironmentIds !== null && !selectedEnvironmentIds.has(id)) return [];
       const config = presentation.serverConfig;
-      if (hiddenDrivers.size === 0 || config === null) return [[id, presentation] as const];
+      if (hiddenProviders.size === 0 || config === null) return [[id, presentation] as const];
       return [
         [
           id,
           {
             ...presentation,
-            serverConfig: {
-              ...config,
-              providers: config.providers.filter((provider) => isVisible(provider.driver)),
-              usageLimitSources: config.usageLimitSources?.flatMap((source) => {
-                const accounts = source.accounts.filter((account) => isVisible(account.driver));
-                return accounts.length === 0 && source.accounts.length > 0
-                  ? []
-                  : [{ ...source, accounts }];
-              }),
-            },
+            serverConfig: { ...config, ...filterUsageLimitConfig(config, hiddenProviders) },
           },
         ] as const,
       ];

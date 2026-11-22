@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Tag the loading reply synchronously so a replaced query cannot publish with another query’s settings.
 import * as NodeCrypto from "node:crypto";
 import * as NodeUtil from "node:util";
-import { getProviderClient } from "@t3tools/client-runtime/provider-clients";
+import { usageProviderLabel } from "./usage.ts";
 import { usageSummaryInput } from "@t3tools/client-runtime/state/usage";
 import {
   EnvironmentAuthorizationError,
@@ -26,7 +26,7 @@ import {
   makeWindow,
 } from "@t3tools/shared/usageFormat";
 import { formatUsageContractMismatch, usageSourceMessages } from "@t3tools/shared/usageFormatCopy";
-import { isModelCostUnknown, mergeUsage } from "@t3tools/shared/usageMerge";
+import { filterUsageProviders, isModelCostUnknown, mergeUsage } from "@t3tools/shared/usageMerge";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -54,13 +54,9 @@ type Settings = Pick<
 type Period = 1 | 7 | 30 | 90;
 
 type Snapshot = { summary: UsageSummary; window: UsageSummaryInput };
-function providerLabel(kind: UsageProviderKind) {
-  if (kind === "claude") return "Claude Code";
-  if (kind === "grok") return "Grok Build";
-  return getProviderClient(kind)?.label ?? kind;
-}
-
-function totals(owner: Environment, { summary, window }: Snapshot) {
+function totals(owner: Environment, snapshot: Snapshot, hidden: ReadonlySet<UsageProviderKind>) {
+  const { window } = snapshot;
+  const summary = filterUsageProviders(snapshot.summary, hidden);
   const merged = mergeUsage(
     [{ environmentId: owner.environmentId, label: owner.label, summary }],
     USAGE_CONTRACT_VERSION,
@@ -175,7 +171,7 @@ function totals(owner: Environment, { summary, window }: Snapshot) {
             cost: formatUsd(p.costUsd, locale),
           }),
         ),
-        name: providerLabel(p.provider),
+        name: usageProviderLabel(p.provider),
         ...metric(p.costUsd, p.totalTokens),
       })),
       periods: periods.map((period) => {
@@ -212,6 +208,7 @@ export function watchUsageTotals(
   publish: (reply: {
     selection: number;
     scope?: string;
+    hiddenProviders: readonly UsageProviderKind[];
     data?: NonNullable<ReturnType<typeof totals>["data"]>;
     error?: string;
     loading: boolean;
@@ -225,8 +222,18 @@ export function watchUsageTotals(
   let selected: { id: number; days: Period } | undefined;
   let last: Snapshot | undefined;
   let scope: string | undefined;
-  const emit = (reply: Parameters<typeof publish>[0]) =>
-    publish(scope ? { ...reply, scope } : reply);
+  let hidden: ReadonlySet<UsageProviderKind> = new Set();
+  type Status = Omit<Parameters<typeof publish>[0], "hiddenProviders" | "scope" | "data">;
+  let status: Status | undefined;
+  const emit = (reply: Status) => {
+    status = reply;
+    publish({
+      ...(last && totals(owner, last, hidden)),
+      ...reply,
+      ...(scope && { scope }),
+      hiddenProviders: [...hidden],
+    });
+  };
   const stop = () => {
     request?.abort();
     request = undefined;
@@ -277,7 +284,7 @@ export function watchUsageTotals(
       .digest("hex");
     if (nextScope !== scope) last = undefined;
     scope = nextScope;
-    emit({ selection, loading: true, ...(last && totals(owner, last)) });
+    emit({ selection, loading: true });
     try {
       if (refresh)
         await Effect.runPromise(
@@ -304,13 +311,13 @@ export function watchUsageTotals(
       if (!value || value.sources.some((source) => source.refreshing)) {
         if (value) {
           last = { summary: value, window };
-          emit({ selection, loading: true, ...totals(owner, last) });
+          emit({ selection, loading: true });
         }
         value = await get({ awaitRefresh: true });
       }
       if (fresh()) {
         last = { summary: value, window };
-        emit({ selection, loading: false, ...totals(owner, last) });
+        emit({ selection, loading: false });
       }
     } catch (error) {
       if (!fresh()) return;
@@ -322,7 +329,6 @@ export function watchUsageTotals(
         selection,
         loading: false,
         retryable: !last,
-        ...(last && totals(owner, last)),
         error: m(msg("Couldn’t load usage. Try again.")),
       });
     } finally {
@@ -330,8 +336,7 @@ export function watchUsageTotals(
     }
   };
   const releaseLocale = onLocaleChange(() => {
-    if (selected && last)
-      emit({ selection: selected.id, loading: request !== undefined, ...totals(owner, last) });
+    if (selected && status) emit(status);
   });
   lifetime.addEventListener(
     "abort",
@@ -342,6 +347,11 @@ export function watchUsageTotals(
     { once: true },
   );
   return {
+    filter(next: ReadonlySet<UsageProviderKind>) {
+      if (next.size === hidden.size && [...next].every((p) => hidden.has(p))) return;
+      hidden = next;
+      if (selected && status) emit(status);
+    },
     configure(next: Settings | undefined, connected: Rpc | undefined) {
       const changed =
         rpc !== connected ||

@@ -15,6 +15,18 @@ export interface EnvironmentUsage {
   readonly summary: UsageSummary;
 }
 
+export function filterUsageProviders(
+  summary: UsageSummary,
+  hidden: ReadonlySet<UsageProviderKind>,
+): UsageSummary {
+  if (hidden.size === 0) return summary;
+  return {
+    ...summary,
+    buckets: summary.buckets.filter((bucket) => !hidden.has(bucket.provider)),
+    sources: summary.sources.filter((source) => !hidden.has(source.fingerprint.provider)),
+  };
+}
+
 export interface ProviderTotals {
   readonly provider: UsageProviderKind;
   readonly costUsd: number;

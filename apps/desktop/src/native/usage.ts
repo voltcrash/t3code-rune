@@ -1,10 +1,11 @@
 import * as Fiber from "effect/Fiber";
 import { getProviderClient } from "@t3tools/client-runtime/provider-clients";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
-import { WS_METHODS, type ServerConfig } from "@t3tools/contracts";
+import { WS_METHODS, type ServerConfig, type UsageProviderKind } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
   collectLimitPools,
+  filterUsageLimitConfig,
   displayLimitWindows,
   remainingPercent,
   type LimitAccount,
@@ -28,9 +29,34 @@ type Rpc = Pick<
 type LimitConfig = Pick<ServerConfig, "providers" | "usageLimitSources">;
 type Environment = Pick<Session, "environmentId" | "label">;
 
+export const usageProviders = [
+  "codex",
+  "claude",
+  "grok",
+  "cursor",
+  "opencode",
+  "antigravity",
+  "pi",
+  "muse",
+] as const satisfies readonly UsageProviderKind[];
+
+export function usageProviderLabel(kind: UsageProviderKind) {
+  if (kind === "claude") return "Claude Code";
+  if (kind === "grok") return "Grok Build";
+  return getProviderClient(kind)?.label ?? kind;
+}
+
 export function usageLabels() {
   return {
     usage: m(msg("Usage")),
+    providers: usageProviders.map((id) => ({ id, name: usageProviderLabel(id) })),
+    allProviders: m(msg("All providers")),
+    noProviders: m(msg("No providers")),
+    providerCounts: usageProviders.map((_, i) =>
+      m(
+        msg("{count, plural, one {{count} providers} other {{count} providers}}", { count: i + 1 }),
+      ),
+    ),
     cost: m(msg("Cost")),
     tokens: m(msg("Tokens")),
     periods: [m(msg("Past 24h")), m(msg("7 days")), m(msg("30 days")), m(msg("90 days"))],
@@ -81,9 +107,20 @@ function accountIdentity(account: LimitAccount) {
   };
 }
 
-function limitsView(owner: Environment, config: LimitConfig, now: number) {
+function limitsView(
+  owner: Environment,
+  config: LimitConfig,
+  now: number,
+  hidden: ReadonlySet<UsageProviderKind>,
+) {
   const presentations = new Map([
-    [owner.environmentId, { entry: { target: { label: owner.label } }, serverConfig: config }],
+    [
+      owner.environmentId,
+      {
+        entry: { target: { label: owner.label } },
+        serverConfig: filterUsageLimitConfig(config, hidden),
+      },
+    ],
   ]);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   return {
@@ -112,11 +149,13 @@ export function watchUsage(
   signal: AbortSignal,
   publish: (value: {
     labels: ReturnType<typeof usageLabels>;
+    hiddenProviders: readonly UsageProviderKind[];
     result: ReturnType<typeof limitsView> | null;
     refreshing: boolean;
     error: string | null;
   }) => void,
 ) {
+  let hidden: ReadonlySet<UsageProviderKind> = new Set();
   let config: LimitConfig | undefined;
   let rpc: Rpc | undefined;
   let open = false;
@@ -130,11 +169,19 @@ export function watchUsage(
   };
   const emit = () => {
     if (open && !signal.aborted)
-      publish({ labels: usageLabels(), result, refreshing: pending !== undefined, error });
+      publish({
+        labels: usageLabels(),
+        hiddenProviders: [...hidden],
+        result,
+        refreshing: pending !== undefined,
+        error,
+      });
   };
   const update = () => {
     if (!open || signal.aborted) return;
-    result = config ? limitsView(owner, config, Effect.runSync(Clock.currentTimeMillis)) : null;
+    result = config
+      ? limitsView(owner, config, Effect.runSync(Clock.currentTimeMillis), hidden)
+      : null;
     emit();
     clearCountdown();
     if (
@@ -197,6 +244,11 @@ export function watchUsage(
     { once: true },
   );
   return {
+    filter(next: ReadonlySet<UsageProviderKind>) {
+      if (next.size === hidden.size && [...next].every((p) => hidden.has(p))) return;
+      hidden = next;
+      update();
+    },
     configure(next: LimitConfig | undefined, connection: Rpc | undefined) {
       const reconnect = rpc !== connection;
       if (reconnect) cancel();
