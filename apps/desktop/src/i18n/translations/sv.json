@@ -173,5 +173,15 @@
   "dc429ef6ac7de65e": "Kunde inte spara filen",
   "d4864819331ed9fc": "Ladda ned {label}",
   "87f63288c0f1ca07": "Inklistrad text",
-  "c336d59042368fd6": "Fil"
+  "c336d59042368fd6": "Fil",
+  "bacac727c7de559b": "Kunde inte läsa in den här filen.",
+  "4f00cfe133e762ce": "Bilaga",
+  "be81d23df7815697": "Kopiera innehåll",
+  "8786460a01af7046": "Kopiera förhandsvisning",
+  "e1ba587e45a0e779": "Visa källa",
+  "cb93b10c61d3cc72": "Visa renderad Markdown",
+  "144d46d5ec50e5bc": "Ingen förhandsvisning för den här filen",
+  "40d67da2e98bb2ff": "Läser in fil",
+  "c83a38913b99b42b": "Förhandsvisningen är begränsad till den första 1 MB. Spara filen för att läsa hela.",
+  "fe8ed6127f1d8a28": "Försök igen"
 }

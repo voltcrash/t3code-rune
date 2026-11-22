@@ -1,4 +1,8 @@
+#[path = "workspace_files/attachment.rs"]
+mod attachment;
 use super::{Desktop, Request, Topbar, action_with_tx, label};
+use attachment::Attachment;
+pub(in crate::workspace) use attachment::trigger as attachment_trigger;
 use rune::{El, GrowthSpec, Span, TextStyle, col, el, rich, row, tok};
 use rune_kit::{Kit, syntax};
 use serde::Serialize;
@@ -20,8 +24,15 @@ pub(crate) enum Input {
     List { directory: String, cancel: bool },
 }
 
+#[derive(Clone)]
+enum Origin {
+    Workspace(Location),
+    Attachment(Attachment),
+}
+
 pub(crate) struct Preview {
-    location: Location,
+    origin: Origin,
+    rendered: bool,
     operation: u64,
     path: String,
     source: Option<Source>,
@@ -114,20 +125,36 @@ impl Desktop {
 
     pub(crate) fn close_file_preview(&mut self) {
         if let Some(p) = self.workspace.file_preview.take() {
-            self.file_request(
-                p.location,
-                p.operation,
-                Input::Read {
-                    path: p.path,
-                    cancel: true,
-                },
-            );
+            match p.origin {
+                Origin::Workspace(location) => self.file_request(
+                    location,
+                    p.operation,
+                    Input::Read {
+                        path: p.path,
+                        cancel: true,
+                    },
+                ),
+                Origin::Attachment(file) if file.reads_text() => {
+                    self.write_request(None, file.request(p.operation, true));
+                }
+                Origin::Attachment(_) => {}
+            }
         }
     }
 
     pub(crate) fn dismiss_file_preview(&mut self, tx: &mut rune::Tx) {
+        let trigger =
+            self.workspace
+                .file_preview
+                .as_ref()
+                .and_then(|preview| match &preview.origin {
+                    Origin::Attachment(file) => Some(attachment_trigger(&file.key, &file.id)),
+                    Origin::Workspace(_) => None,
+                });
         self.close_file_preview();
-        if self.workspace.explorer.is_some() {
+        if let Some(key) = trigger {
+            tx.focus_when_shown(key, true);
+        } else if self.workspace.explorer.is_some() {
             tx.focus_when_shown("workspace-tree", true);
         }
     }
@@ -137,9 +164,11 @@ impl Desktop {
             return;
         }
         self.close_diff();
+        self.close_file_preview();
         let operation = self.next_request_id();
         self.workspace.file_preview = Some(Preview {
-            location: location.clone(),
+            origin: Origin::Workspace(location.clone()),
+            rendered: false,
             operation,
             path: path.clone(),
             source: None,
@@ -156,8 +185,25 @@ impl Desktop {
     }
 
     pub(super) fn reload_file_preview(&mut self) {
-        if let Some(p) = &self.workspace.file_preview {
-            self.open_workspace_file(p.location.clone(), p.path.clone());
+        let Some(p) = &self.workspace.file_preview else {
+            return;
+        };
+        match &p.origin {
+            Origin::Workspace(location) => {
+                self.open_workspace_file(location.clone(), p.path.clone())
+            }
+            Origin::Attachment(file) => {
+                if !file.reads_text() {
+                    return;
+                }
+                let file = file.clone();
+                let operation = self.next_request_id();
+                if let Some(p) = &mut self.workspace.file_preview {
+                    p.operation = operation;
+                    p.error = None;
+                }
+                self.write_request(None, file.request(operation, false));
+            }
         }
     }
 
@@ -182,11 +228,18 @@ impl Desktop {
                 || self.new_threads.active.is_some()
                 || self.thread_workspace_root() != Some(location.root.as_str())
         };
-        let preview_changed = self
-            .workspace
-            .file_preview
-            .as_ref()
-            .is_some_and(|p| changed(&p.location));
+        let preview_changed =
+            self.workspace
+                .file_preview
+                .as_ref()
+                .is_some_and(|p| match &p.origin {
+                    Origin::Workspace(location) => changed(location),
+                    Origin::Attachment(file) => self
+                        .timeline_attachment(file.watch, &file.key, &file.id)
+                        .is_none_or(|(a, f)| {
+                            a.name != p.path || f.kind != file.kind || f.size != file.size
+                        }),
+                });
         let search_changed = self.file_search_location().is_some_and(changed);
         if self
             .workspace
@@ -215,27 +268,31 @@ pub(super) fn view(
     let Some(preview) = &app.workspace.file_preview else {
         return el();
     };
-    let header = row()
-        .h(bar.height)
-        .window_drag()
-        .center_y()
-        .pl(bar.leading + 12.)
-        .pr(bar.trailing + 12.)
-        .gap(8.)
-        .child(rune::icon(rune_kit::file_icon(&preview.path), 16.).color(theme.text_secondary))
-        .child(
-            label(&preview.path, 13., 500., theme.text)
-                .grow(1.)
-                .min_w(0.)
-                .truncate()
-                .help(&preview.path),
-        )
-        .child(action_with_tx(
-            "Close file",
-            theme,
-            true,
-            Desktop::dismiss_file_preview,
-        ));
+    let header = if let Origin::Attachment(file) = &preview.origin {
+        attachment::header(app, file, preview, theme, bar)
+    } else {
+        row()
+            .h(bar.height)
+            .window_drag()
+            .center_y()
+            .pl(bar.leading + 12.)
+            .pr(bar.trailing + 12.)
+            .gap(8.)
+            .child(rune::icon(rune_kit::file_icon(&preview.path), 16.).color(theme.text_secondary))
+            .child(
+                label(&preview.path, 13., 500., theme.text)
+                    .grow(1.)
+                    .min_w(0.)
+                    .truncate()
+                    .help(&preview.path),
+            )
+            .child(action_with_tx(
+                "Close file",
+                theme,
+                true,
+                Desktop::dismiss_file_preview,
+            ))
+    };
     let panel = col()
         .grow(1.)
         .min_w(0.)
@@ -246,7 +303,7 @@ pub(super) fn view(
         .grow(1.)
         .min_h(0.)
         .w_full()
-        .child(source_view(preview, theme, kit));
+        .child(source_view(app, preview, theme, kit));
     if let Some(tree) = tree {
         body = body
             .child(el().w(1.).h_full().fill(theme.separator))
@@ -255,12 +312,35 @@ pub(super) fn view(
     panel.child(body)
 }
 
-fn source_view(preview: &Preview, theme: &tok::Theme, kit: &Kit) -> El {
+fn source_view(app: &Desktop, preview: &Preview, theme: &tok::Theme, kit: &Kit) -> El {
     let mut panel = col().grow(1.).min_w(0.).min_h(0.);
+    let labels = &app.workspace.attachment_labels;
+    let attachment = matches!(preview.origin, Origin::Attachment(_));
+    if matches!(&preview.origin, Origin::Attachment(file) if !file.reads_text()) {
+        return panel
+            .center()
+            .child(label(&labels.no_preview, 14., 500., theme.text).wrap());
+    }
     let Some(source) = &preview.source else {
+        if attachment && let Some(error) = &preview.error {
+            return panel
+                .center()
+                .gap(8.)
+                .child(label(error, 13., 400., theme.text_secondary).wrap())
+                .child(super::action(
+                    &labels.retry,
+                    theme,
+                    true,
+                    Desktop::reload_file_preview,
+                ));
+        }
         return panel.child(
             label(
-                preview.error.as_deref().unwrap_or("Loading file…"),
+                preview.error.as_deref().unwrap_or(if attachment {
+                    &labels.loading
+                } else {
+                    "Loading file…"
+                }),
                 13.,
                 400.,
                 theme.text_secondary,
@@ -271,9 +351,34 @@ fn source_view(preview: &Preview, theme: &tok::Theme, kit: &Kit) -> El {
     };
     if source.truncated {
         panel = panel.child(
-            label("File preview truncated.", 12., 400., theme.text_secondary)
-                .px(12.)
-                .py(4.),
+            label(
+                if attachment {
+                    &labels.truncated
+                } else {
+                    "File preview truncated."
+                },
+                12.,
+                400.,
+                theme.text_secondary,
+            )
+            .px(12.)
+            .py(4.),
+        );
+    }
+    if preview.rendered {
+        return panel.child(
+            col()
+                .grow(1.)
+                .min_h(0.)
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(
+                    rune_kit::Markdown::new(&source.contents)
+                        .selectable(true)
+                        .build(kit)
+                        .padding(12.),
+                ),
         );
     }
     let syntax = syntax::SyntaxTheme::from_kit(kit);
@@ -336,10 +441,11 @@ mod tests {
     fn late_read_cannot_replace_the_selected_source() {
         let mut app = Desktop::new();
         app.workspace.file_preview = Some(Preview {
-            location: Location {
+            rendered: false,
+            origin: Origin::Workspace(Location {
                 watch: 3,
                 root: "/repo".into(),
-            },
+            }),
             operation: 12,
             path: "src/main.rs".into(),
             source: None,

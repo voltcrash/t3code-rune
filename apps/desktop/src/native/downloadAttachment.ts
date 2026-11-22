@@ -60,19 +60,28 @@ export const downloadQueueKey = Effect.fn("nativeDesktop.downloadQueueKey")(func
   return destination;
 }, Effect.scoped);
 
+export const attachmentResponse = Effect.fn("nativeDesktop.attachmentResponse")(function* (
+  baseUrl: string,
+  relativeUrl: string,
+  range?: string,
+) {
+  const url = new URL(relativeUrl, baseUrl);
+  const invalid = new AttachmentUnavailable({ message: "The attachment is unavailable." });
+  if (url.origin !== new URL(baseUrl).origin) return yield* invalid;
+  const client = HttpClient.withScope(HttpClient.filterStatusOk(yield* HttpClient.HttpClient));
+  return yield* client
+    .get(url, { headers: range ? { Range: range } : {} })
+    .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }));
+});
+
 export const downloadAttachment = Effect.fn("nativeDesktop.downloadAttachment")(function* (
   baseUrl: string,
   relativeUrl: string,
   expectedBytes: number,
   destination: string,
 ) {
-  const url = new URL(relativeUrl, baseUrl);
   const invalid = new AttachmentUnavailable({ message: "The attachment is unavailable." });
-  if (url.origin !== new URL(baseUrl).origin) return yield* invalid;
-  const client = HttpClient.withScope(HttpClient.filterStatusOk(yield* HttpClient.HttpClient));
-  const response = yield* client
-    .get(url)
-    .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }));
+  const response = yield* attachmentResponse(baseUrl, relativeUrl);
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const temporary = yield* fs.makeTempFileScoped({

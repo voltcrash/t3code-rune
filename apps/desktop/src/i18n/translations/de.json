@@ -173,5 +173,15 @@
   "dc429ef6ac7de65e": "Datei konnte nicht gespeichert werden",
   "d4864819331ed9fc": "{label} herunterladen",
   "87f63288c0f1ca07": "Eingefügter Text",
-  "c336d59042368fd6": "Datei"
+  "c336d59042368fd6": "Datei",
+  "bacac727c7de559b": "Diese Datei konnte nicht geladen werden.",
+  "4f00cfe133e762ce": "Anhang",
+  "be81d23df7815697": "Inhalt kopieren",
+  "8786460a01af7046": "Vorschau kopieren",
+  "e1ba587e45a0e779": "Quelltext anzeigen",
+  "cb93b10c61d3cc72": "Gerendertes Markdown anzeigen",
+  "144d46d5ec50e5bc": "Keine Vorschau für diese Datei",
+  "40d67da2e98bb2ff": "Datei wird geladen",
+  "c83a38913b99b42b": "Vorschau auf das erste 1 MB begrenzt. Speichere die Datei, um sie vollständig zu lesen.",
+  "fe8ed6127f1d8a28": "Erneut versuchen"
 }

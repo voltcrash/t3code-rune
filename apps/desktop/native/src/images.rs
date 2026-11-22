@@ -15,6 +15,7 @@ pub(super) struct Attachment {
 pub(super) struct FileCard {
     pub(super) id: String,
     pub(super) size: String,
+    pub(super) kind: String,
     pub(super) extension: Option<String>,
     pub(super) pasted: bool,
 }

@@ -173,5 +173,15 @@
   "dc429ef6ac7de65e": "No se pudo guardar el archivo",
   "d4864819331ed9fc": "Descargar {label}",
   "87f63288c0f1ca07": "Texto pegado",
-  "c336d59042368fd6": "Archivo"
+  "c336d59042368fd6": "Archivo",
+  "bacac727c7de559b": "No se pudo cargar este archivo.",
+  "4f00cfe133e762ce": "Adjunto",
+  "be81d23df7815697": "Copiar contenido",
+  "8786460a01af7046": "Copiar vista previa",
+  "e1ba587e45a0e779": "Mostrar el código fuente",
+  "cb93b10c61d3cc72": "Mostrar el markdown renderizado",
+  "144d46d5ec50e5bc": "No hay vista previa para este archivo",
+  "40d67da2e98bb2ff": "Cargando el archivo",
+  "c83a38913b99b42b": "Vista previa limitada al primer MB. Guarda el archivo para leerlo completo.",
+  "fe8ed6127f1d8a28": "Volver a intentar"
 }

@@ -40,6 +40,7 @@ import { pendingRequests } from "./runtimeRequests.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
+import { filePreviewKind, type FilePreviewKind } from "@t3tools/shared/filePreview";
 import { formatBytes } from "@t3tools/shared/formatBytes";
 import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
@@ -63,7 +64,14 @@ type Row = {
   attachments: Array<{
     name: string;
     image?: string;
-    file?: { id: string; bytes: number; size: string; extension?: string; pasted: boolean };
+    file?: {
+      id: string;
+      bytes: number;
+      size: string;
+      extension?: string;
+      pasted: boolean;
+      kind: FilePreviewKind;
+    };
   }>;
   caption?: string;
   plan?: { filename: string; start: number; collapsible: boolean; preview_end?: number };
@@ -160,6 +168,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
         name,
         file: {
           id: a.id,
+          kind: filePreviewKind(a),
           bytes: a.sizeBytes,
           size: formatBytes(a.sizeBytes),
           ...(extension ? { extension } : {}),
@@ -355,6 +364,7 @@ function sameRow(a: Row, b: Row) {
         value.name === b.attachments[i]?.name &&
         value.image === b.attachments[i]?.image &&
         value.file?.id === b.attachments[i]?.file?.id &&
+        value.file?.kind === b.attachments[i]?.file?.kind &&
         value.file?.bytes === b.attachments[i]?.file?.bytes &&
         value.file?.pasted === b.attachments[i]?.file?.pasted,
     )
