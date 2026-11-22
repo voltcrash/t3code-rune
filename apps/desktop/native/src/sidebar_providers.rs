@@ -273,14 +273,9 @@ impl Catalog {
             }
         } else if driver == "antigravity" {
             tile.pixels_fit(antigravity(previous), rune::SurfaceFit::Fit)
-        } else if let Some(image) = self
-            .art
-            .get(driver)
-            .and_then(|art| art.pixels(dark, previous))
-        {
-            tile.pixels_fit(image, rune::SurfaceFit::Fit)
         } else {
-            return None;
+            let image = self.art.get(driver)?.pixels(dark, previous)?;
+            tile.pixels_fit(image, rune::SurfaceFit::Fit)
         })
     }
 

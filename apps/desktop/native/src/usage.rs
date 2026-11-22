@@ -351,8 +351,9 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .build(&kit)
         .key("usage-refresh")
         .size(26., 26.)
-        .disabled(!can_refresh)
-        .on_press(|s: &mut Desktop| {
+        .disabled(!can_refresh);
+    let refresh = if can_refresh {
+        refresh.on_press(|s: &mut Desktop| {
             s.usage_action(
                 if s.workspace.usage.summary.metric == summary::Metric::Limits {
                     Action::Refresh
@@ -360,7 +361,10 @@ pub(super) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                     Action::RefreshSummary
                 },
             )
-        });
+        })
+    } else {
+        refresh
+    };
     let mut header = row()
         .w_full()
         .h(46.)
