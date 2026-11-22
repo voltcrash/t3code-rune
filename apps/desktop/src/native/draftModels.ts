@@ -145,6 +145,7 @@ export function watchDraftModels(
   signal: AbortSignal,
   projectById: (id: string) => ProjectRow | undefined,
   environment: string,
+  onEditorConfig: (config: ServerConfig | undefined, rpc: Rpc | undefined) => void,
 ) {
   let rpc: Rpc | undefined;
   let selected:
@@ -194,6 +195,7 @@ export function watchDraftModels(
     controller?.abort();
     controller = undefined;
     current = Option.none();
+    onEditorConfig(undefined, undefined);
     published = undefined;
     publishBanner();
     if ((!selected && !bannerTarget) || !rpc) return;
@@ -213,6 +215,7 @@ export function watchDraftModels(
             const previous = Option.getOrUndefined(current)?.config;
             current = applyServerConfigProjection(current, event);
             const config = Option.getOrUndefined(current)?.config;
+            if (previous !== config) onEditorConfig(config, connected);
             if (
               previous?.providers !== config?.providers ||
               previous?.settings !== config?.settings ||
@@ -228,6 +231,7 @@ export function watchDraftModels(
           Effect.sync(() => {
             if (!lifetime.aborted) {
               current = Option.none();
+              onEditorConfig(undefined, undefined);
               publishBanner();
             }
           }),

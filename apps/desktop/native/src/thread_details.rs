@@ -40,11 +40,14 @@ pub(crate) struct Settings {
     machine: Option<String>,
     windows: bool,
     environment: bool,
+    #[serde(rename = "openIn", default)]
+    open_in: bool,
     labels: Labels,
 }
 
 enum ContextAction {
     Checkout,
+    Editor,
     Copy { point: (f32, f32) },
 }
 
@@ -54,6 +57,10 @@ struct ContextMenu {
 }
 
 impl Settings {
+    fn enabled(&self) -> bool {
+        self.environment || self.open_in
+    }
+
     pub(super) fn toggle_label(&self) -> &str {
         &self.labels.toggle
     }
@@ -62,6 +69,7 @@ impl Settings {
 #[derive(Default)]
 pub(crate) struct Details {
     pub(crate) settings: Option<Settings>,
+    pub(crate) editor: Option<editor::Catalog>,
     mounted: Cell<bool>,
     inline: Cell<bool>,
     popup: Option<(bool, String)>,
@@ -136,7 +144,7 @@ impl Desktop {
             .details
             .settings
             .as_ref()
-            .is_some_and(|s| s.environment)
+            .is_some_and(Settings::enabled)
             && self.details_target().is_some()
     }
 
@@ -145,8 +153,15 @@ impl Desktop {
             return;
         };
         let details = &self.workspace.details;
-        let Some(settings) = details.settings.as_ref().filter(|s| s.environment) else {
+        let Some(settings) = details.settings.as_ref().filter(|s| s.enabled()) else {
             return;
+        };
+        let focus = if settings.environment {
+            "details-context"
+        } else if details.editor.as_ref().is_some_and(|c| c.can_choose) {
+            "choose-editor"
+        } else {
+            "toggle-thread-details"
         };
         let focus_row = if details.inline.get() {
             let Some(watch) = self.workspace.feed else {
@@ -187,7 +202,7 @@ impl Desktop {
         self.workspace.details.menu = None;
         tx.focus_when_shown(
             if focus_row {
-                "details-context"
+                focus
             } else {
                 "toggle-thread-details"
             },
@@ -208,8 +223,15 @@ impl Desktop {
         if !details.mounted.get() {
             return false;
         }
-        if details.menu.take().is_some() {
-            tx.focus_when_shown("details-context", true);
+        if let Some(menu) = details.menu.take() {
+            tx.focus_when_shown(
+                if matches!(menu.action, ContextAction::Editor) {
+                    "choose-editor"
+                } else {
+                    "details-context"
+                },
+                true,
+            );
         } else if details.popup.take().is_some() {
             tx.focus_when_shown("toggle-thread-details", true);
         } else {
@@ -228,9 +250,10 @@ impl Desktop {
             !same(&m.target)
                 || close_popup
                 || if inline {
-                    details.settings.as_ref().is_none_or(|s| {
-                        !s.environment || s.hidden.contains(m.target.0, &m.target.1)
-                    })
+                    details
+                        .settings
+                        .as_ref()
+                        .is_none_or(|s| !s.enabled() || s.hidden.contains(m.target.0, &m.target.1))
                 } else {
                     details.popup.is_none()
                 }
@@ -259,7 +282,7 @@ pub(super) fn layout(
     details.inline.set(inline);
     let card = inline
         && details.settings.as_ref().is_some_and(|settings| {
-            settings.environment
+            settings.enabled()
                 && s.details_target()
                     .is_some_and(|(draft, id)| !settings.hidden.contains(draft, id))
         });
@@ -293,10 +316,12 @@ pub(super) const DETAILS_ICON: Icon = Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h.01M10 8h7M7 12h.01M10 12h7M7 16h.01M10 16h7"/></g>"#,
 };
 
+#[path = "thread_details/editor.rs"]
+pub(crate) mod editor;
 #[path = "thread_details/icons.rs"]
 mod icons;
 
-fn contents(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
+fn context_row(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
     let labels = &settings.labels;
     let thread = s.workspace.visible_thread();
     let path = s.details_path();
@@ -371,10 +396,20 @@ fn contents(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
     } else {
         control = control.role("group");
     }
-    col()
-        .w(WIDTH)
-        .padding(9.)
-        .child(el().key("details-context-trigger").w_full().child(control))
+    el().key("details-context-trigger").w_full().child(control)
+}
+
+fn contents(s: &Desktop, settings: &Settings, theme: &tok::Theme) -> El {
+    let mut rows = col().w(WIDTH).padding(9.);
+    if settings.environment {
+        rows = rows.child(context_row(s, settings, theme));
+    }
+    if settings.open_in
+        && let Some(editor) = &s.workspace.details.editor
+    {
+        rows = rows.child(editor.row(s, theme));
+    }
+    rows
 }
 
 pub(super) fn menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
@@ -391,6 +426,12 @@ pub(super) fn menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
         .open(true)
         .on_close(|s: &mut Desktop| s.workspace.details.menu = None);
     match action {
+        ContextAction::Editor => {
+            if let Some(editor) = &s.workspace.details.editor {
+                editor.menu().build(kit, overlays);
+            }
+            return;
+        }
         ContextAction::Copy { point } => {
             menu = menu.at(point.0, point.1).item(
                 MenuItem::new(&settings.labels.copy_path)

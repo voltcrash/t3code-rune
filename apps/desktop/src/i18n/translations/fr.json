@@ -146,5 +146,16 @@
   "eb9abdcd6098fa3b": "Checkout actuel",
   "bc90899d284f2b0a": "Checkout local",
   "c7fe4313def0ef2f": "Nouveau worktree",
-  "854ac9752dd178d6": "Copier le chemin complet"
+  "854ac9752dd178d6": "Copier le chemin complet",
+  "4cccab9851a403bc": "Impossible d’enregistrer l’éditeur préféré.",
+  "c819cdbc9c17bd58": "Impossible d’ouvrir l’espace de travail dans l’éditeur sélectionné.",
+  "6d5a8b471a561b9d": "Explorateur de fichiers",
+  "83a174f9e78fe2f1": "Fichiers",
+  "2efbbd9bb89efd31": "Ouvrir dans {editor}",
+  "c3b46a31a4d3999b": "Ouvrir dans l’éditeur",
+  "3dc681f293a3d077": "Choisir un éditeur",
+  "64a9a7f137f4715b": "Aucune route SSH vers {environment}",
+  "b99f09d2d9df18ad": "Aucun éditeur installé trouvé",
+  "392611fdc89f2809": "Ouvert dans {editor}",
+  "c77307f0c52b5031": "S’ouvre via SSH. Nécessite votre clé sur {environment}"
 }

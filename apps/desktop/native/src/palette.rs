@@ -22,6 +22,7 @@ enum Action {
     GoToFile,
     ToggleFiles,
     ToggleDetails,
+    OpenEditor,
     OpenFile,
     Settings,
     CheckUpdates,
@@ -52,6 +53,7 @@ impl Action {
             Self::GoToFile => "go-to-file".into(),
             Self::ToggleFiles => "toggle-files".into(),
             Self::ToggleDetails => "toggle-thread-details".into(),
+            Self::OpenEditor => "open-editor".into(),
             Self::OpenFile => unreachable!(),
         }
     }
@@ -67,6 +69,14 @@ impl Action {
             Self::Settings => "Settings",
             Self::GoToFile => "Go to file",
             Self::ToggleFiles => "Toggle right panel",
+            Self::OpenEditor => {
+                return ws
+                    .details
+                    .editor
+                    .as_ref()
+                    .map_or("Open in editor", |c| c.open_label())
+                    .into();
+            }
             Self::ToggleDetails => {
                 return ws
                     .details
@@ -104,6 +114,8 @@ impl Action {
             Self::ToggleTerminal => "Ctrl+J",
             Self::GoToFile if cfg!(target_os = "macos") => "⌘P",
             Self::GoToFile => "Ctrl+P",
+            Self::OpenEditor if cfg!(target_os = "macos") => "⌘O",
+            Self::OpenEditor => "Ctrl+O",
             Self::ToggleDetails if cfg!(target_os = "macos") => "⇧⌘B",
             Self::ToggleDetails => "Ctrl+Shift+B",
             Self::ToggleFiles if cfg!(target_os = "macos") => "⌥⌘B",
@@ -121,6 +133,7 @@ impl Action {
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
             Self::ToggleFiles => &super::workspace_tree::PANEL_ICON,
             Self::ToggleDetails => &super::thread_details::DETAILS_ICON,
+            Self::OpenEditor => &super::thread_details::editor::OPEN,
             Self::Settings => &crate::appearance::GEAR,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
@@ -152,6 +165,7 @@ struct Available {
     terminal: bool,
     files: bool,
     details: bool,
+    editor: bool,
 }
 
 struct Item {
@@ -249,6 +263,9 @@ impl Palette {
                 command(Action::Settings);
                 command(Action::CheckUpdates);
                 command(Action::ToggleSidebar);
+                if available.editor {
+                    command(Action::OpenEditor);
+                }
                 if available.details {
                     command(Action::ToggleDetails);
                 }
@@ -486,6 +503,7 @@ impl Desktop {
             terminal: self.terminal_available(),
             files: self.file_location().is_some(),
             details: self.can_show_details(),
+            editor: self.can_open_editor(),
         };
         if let Some(palette) = self.palette.as_mut() {
             palette.filter(
@@ -549,6 +567,7 @@ impl Desktop {
             Action::ToggleTerminal => self.toggle_terminal(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
             Action::ToggleDetails => self.toggle_details(tx),
+            Action::OpenEditor => self.open_editor(),
             Action::Refresh => self.refresh_visible(),
             Action::AddProject => {
                 self.show_projects();

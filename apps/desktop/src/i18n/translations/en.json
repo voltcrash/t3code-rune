@@ -146,5 +146,16 @@
   "eb9abdcd6098fa3b": "Current checkout",
   "bc90899d284f2b0a": "Local checkout",
   "c7fe4313def0ef2f": "New worktree",
-  "854ac9752dd178d6": "Copy full path"
+  "854ac9752dd178d6": "Copy full path",
+  "4cccab9851a403bc": "Couldn’t save the preferred editor.",
+  "c819cdbc9c17bd58": "Couldn’t open the workspace in the selected editor.",
+  "6d5a8b471a561b9d": "File Explorer",
+  "83a174f9e78fe2f1": "Files",
+  "2efbbd9bb89efd31": "Open in {editor}",
+  "c3b46a31a4d3999b": "Open in editor",
+  "3dc681f293a3d077": "Choose editor",
+  "64a9a7f137f4715b": "No SSH route to {environment}",
+  "b99f09d2d9df18ad": "No installed editors found",
+  "392611fdc89f2809": "Opened in {editor}",
+  "c77307f0c52b5031": "Opens over SSH. Needs your key on {environment}"
 }
