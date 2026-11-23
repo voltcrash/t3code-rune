@@ -8,6 +8,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 import { EnvironmentId, WS_METHODS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 import { expect, it, vi } from "vite-plus/test";
 import { openBrowserPanel } from "./browser.ts";
@@ -168,6 +169,87 @@ effectIt.effect("copies page text only from the stream the viewer controls", () 
       panel.stop();
     }
   }),
+);
+
+effectIt.effect("sends the chosen file to the page's open file picker", () =>
+  Effect.gen(function* () {
+    const attached = Promise.withResolvers<PreviewStreamEvents>();
+    vi.mocked(createPreviewStreamClient).mockImplementationOnce((_, events) => {
+      attached.resolve(events);
+      return { send: () => false, stop: () => {} };
+    });
+    vi.mocked(resolveDeviceHubAccess).mockReturnValueOnce(
+      Effect.succeed({
+        httpBase: "https://example.test/api/preview",
+        wsBase: "wss://example.test/api/preview",
+        query: {},
+        credentials: true,
+      }),
+    );
+    openRpc.mockReturnValue(
+      Effect.succeed({
+        [WS_METHODS.subscribePreviewEvents]: () => Stream.never,
+        [WS_METHODS.previewList]: () =>
+          Effect.succeed({
+            revision: 1,
+            sessions: [{ tabId: "a", runtime: "server", navStatus: { _tag: "Idle" } }],
+          }),
+      }),
+    );
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* fs.makeTempDirectoryScoped();
+    const path = directory + "/notes.txt";
+    yield* fs.writeFileString(path, "page upload");
+    const uploads: Array<{ url: string; files: Array<[string, string]> }> = [];
+    using _fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const form = init?.body as FormData;
+      const files = form.getAll("file") as File[];
+      uploads.push({
+        url: String(url),
+        files: await Promise.all(
+          files.map(async (f) => [f.name, await f.text()] as [string, string]),
+        ),
+      });
+      return new Response(null, { status: 204 });
+    });
+    let chooser: { id: number; multiple: boolean; accept: string } | null = null;
+    const panel = openBrowserPanel(
+      {
+        environmentId: EnvironmentId.make("browser"),
+        httpBaseUrl: "https://example.test",
+        http: layerRemoteHttpClient(globalThis.fetch),
+        label: "Browser",
+        token: "fixture",
+        browserWritable: true,
+      },
+      "thread",
+      yield* Effect.abortSignal,
+      (page) => {
+        chooser = page.fileChooser;
+      },
+      () => {},
+      () => {},
+    );
+    try {
+      const events = yield* Effect.promise(() => attached.promise);
+      const offer = { multiple: false, accept: ".txt", credentials: true };
+      events.onFileChooser?.({ ...offer, uploadUrl: "https://example.test/upload?chooser=1" });
+      events.onFileChooser?.({ ...offer, uploadUrl: "https://example.test/upload?chooser=2" });
+      expect(chooser).toEqual({ id: 2, multiple: false, accept: ".txt" });
+      yield* Effect.promise(() =>
+        panel.request({ action: "fileChooser", tab: "a", id: 1, paths: [path] }),
+      );
+      yield* Effect.promise(() =>
+        panel.request({ action: "fileChooser", tab: "a", id: 2, paths: [path] }),
+      );
+      expect(chooser).toBeNull();
+      expect(uploads).toEqual([
+        { url: "https://example.test/upload?chooser=2", files: [["notes.txt", "page upload"]] },
+      ]);
+    } finally {
+      panel.stop();
+    }
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.each(["switch away and back", "close the tab", "revoke write access"])(

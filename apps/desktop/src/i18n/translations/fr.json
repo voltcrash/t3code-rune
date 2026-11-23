@@ -381,5 +381,11 @@
   "da52805f1f7bae35": "Enregistrer",
   "0161b531abf44cba": "Ce fichier ne peut pas être affiché ici",
   "9c6c2c0feb32db39": "{fileName} de {host} a été téléchargé à la place.",
-  "b3036052b23a9f21": "Impossible d’ouvrir le lien"
+  "a80895f122d7020f": "Impossible d’ouvrir le lien",
+  "737d3c6bec93f9e6": "Choisir des fichiers pour la page",
+  "a6efeb99b479990a": "Choisir des fichiers",
+  "16c1876c1c9e5579": "Impossible d’envoyer les fichiers à la page",
+  "95afdc33a06d3030": "La page demande des fichiers.",
+  "69c659d8b6e271cc": "La page demande un fichier.",
+  "59c87648d44b958c": "Choisir un fichier"
 }

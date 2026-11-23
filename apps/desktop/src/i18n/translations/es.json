@@ -381,5 +381,11 @@
   "da52805f1f7bae35": "Guardar",
   "0161b531abf44cba": "Este archivo no se puede mostrar aquí",
   "9c6c2c0feb32db39": "{fileName} de {host} se descargó en su lugar.",
-  "b3036052b23a9f21": "No se pudo abrir el enlace"
+  "a80895f122d7020f": "No se pudo abrir el enlace",
+  "737d3c6bec93f9e6": "Elige archivos para la página",
+  "a6efeb99b479990a": "Elegir archivos",
+  "16c1876c1c9e5579": "No se pudieron enviar los archivos a la página",
+  "95afdc33a06d3030": "La página solicita archivos.",
+  "69c659d8b6e271cc": "La página solicita un archivo.",
+  "59c87648d44b958c": "Elegir archivo"
 }

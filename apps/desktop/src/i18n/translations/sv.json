@@ -381,5 +381,11 @@
   "da52805f1f7bae35": "Spara",
   "0161b531abf44cba": "Den här filen kan inte visas här",
   "9c6c2c0feb32db39": "{fileName} från {host} laddades ned i stället.",
-  "b3036052b23a9f21": "Kunde inte öppna länken"
+  "a80895f122d7020f": "Kunde inte öppna länken",
+  "737d3c6bec93f9e6": "Välj filer för sidan",
+  "a6efeb99b479990a": "Välj filer",
+  "16c1876c1c9e5579": "Kunde inte skicka filerna till sidan",
+  "95afdc33a06d3030": "Sidan ber om filer.",
+  "69c659d8b6e271cc": "Sidan ber om en fil.",
+  "59c87648d44b958c": "Välj fil"
 }

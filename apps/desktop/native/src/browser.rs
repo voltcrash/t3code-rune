@@ -1,3 +1,4 @@
+mod chooser;
 mod device;
 mod dialog;
 mod download;
@@ -44,6 +45,7 @@ pub(crate) struct Labels {
     accept: String,
     take_to_respond: String,
     recheck_dialog: String,
+    chooser: chooser::Labels,
 }
 #[derive(Deserialize)]
 pub(crate) struct Tab {
@@ -66,6 +68,7 @@ pub(crate) struct Page {
     tabs: Vec<Tab>,
     device_change: Option<device::LockChange>,
     dialog: Option<dialog::Dialog>,
+    file_chooser: Option<chooser::Chooser>,
     download_open_error: Option<String>,
     download: Option<download::File>,
     selected: Option<String>,
@@ -542,6 +545,9 @@ pub(crate) fn view(
         None => resize::canvas(s, frame, p, &labels.device, theme),
     };
     let mut area = col().w_full().min_h(0.).grow(1.).child(content);
+    if let Some(c) = p.page.file_chooser.as_ref().filter(|_| p.page.controlled) {
+        area = area.child(chooser::view(c, &labels.chooser, theme));
+    }
     if let Some(d) = &p.page.dialog {
         area = area.child(dialog::view(p, d, labels, theme));
     }

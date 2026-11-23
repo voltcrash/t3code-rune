@@ -381,5 +381,11 @@
   "da52805f1f7bae35": "Save",
   "0161b531abf44cba": "This file can’t be shown here",
   "9c6c2c0feb32db39": "{fileName} from {host} was downloaded instead.",
-  "b3036052b23a9f21": "Could not open the link"
+  "a80895f122d7020f": "Could not open the link",
+  "737d3c6bec93f9e6": "Choose files for the page",
+  "a6efeb99b479990a": "Choose files",
+  "16c1876c1c9e5579": "Could not send the files to the page",
+  "95afdc33a06d3030": "The page asks for files.",
+  "69c659d8b6e271cc": "The page asks for a file.",
+  "59c87648d44b958c": "Choose file"
 }
