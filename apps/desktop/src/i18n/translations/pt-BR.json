@@ -235,5 +235,19 @@
   "d524cd04871cfc98": "Não foi possível baixar o modelo",
   "36a4bac7c3370acb": "Não foi possível selecionar o modelo",
   "1ce93a052681b78a": "Não foi possível cancelar o download",
-  "51fd61b9c85dec5d": "Não foi possível excluir o modelo"
+  "51fd61b9c85dec5d": "Não foi possível excluir o modelo",
+  "70a93af8e246e3f8": "Testar microfone",
+  "c354205127bf41f6": "Grave dez segundos e ouça em seguida. O áudio fica neste dispositivo.",
+  "e284b82cf690f402": "Gravar",
+  "8b8bc3983a34c5fe": "Gravar novamente",
+  "985f51e696efc795": "Parar gravação",
+  "74b0ab5b2e1030d3": "Abrindo microfone…",
+  "1a80ebca92ad373c": "Cancelar teste de microfone",
+  "88838a688670154d": "Reproduzir gravação",
+  "74e7837237a78a93": "Pausar gravação",
+  "4834551e3b1788fe": "Descartar gravação",
+  "1df95cbe8d51f396": "Nível de entrada do microfone",
+  "22d83d5c866695af": "Não foi possível acessar o microfone.",
+  "9b581819633e98f1": "Nenhum áudio foi gravado. Tente novamente.",
+  "0315c97b2fce2512": "Não foi possível reproduzir esta gravação. Tente gravar novamente."
 }

@@ -243,6 +243,7 @@ async function writeRuneNotices(resources) {
   const notices = [
     ["Rune", NodePath.resolve(rune, "../../LICENSE")],
     ["Rune syntax highlighting", NodePath.resolve(rune, "../rune-highlights/vendor/LICENSE.md")],
+    ["miniaudio and its Rust bindings", NodePath.join(desktop, "native/LICENSE-miniaudio.txt")],
     ["Lucide", NodePath.join(desktop, "node_modules/lucide/LICENSE")],
     ["Inter", NodePath.join(rune, "assets/Inter-LICENSE.txt")],
     ["IBM Plex Mono", NodePath.join(rune, "assets/IBMPlexMono-LICENSE.txt")],
@@ -497,6 +498,8 @@ async function buildRunePackage() {
         CFBundleVersion: version,
         LSApplicationCategoryType: "public.app-category.developer-tools",
         NSHighResolutionCapable: true,
+        NSMicrophoneUsageDescription:
+          "T3 Code uses your microphone when you choose to record audio.",
       }),
     );
     await NodeFSP.symlink(binaryName, NodePath.join(bin, product));

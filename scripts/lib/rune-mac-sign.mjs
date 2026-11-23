@@ -95,7 +95,12 @@ export async function signRuneMacApp({ app, resources, node, repoRoot, signing }
       "--entitlements",
       NodePath.join(repoRoot, "apps/server/resources/cli-entitlements.plist"),
     ]);
-    sign(app, signing.identity, ["--options", "runtime"]);
+    sign(app, signing.identity, [
+      "--options",
+      "runtime",
+      "--entitlements",
+      NodePath.join(repoRoot, "apps/desktop/native/audio-entitlements.plist"),
+    ]);
     run("codesign", ["--verify", "--strict", "--all-architectures", ...binaries, node]);
   } else {
     run("codesign", ["--force", "--sign", "-", app]);

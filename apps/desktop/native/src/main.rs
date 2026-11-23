@@ -20,6 +20,7 @@ mod linux_menu;
 #[cfg(target_os = "macos")]
 mod mac_update;
 mod mentions;
+mod microphone;
 mod models;
 mod navigation;
 mod new_thread;
@@ -1979,7 +1980,9 @@ fn start() -> io::Result<()> {
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
             let contrast = s.contrast.cancel_unfocused_drag(tx);
+            let microphone = s.poll_microphone(tx);
             s.poll_answer(tx)
+                || microphone
                 || stop
                 || clock
                 || renamed
@@ -2456,6 +2459,9 @@ fn start() -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--microphone-test")) {
+        return microphone::helper();
+    }
     #[cfg(target_os = "macos")]
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--exchange-mac-update"))
     {

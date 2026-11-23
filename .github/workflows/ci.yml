@@ -144,7 +144,7 @@ jobs:
             sudo apt-get update -o Acquire::Languages=none \
               -o Acquire::IndexTargets::deb::DEP-11::DefaultEnabled=false \
               -o Acquire::IndexTargets::deb::CNF::DefaultEnabled=false &&
-              sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 pkg-config xvfb xauth xdotool imagemagick dbus-x11 at-spi2-core gir1.2-atspi-2.0 python3-gi libvulkan1 mesa-vulkan-drivers
+              sudo apt-get install -y libxkbcommon-dev libclang-dev libxkbcommon-x11-0 pkg-config xvfb xauth xdotool imagemagick dbus-x11 at-spi2-core gir1.2-atspi-2.0 python3-gi libvulkan1 mesa-vulkan-drivers
             echo "$?" > "$RUNNER_TEMP/apt-status"
           ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
 

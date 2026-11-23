@@ -8,6 +8,7 @@ publish = false
 avif-rust = "0.3"
 base64 = "0.22"
 fontique = "0.12"
+miniaudio = { package = "om-fork-miniaudio", version = "0.12.2" }
 image = { version = "0.25", default-features = false, features = [
   "bmp",
   "gif",

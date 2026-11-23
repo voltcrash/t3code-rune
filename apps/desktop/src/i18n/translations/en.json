@@ -235,5 +235,19 @@
   "d524cd04871cfc98": "Could not download the model",
   "36a4bac7c3370acb": "Could not select the model",
   "1ce93a052681b78a": "Could not cancel the download",
-  "51fd61b9c85dec5d": "Could not delete the model"
+  "51fd61b9c85dec5d": "Could not delete the model",
+  "70a93af8e246e3f8": "Test microphone",
+  "c354205127bf41f6": "Record ten seconds and play it back. The audio stays on this device.",
+  "e284b82cf690f402": "Record",
+  "8b8bc3983a34c5fe": "Record again",
+  "985f51e696efc795": "Stop recording",
+  "74b0ab5b2e1030d3": "Opening microphone…",
+  "1a80ebca92ad373c": "Cancel microphone test",
+  "88838a688670154d": "Play recording",
+  "74e7837237a78a93": "Pause recording",
+  "4834551e3b1788fe": "Discard recording",
+  "1df95cbe8d51f396": "Microphone input level",
+  "22d83d5c866695af": "Could not access the microphone.",
+  "9b581819633e98f1": "No audio was recorded. Try again.",
+  "0315c97b2fce2512": "Could not play this recording. Try recording again."
 }

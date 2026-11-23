@@ -72,12 +72,12 @@ the macOS app bundle, Linux `AppRun`, or Windows executable inside a platform-sp
   Pass `--signed` to use an installed Developer ID Application identity. If several are installed,
   set `CSC_NAME` to its full name or fingerprint. Set `APPLE_API_KEY` to the path to the App Store
   Connect private key, along with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, to notarize and staple.
-- On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
+- On Debian or Ubuntu Linux, install a C toolchain, `libclang-dev`, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and the repository’s pinned Node distribution. For an AppImage, also install `appimagetool`
   and run the resulting file from a graphical session. To build an installable Debian package,
   use `vp run dist:desktop:rune --target deb` on the target architecture and install the result
   with `sudo apt install ./<filename>.deb`.
-- On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
+- On Windows, install LLVM and the Visual Studio C++ build tools for Rust. Extract the whole zip and
   launch the T3 Code executable beside its `resources` folder. For a per-user installer,
   install NSIS 3, put `makensis` on PATH, and run `vp run dist:desktop:rune --target nsis`.
   The installer adds Start menu and desktop shortcuts and an entry in Windows Installed apps.
@@ -369,7 +369,7 @@ Run `vp run dist:desktop:win --help` for all packaging flags.
 ### Linux AppImage prerequisites
 
 Build on a Linux host of the target architecture with Rust, a C/C++ toolchain, pkg-config,
-libsecret and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
+libclang, libsecret and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
 on PATH. The Debian target also uses `dpkg-deb` and `dpkg-shlibdeps` (install `dpkg-dev` on Debian or Ubuntu).
 
 ### macOS DMG prerequisites
@@ -383,7 +383,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 ### Windows installer prerequisites
 
-Install Rust, Python 3, and Visual Studio Build Tools with **Desktop development with C++**.
+Install LLVM (including `libclang.dll`), Rust, Python 3, and Visual Studio Build Tools with **Desktop development with C++**.
 Include the Windows SDK and the MSVC build tools and Spectre-mitigated libraries for the target
 architecture. Add its Rust target:
 
