@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./testing/thread-projection": "./src/state/orchestrationV2TestFixtures.ts",
     "./terminal/ghostty/selection": "./src/terminal/ghostty/selection.ts",
     "./terminal/ghostty/palette": "./src/terminal/ghostty/palette.ts",
     "./state/terminal-session": "./src/state/terminalSession.ts",

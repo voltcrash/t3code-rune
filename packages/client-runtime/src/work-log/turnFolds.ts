@@ -531,15 +531,17 @@ export function deriveTurnFolds(input: {
   return foldsByAnchorEntryId;
 }
 
-export function collapsedTurnFolds(
+type CollapsedTurnOptions = {
+  latestRun: TimelineLatestRun | null;
+  runningRunId: RunId | null;
+  isWorking: boolean;
+  runlessWorkActive: boolean;
+  resolve?: MFunctionType;
+};
+
+export function collapsedTurnLayout(
   timelineEntries: readonly TimelineEntry[],
-  input: {
-    latestRun: TimelineLatestRun | null;
-    runningRunId: RunId | null;
-    isWorking: boolean;
-    runlessWorkActive: boolean;
-    resolve?: MFunctionType;
-  },
+  input: CollapsedTurnOptions,
 ) {
   const unsettledRunId = deriveUnsettledRunId(input.latestRun, input.runningRunId);
   const failedRunIds = failedTimelineRunIds(timelineEntries, input.latestRun);
@@ -548,9 +550,10 @@ export function collapsedTurnFolds(
     unsettledRunId,
     isWorking: input.isWorking,
   });
-  return deriveTurnFolds({
+  const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineEntries);
+  const folds = deriveTurnFolds({
     timelineEntries,
-    terminalAssistantMessageIds: deriveTerminalAssistantMessageIds(timelineEntries),
+    terminalAssistantMessageIds,
     latestRun: input.latestRun,
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive: input.isWorking && input.runlessWorkActive === true,
@@ -558,4 +561,9 @@ export function collapsedTurnFolds(
     retainedAssistantReplyEntryIds: retainedAssistantReplyEntryIds(timelineEntries),
     resolve: input.resolve ?? mFallback,
   });
+  return { folds, terminalAssistantMessageIds, activeVisualResponseRunIds };
+}
+
+export function collapsedTurnFolds(entries: readonly TimelineEntry[], input: CollapsedTurnOptions) {
+  return collapsedTurnLayout(entries, input).folds;
 }

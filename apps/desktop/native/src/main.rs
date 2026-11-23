@@ -2181,6 +2181,7 @@ fn start() -> io::Result<()> {
             let details = s.reconcile_details();
             let sidebar = s.reconcile_sidebar_menus();
             let stop = s.poll_stop(now, tx);
+            let copied = s.poll_copy_feedback(tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
@@ -2195,6 +2196,7 @@ fn start() -> io::Result<()> {
                 || microphone
                 || dictation
                 || stop
+                || copied
                 || clock
                 || renamed
                 || resized
