@@ -1,4 +1,5 @@
 mod detail;
+mod markdown;
 use super::{
     Desktop, Request,
     navigation::Page,
@@ -105,7 +106,7 @@ pub(crate) struct Issues {
     query: TextEdit,
     filter: Filter,
     newest: bool,
-    menu: Option<MenuKind>,
+    menu: std::cell::Cell<Option<MenuKind>>,
     operation: u64,
     pending: bool,
     list: List,
@@ -147,7 +148,7 @@ impl Desktop {
             );
         }
         self.workspace.issues.watch = watch;
-        self.workspace.issues.menu = None;
+        self.workspace.issues.menu.set(None);
         self.workspace.issues.list = Default::default();
         self.workspace.issues.error = None;
         self.workspace.issues.pending = false;
@@ -243,19 +244,19 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
         MenuKind::Filter => ("issue-filters", &labels.filters),
     };
     let trigger = action(caption, theme, true, move |s| {
-        let menu = &mut s.workspace.issues.menu;
-        *menu = if *menu == Some(kind) {
+        let menu = &s.workspace.issues.menu;
+        menu.set(if menu.get() == Some(kind) {
             None
         } else {
             Some(kind)
-        };
+        });
     })
     .border(1., theme.card_border);
-    let open = page.menu == Some(kind);
+    let open = page.menu.get() == Some(kind);
     let mut menu = Menu::new(key)
         .trigger(trigger)
         .open(open)
-        .on_close(|s: &mut Desktop| s.workspace.issues.menu = None);
+        .on_close(|s: &mut Desktop| s.workspace.issues.menu.set(None));
     if open {
         match kind {
             MenuKind::Filter => {
@@ -266,7 +267,7 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
                 ] {
                     menu = menu.item(MenuItem::new(name).checked(page.filter == value).on_select(
                         move |s: &mut Desktop| {
-                            s.workspace.issues.menu = None;
+                            s.workspace.issues.menu.set(None);
                             if s.workspace.issues.filter != value {
                                 s.workspace.issues.filter = value;
                                 s.load_issues("list");
@@ -281,7 +282,7 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
                         MenuItem::new(name)
                             .checked(page.newest == newest)
                             .on_select(move |s: &mut Desktop| {
-                                s.workspace.issues.menu = None;
+                                s.workspace.issues.menu.set(None);
                                 if s.workspace.issues.newest != newest {
                                     s.workspace.issues.newest = newest;
                                     s.load_issues("list");
@@ -308,6 +309,7 @@ pub(crate) fn view(
     };
     let split = width >= 820. && page.detail.is_some();
     if !split && let Some(panel) = &page.detail {
+        page.menu.set(None);
         return detail::view(s, panel, labels, theme, dark);
     }
     let wide = width >= 528. && !split;

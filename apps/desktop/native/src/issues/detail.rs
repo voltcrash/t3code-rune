@@ -54,35 +54,17 @@ struct Block {
 }
 
 fn blocks(id: &str, at: i64, caption: Option<String>, text: String) -> Vec<Block> {
-    if text.len() <= 8192 && text.lines().take(129).count() <= 128 {
-        return vec![Block {
-            key: format!("{id}/0"),
-            at,
-            caption,
-            text,
-            markdown: true,
-        }];
-    }
     let mut result = Vec::new();
-    let mut remaining = text.as_str();
     let mut caption = caption;
-    while !remaining.is_empty() {
-        let bound = remaining.floor_char_boundary(remaining.len().min(2048));
-        let end = if bound < remaining.len() {
-            remaining[..bound].rfind('\n').map_or(bound, |n| n + 1)
-        } else {
-            bound
-        };
-        let (part, rest) = remaining.split_at(end);
+    super::markdown::partition(text, |text, markdown| {
         result.push(Block {
             key: format!("{id}/{}", result.len()),
             at,
             caption: caption.take(),
-            text: part.strip_suffix('\n').unwrap_or(part).into(),
-            markdown: false,
+            text,
+            markdown,
         });
-        remaining = rest;
-    }
+    });
     result
 }
 
@@ -95,6 +77,7 @@ pub(super) struct Panel {
     activity: Vec<Block>,
     seen: HashSet<String>,
     pending: bool,
+    reading_older: bool,
     error: Option<String>,
 }
 
@@ -135,6 +118,7 @@ impl Desktop {
             activity: Vec::new(),
             seen: HashSet::new(),
             pending: false,
+            reading_older: false,
             error: None,
         });
         if self.workspace.issues.detail.is_some() {
@@ -179,6 +163,7 @@ impl Desktop {
         } else {
             None
         };
+        panel.reading_older = older;
         panel.operation = operation;
         panel.pending = true;
         panel.error = None;
@@ -232,7 +217,7 @@ impl Desktop {
     pub(crate) fn close_issue_detail(&mut self, tx: &mut rune::Tx) -> bool {
         if self.history.issue().is_none()
             || self.pending
-            || self.workspace.issues.menu.is_some()
+            || self.workspace.issues.menu.get().is_some()
             || self.workspace.drawer.get() == Some(true)
         {
             return false;
@@ -290,6 +275,22 @@ fn text_rows(s: &Desktop, description: bool, theme: &tok::Theme, dark: bool) -> 
                 if !block.text.is_empty() {
                     item = item.child(if block.markdown {
                         rune_kit::Markdown::new(&block.text)
+                            .on_link_tx(|s: &mut Desktop, href, tx| {
+                                let base = s
+                                    .workspace
+                                    .issues
+                                    .detail
+                                    .as_ref()
+                                    .and_then(|p| p.document.as_ref())
+                                    .and_then(|d| d.url.as_deref())
+                                    .and_then(|u| url::Url::parse(u).ok());
+                                if let Ok(url) =
+                                    url::Url::options().base_url(base.as_ref()).parse(href)
+                                    && matches!(url.scheme(), "http" | "https")
+                                {
+                                    let _ = tx.open_url(url.as_str());
+                                }
+                            })
                             .selectable(true)
                             .build(&s.contrast.kit(dark))
                     } else {
@@ -397,16 +398,21 @@ pub(super) fn view(
             stick_bottom: false,
         });
     let mut contents = col().w_full().px(12.).py(10.).gap(8.);
-    if let Some(error) = &panel.error {
-        contents = contents.child(
-            label(error, 13., 400., theme.text_secondary)
-                .wrap()
-                .role("status"),
-        );
-    }
-    if panel.pending {
-        contents =
-            contents.child(label(&labels.loading, 13., 400., theme.text_secondary).role("status"));
+    let feedback = || {
+        if let Some(error) = &panel.error {
+            Some(
+                label(error, 13., 400., theme.text_secondary)
+                    .wrap()
+                    .role("status"),
+            )
+        } else if panel.pending {
+            Some(label(&labels.loading, 13., 400., theme.text_secondary).role("status"))
+        } else {
+            None
+        }
+    };
+    if !panel.reading_older {
+        contents = contents.children(feedback());
     }
     if let Some(doc) = doc {
         contents = contents
@@ -470,6 +476,9 @@ pub(super) fn view(
                 .border(1., theme.card_border),
             );
         }
+        if panel.reading_older {
+            contents = contents.children(feedback());
+        }
         contents = contents.child(text_rows(s, false, theme, dark));
     }
     body = body.child(contents);
@@ -502,6 +511,7 @@ mod tests {
             activity: Vec::new(),
             seen: Default::default(),
             pending: true,
+            reading_older: true,
             error: None,
         };
         let comment = |id: &str, text: &str| Activity {
@@ -517,6 +527,20 @@ mod tests {
             comment("current", "Duplicate"),
         ]);
         let (last, earlier) = panel.activity.split_last().unwrap();
+        let article = format!(
+            "# Summary\n\n{long}\n\n[Read the guide][guide]\n\n[guide]: https://example.test/guide"
+        );
+        let article = blocks("article", 0, None, article);
+        assert!(
+            article
+                .first()
+                .is_some_and(|b| b.markdown && b.text.contains("# Summary"))
+        );
+        assert!(
+            article.last().is_some_and(
+                |b| b.markdown && b.text.contains("[guide]: https://example.test/guide")
+            )
+        );
         assert_eq!(last.text, "Original");
         assert!(
             earlier
