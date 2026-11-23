@@ -540,6 +540,12 @@ impl Workspace {
         self.by_thread.contains_key(id)
     }
 
+    pub(crate) fn project_root(&self, id: &str) -> Option<&str> {
+        self.project(id)
+            .filter(|project| !project.archived)
+            .map(|project| project.path.as_str())
+    }
+
     fn project(&self, id: &str) -> Option<&Project> {
         self.by_project.get(id).map(|&i| &self.projects[i])
     }

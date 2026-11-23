@@ -9,13 +9,14 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 struct SendAttempt {
+    text: String,
     id: String,
     instance: String,
     model: String,
 }
 
 pub(super) struct Draft {
-    editor: TextEdit,
+    pub(super) editor: TextEdit,
     files: Vec<Attachment>,
     pub(super) model: Option<crate::models::Handoff>,
     pub(super) permission: Option<crate::permissions::Selection>,
@@ -62,13 +63,18 @@ impl Draft {
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
     }
+    pub(super) fn edit_mention(&mut self) -> &mut TextEdit {
+        self.operation = None;
+        &mut self.editor
+    }
     pub(super) fn preserve_answer(&mut self, value: &str) {
-        let combined = if self.editor.text.is_empty() {
-            value.to_owned()
-        } else {
-            format!("{}\n\n{value}", self.editor.text)
-        };
-        self.editor = TextEdit::new(&combined);
+        self.editor.set_caret(self.editor.text.len());
+        self.editor.undo_group(|edit| {
+            if !edit.text.is_empty() {
+                edit.insert("\n\n");
+            }
+            edit.insert(value);
+        });
         self.operation = None;
     }
     pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
@@ -87,6 +93,14 @@ impl Draft {
         if self.editor.text.trim().is_empty() && self.files.is_empty() {
             return None;
         }
+        let text = crate::mentions::prompt(&self.editor);
+        if self
+            .operation
+            .as_ref()
+            .is_some_and(|sent| sent.text != text)
+        {
+            self.operation = None;
+        }
         let operation = self
             .operation
             .get_or_insert_with(|| {
@@ -94,6 +108,7 @@ impl Draft {
                     (m.instance.as_str(), m.model.as_str())
                 });
                 SendAttempt {
+                    text: text.clone(),
                     id: Uuid::new_v4().to_string(),
                     instance: instance.into(),
                     model: model.into(),
@@ -105,7 +120,7 @@ impl Draft {
             thread: thread.into(),
             permission: self.permission.clone(),
             model: self.model.clone(),
-            text: self.editor.text.clone(),
+            text,
             files: self.files.clone(),
             operation,
         })
@@ -267,6 +282,8 @@ pub(super) fn view(
                 }
             })
             .on_submit(|s: &mut Desktop, _| s.send_message());
+        s.mentions
+            .view(&target, cx, &s.contrast.kit(dark), overlays);
         target.input(field)
     };
     let pane = s
@@ -575,7 +592,29 @@ mod tests {
             unreachable!()
         };
         assert_eq!(changed, repeated);
-        ws.finish_message("thread", &changed);
+        draft.editor = TextEdit::new("@foo ");
+        draft
+            .editor
+            .replace_with_pill(0..4, "t3-file:[@foo](nested/@foo)", "@foo");
+        let Request::SendMessage {
+            operation: linked, ..
+        } = draft.submission("thread", "codex", "original").unwrap()
+        else {
+            unreachable!()
+        };
+        draft.editor.undo();
+        assert_eq!(draft.editor.text, "@foo ");
+        let Request::SendMessage {
+            operation: unlinked,
+            text,
+            ..
+        } = draft.submission("thread", "codex", "original").unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(text, "@foo ");
+        assert_ne!(unlinked, linked);
+        ws.finish_message("thread", &unlinked);
         assert!(
             ws.drafts
                 .get_mut("thread")

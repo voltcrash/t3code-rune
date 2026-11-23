@@ -183,7 +183,7 @@ impl Desktop {
 }
 
 impl Target {
-    fn active(&self, app: &Desktop) -> bool {
+    pub(super) fn active(&self, app: &Desktop) -> bool {
         match self {
             Self::Project(id) => app.new_threads.active.as_ref() == Some(id),
             Self::Thread(id) => {
@@ -203,13 +203,15 @@ impl Target {
         let paste = self.clone();
         let plain = self.clone();
         field
+            .pill_style(crate::mentions::chip)
+            .input_copy_text(crate::mentions::copy_selection)
             .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
             .on_input_key(move |app: &mut Desktop, key, tx| {
                 const PASTE_AS_TEXT: rune::Chord = rune::Chord::new(rune::ChordKey::Char('v'))
                     .with(rune::ChordMod::Primary)
                     .with(rune::ChordMod::Shift);
                 if !PASTE_AS_TEXT.matches_tx(key, tx) {
-                    return false;
+                    return app.mention_key(&plain, key, tx);
                 }
                 let target = plain.clone();
                 let focus = tx.focused().map(str::to_owned);

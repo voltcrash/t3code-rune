@@ -19,6 +19,7 @@ mod linux_frame;
 mod linux_menu;
 #[cfg(target_os = "macos")]
 mod mac_update;
+mod mentions;
 mod models;
 mod navigation;
 mod new_thread;
@@ -104,6 +105,14 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    ComposerFilesReady {
+        watch: u64,
+        ready: bool,
+    },
+    ComposerFiles {
+        operation: u64,
+        entries: Vec<mentions::Entry>,
+    },
     FileMatches {
         operation: u64,
         #[serde(default)]
@@ -158,6 +167,8 @@ enum Reply {
     },
     Connected {
         label: String,
+        #[serde(default)]
+        mention_labels: Box<mentions::Labels>,
         #[serde(default)]
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
@@ -395,6 +406,14 @@ enum Request<'a> {
     },
     SetUsagePreferences {
         preferences: usage::summary::Preferences,
+    },
+    ComposerFiles {
+        watch: u64,
+        operation: u64,
+        draft: bool,
+        target: &'a str,
+        root: &'a str,
+        query: Option<&'a str>,
     },
     CheckUpdates,
     DownloadUpdate,
@@ -707,6 +726,7 @@ struct Desktop {
     palette: Option<workspace::palette::Palette>,
     last_id: u64,
     request_id: u64,
+    mentions: mentions::Picker,
     clipboard_paste: Option<attachments::PendingPaste>,
     clipboard_uploads: std::collections::HashMap<u64, Vec<std::rc::Rc<tempfile::TempPath>>>,
     pending: bool,
@@ -760,6 +780,7 @@ impl Desktop {
             palette: None,
             last_id: 0,
             request_id: 0,
+            mentions: Default::default(),
             clipboard_paste: None,
             clipboard_uploads: Default::default(),
             pending: false,
@@ -961,6 +982,14 @@ impl Desktop {
         } = message.reply
         {
             self.receive_draft_models(watch, &project, message.id, choices, permissions);
+            return;
+        }
+        if let Reply::ComposerFilesReady { watch, ready } = message.reply {
+            self.mentions.connection(watch, ready);
+            return;
+        }
+        if let Reply::ComposerFiles { operation, entries } = message.reply {
+            self.mentions.receive(operation, entries);
             return;
         }
         if let Reply::FilteredFiles {
@@ -1272,6 +1301,7 @@ impl Desktop {
             }
             Reply::Connected {
                 label,
+                mention_labels,
                 attachment_labels,
                 update_labels,
                 usage_labels,
@@ -1301,6 +1331,7 @@ impl Desktop {
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
                 self.workspace.details.settings = details;
+                self.mentions.labels = *mention_labels;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
@@ -1416,6 +1447,8 @@ impl Desktop {
             | Reply::Downloaded { .. }
             | Reply::FileMatches { .. }
             | Reply::FileEntries { .. }
+            | Reply::ComposerFilesReady { .. }
+            | Reply::ComposerFiles { .. }
             | Reply::FilteredFiles { .. }
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
@@ -1858,6 +1891,7 @@ fn start() -> io::Result<()> {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_draft_model_watch();
+            let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
             let git = s.sync_git();
             let scripts = s.sync_project_scripts();
@@ -1873,6 +1907,7 @@ fn start() -> io::Result<()> {
                 || renamed
                 || resized
                 || contrast
+                || mentions
                 || banner
                 || git
                 || scripts
@@ -2394,6 +2429,7 @@ mod tests {
         desktop.receive(WorkerMessage {
             id: Some(5),
             reply: Reply::Connected {
+                mention_labels: Default::default(),
                 attachment_labels: Default::default(),
                 update_labels: None,
                 usage_labels: None,
