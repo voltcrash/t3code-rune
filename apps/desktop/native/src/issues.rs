@@ -363,9 +363,6 @@ pub(crate) fn view(
                 .child(label(&labels.add_project, 13., 400., theme.text_secondary).wrap()),
         );
     }
-    for notice in &page.list.notices {
-        body = body.child(label(notice, 13., 400., theme.text_secondary).wrap());
-    }
     if let Some(error) = &page.error {
         body = body.child(
             label(error, 13., 400., theme.text_secondary)
@@ -462,7 +459,13 @@ pub(crate) fn view(
             .scroll(ScrollSpec {
                 stick_bottom: false,
             })
-            .child(rows),
+            .child(rows)
+            .children(
+                page.list
+                    .notices
+                    .iter()
+                    .map(|notice| label(notice, 13., 400., theme.text_secondary).wrap()),
+            ),
     );
     if page.list.more {
         body = body.child(action(&labels.more, theme, !page.pending, |s| {

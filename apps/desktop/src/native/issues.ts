@@ -2,6 +2,7 @@ import {
   continueIssuePage,
   groupIssues,
   holdIssuePages,
+  issueOrder,
   type HeldIssuePage,
 } from "@t3tools/client-runtime/issue-list";
 import {
@@ -75,24 +76,23 @@ const read = Effect.fn("nativeDesktop.readIssues")(function* (
 
 function issueView(session: IssueSession, page: HeldIssuePage, query: string, sort: IssueListSort) {
   const groups = groupIssues(new Map([[session.environmentId, page]]), query, [], sort);
+  const entries = groups.flatMap((group) => group.rows).sort(issueOrder(sort));
   return {
     has_trackers: groups.length > 0,
-    rows: groups.flatMap(({ tracker, rows }) =>
-      rows.map((row) => ({
-        identity: row.url,
-        group: tracker.host,
-        title: row.title,
-        key: row.displayKey,
-        context: [row.scope, row.state.name, row.author?.login].filter(Boolean).join(" · "),
-        status:
-          row.state.category === "open"
-            ? "open"
-            : !row.state.closeReason || row.state.closeReason === "completed"
-              ? "completed"
-              : "closed",
-        url: trackerLink(row.url),
-      })),
-    ),
+    rows: entries.map((row) => ({
+      identity: row.url,
+      group: row.host,
+      title: row.title,
+      key: row.displayKey,
+      context: [row.scope, row.state.name, row.author?.login].filter(Boolean).join(" · "),
+      status:
+        row.state.category === "open"
+          ? "open"
+          : !row.state.closeReason || row.state.closeReason === "completed"
+            ? "completed"
+            : "closed",
+      url: trackerLink(row.url),
+    })),
     notices: [
       ...page.answer.trackers.flatMap((t) =>
         !t.configured && t.detail ? [t.host + " · " + t.detail] : [],

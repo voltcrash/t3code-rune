@@ -66,7 +66,21 @@ it("keeps a late page out of a new filter and continues the current tracker curs
           entered.resolve();
           return first.promise;
         });
-      return Effect.succeed(input.cursors ? result("3") : result("2", "next"));
+      const page = input.cursors ? result("3") : result("2", "next");
+      const tracker = { ...page.trackers[0]!, host: "git.example.com" };
+      const entry = {
+        ...page.entries[0]!,
+        host: tracker.host,
+        displayKey: "#enterprise",
+        url: "https://git.example.com/org/app/issues/42",
+        updatedAt: "2026-02-01T10:00:00.000Z",
+        createdAt: "2025-12-01T10:00:00.000Z",
+      };
+      return Effect.succeed({
+        ...page,
+        trackers: [...page.trackers, tracker],
+        entries: [...page.entries, entry],
+      });
     },
   };
   const publish = vi.fn<Parameters<typeof workspaceIssues>[3]>();
@@ -79,5 +93,11 @@ it("keeps a late page out of a new filter and continues the current tracker curs
   expect(publish.mock.calls.map(([operation]) => operation)).toEqual([2]);
   await page.request({ operation: 3, state: "closed", query: "", action: "more" });
   expect(requests[2]?.cursors).toEqual({ "github.com example/app": "next" });
-  expect(publish.mock.lastCall?.[1]?.rows.map((row) => row.key)).toEqual(["#2", "#3"]);
+  expect(publish.mock.lastCall?.[1]?.rows.map((row) => row.key)).toEqual([
+    "#enterprise",
+    "#2",
+    "#3",
+  ]);
+  await page.request({ operation: 4, state: "closed", query: "", action: "list", sort: "created" });
+  expect(publish.mock.lastCall?.[1]?.rows.map((row) => row.key)).toEqual(["#2", "#enterprise"]);
 });

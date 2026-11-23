@@ -1473,7 +1473,15 @@ fn sidebar(
     if s.history.on_issues()
         && let Some(labels) = &s.workspace.issues.labels
     {
-        footer = footer.child(action(&labels.back, theme, !s.pending, |s| s.go(false)).grow(1.));
+        footer = footer.child(
+            action(
+                &labels.back,
+                theme,
+                !s.pending && s.history.available(false),
+                |s| s.go(false),
+            )
+            .grow(1.),
+        );
     } else {
         footer = footer
             .child(crate::appearance::trigger(theme))
