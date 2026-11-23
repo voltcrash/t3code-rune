@@ -70,7 +70,9 @@ impl Desktop {
             return false;
         }
         self.load_archived();
-        self.settings_error = error.clone();
+        if error.is_some() {
+            self.settings_error = error.clone();
+        }
         true
     }
 
