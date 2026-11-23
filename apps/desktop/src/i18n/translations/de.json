@@ -249,5 +249,19 @@
   "1df95cbe8d51f396": "Mikrofonpegel",
   "22d83d5c866695af": "Auf das Mikrofon konnte nicht zugegriffen werden.",
   "9b581819633e98f1": "Es wurde kein Ton aufgenommen. Versuch es erneut.",
-  "0315c97b2fce2512": "Diese Aufnahme konnte nicht abgespielt werden. Versuch erneut aufzunehmen."
+  "0315c97b2fce2512": "Diese Aufnahme konnte nicht abgespielt werden. Versuch erneut aufzunehmen.",
+  "5c3711f9ed600d2a": "Transkribieren mit",
+  "90a258fff61fd77e": "Aus",
+  "ad63d228b2f3491e": "Spracheingabe starten",
+  "cae195de360a3d75": "Spracheingabe abbrechen",
+  "5c572579e2230b4e": "Spracheingabe beenden",
+  "8e8acd5aa22b46c6": "Wird transkribiert…",
+  "21f8de934db6d28e": "Die Einstellungen konnten nicht gespeichert werden.",
+  "0ef4193f2c7ee925": "Wähle in den Spracheinstellungen ein Transkriptionsziel.",
+  "aefccd4dd22d4121": "Die Sprachtranskription konnte nicht vorbereitet werden.",
+  "6be0d6f18425b5c7": "Wähle in den Spracheinstellungen ein Transkriptionsmodell.",
+  "499fb0b7d2e2bb5f": "Das Mikrofon konnte nicht gestartet werden.",
+  "43692a5af811085a": "Sprachtranskription fehlgeschlagen. Prüfe das Ziel unter Einstellungen → Spracheingabe.",
+  "b6e6c93abb35a98e": "Es wurde keine Sprache erkannt.",
+  "a20b495b9e6f82b9": "Wird gestartet…"
 }

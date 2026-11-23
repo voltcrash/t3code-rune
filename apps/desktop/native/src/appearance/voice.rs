@@ -5,7 +5,7 @@ use super::{Desktop, Request, label};
 use rune::{El, TextEdit, TextStyle, col, el, row, text_input, tok};
 use serde::Deserialize;
 
-pub(super) const MIC: rune::Icon = rune::Icon {
+pub(crate) const MIC: rune::Icon = rune::Icon {
     name: "mic",
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3M5 10v2a7 7 0 0 0 14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></g>"#,
@@ -15,6 +15,7 @@ pub(super) const MIC: rune::Icon = rune::Icon {
 pub(crate) struct Labels {
     pub(super) title: String,
     microphone: Box<microphone_test::Labels>,
+    pub(crate) dictation: crate::dictation::Labels,
     models: String,
     search: String,
     empty: String,
@@ -209,15 +210,43 @@ impl Model {
 
 pub(super) fn view(s: &Desktop, labels: &Labels, narrow: bool, theme: &tok::Theme) -> El {
     let state = &s.voice_settings;
-    let mut section = col()
-        .w_full()
-        .gap(10.)
-        .child(microphone_test::view(
-            &state.microphone,
-            &labels.microphone,
-            theme,
-        ))
-        .child(label(&labels.models, 16., 600., theme.text));
+    let mut section = col().w_full().gap(10.).child(microphone_test::view(
+        &state.microphone,
+        &labels.microphone,
+        theme,
+    ));
+    if let Some(watch) = s.workspace.feed {
+        let choice = &s.dictation.choice;
+        let name = if choice.enabled {
+            &choice.destination
+        } else {
+            &labels.dictation.off
+        };
+        let next = !choice.enabled;
+        let description = format!("{} · {}", labels.dictation.destination, choice.destination);
+        let allowed = choice.available || choice.enabled;
+        let mut control = button("dictation-choice", name, &description, allowed, theme)
+            .role("switch")
+            .checked(choice.enabled);
+        if allowed {
+            control = control.on_press(move |s: &mut Desktop| {
+                if s.workspace.feed == Some(watch) {
+                    s.write_request(
+                        None,
+                        Request::SetDictation {
+                            watch,
+                            enabled: next,
+                        },
+                    );
+                }
+            });
+        }
+        section = section
+            .child(label(&labels.dictation.destination, 16., 600., theme.text))
+            .child(label(&choice.destination, 13., 400., theme.text_secondary).wrap())
+            .child(control);
+    }
+    section = section.child(label(&labels.models, 16., 600., theme.text));
     let Some(watch) = s.workspace.feed else {
         return section.child(label(&labels.disconnected, 13., 400., theme.text_secondary).wrap());
     };

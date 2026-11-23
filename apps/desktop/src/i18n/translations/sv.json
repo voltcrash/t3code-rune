@@ -249,5 +249,19 @@
   "1df95cbe8d51f396": "Mikrofonens ingångsnivå",
   "22d83d5c866695af": "Kunde inte komma åt mikrofonen.",
   "9b581819633e98f1": "Inget ljud spelades in. Försök igen.",
-  "0315c97b2fce2512": "Kunde inte spela upp inspelningen. Försök spela in igen."
+  "0315c97b2fce2512": "Kunde inte spela upp inspelningen. Försök spela in igen.",
+  "5c3711f9ed600d2a": "Transkribera med",
+  "90a258fff61fd77e": "Av",
+  "ad63d228b2f3491e": "Starta röstinmatning",
+  "cae195de360a3d75": "Avbryt röstinmatning",
+  "5c572579e2230b4e": "Avsluta röstinmatning",
+  "8e8acd5aa22b46c6": "Transkriberar…",
+  "21f8de934db6d28e": "Det gick inte att spara inställningarna.",
+  "0ef4193f2c7ee925": "Välj var talet ska transkriberas i röstinställningarna.",
+  "aefccd4dd22d4121": "Kunde inte förbereda rösttranskribering.",
+  "6be0d6f18425b5c7": "Välj en transkriptionsmodell i röstinställningarna.",
+  "499fb0b7d2e2bb5f": "Det gick inte att starta mikrofonen.",
+  "43692a5af811085a": "Rösttranskriberingen misslyckades. Kontrollera målet i Inställningar → Röst.",
+  "b6e6c93abb35a98e": "Inget tal upptäcktes.",
+  "a20b495b9e6f82b9": "Startar…"
 }

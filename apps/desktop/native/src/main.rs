@@ -11,6 +11,7 @@ mod appearance;
 mod approval;
 mod attachments;
 mod composer;
+mod dictation;
 mod image_decode;
 mod launch_check;
 #[cfg(target_os = "linux")]
@@ -42,6 +43,22 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    DictationChoice {
+        watch: u64,
+        choice: dictation::Choice,
+        error: Option<String>,
+    },
+    Dictation {
+        watch: u64,
+        operation: u64,
+        phase: dictation::Phase,
+        #[serde(default)]
+        seconds: usize,
+        #[serde(default)]
+        level: usize,
+        message: Option<String>,
+        edit: Option<dictation::Edit>,
+    },
     VoiceModels {
         watch: u64,
         catalog: appearance::voice::Catalog,
@@ -75,7 +92,7 @@ enum Reply {
         error: Option<String>,
     },
     ClientSettings {
-        settings_labels: appearance::SettingsLabels,
+        settings_labels: Box<appearance::SettingsLabels>,
         slash_skills: bool,
         reader_title: bool,
         sans: String,
@@ -222,6 +239,8 @@ enum Reply {
         watch: u64,
     },
     Workspace {
+        #[serde(default)]
+        dictation: dictation::Choice,
         environment_id: String,
         watch: u64,
         editors: Option<workspace::thread_details::editor::Catalog>,
@@ -411,6 +430,17 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    SetDictation {
+        watch: u64,
+        enabled: bool,
+    },
+    Dictate {
+        watch: u64,
+        operation: u64,
+        action: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        draft: Option<dictation::Snapshot<'a>>,
+    },
     VoiceModels {
         watch: u64,
         open: bool,
@@ -730,6 +760,7 @@ struct Desktop {
     font_families: appearance::FontFamilies,
     typography_advanced: bool,
     voice_settings: appearance::voice::VoiceSettings,
+    dictation: dictation::Dictation,
     settings_open: bool,
     settings_page: appearance::SettingsPage,
     settings_labels: Option<appearance::SettingsLabels>,
@@ -797,6 +828,7 @@ impl Desktop {
             font_families: Default::default(),
             typography_advanced: false,
             voice_settings: Default::default(),
+            dictation: Default::default(),
             settings_open: false,
             settings_page: Default::default(),
             settings_labels: None,
@@ -977,6 +1009,31 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::DictationChoice {
+            watch,
+            choice,
+            error,
+        } = message.reply
+        {
+            if self.workspace.feed == Some(watch) {
+                self.dictation.choice = choice;
+                self.settings_error = error;
+            }
+            return;
+        }
+        if let Reply::Dictation {
+            watch,
+            operation,
+            phase,
+            seconds,
+            level,
+            message,
+            edit,
+        } = message.reply
+        {
+            self.dictation_reply(watch, operation, phase, (seconds, level), message, edit);
+            return;
+        }
         if let Reply::VoiceModels { watch, catalog } = message.reply {
             if self.workspace.feed == Some(watch) {
                 self.voice_settings.catalog = Some(catalog);
@@ -1411,6 +1468,7 @@ impl Desktop {
                 self.pending = true;
             }
             Reply::Workspace {
+                dictation,
                 environment_id,
                 watch,
                 editors,
@@ -1427,6 +1485,7 @@ impl Desktop {
                 self.workspace.sequence = sequence;
                 self.workspace.set_feed(environment_id, watch);
                 self.voice_settings.catalog = None;
+                self.dictation.choice = dictation;
                 if self.settings_open && self.settings_page == appearance::SettingsPage::Voice {
                     self.show_voice_models(true);
                 }
@@ -1537,6 +1596,8 @@ impl Desktop {
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }
             | Reply::WorkspaceProviders { .. }
+            | Reply::DictationChoice { .. }
+            | Reply::Dictation { .. }
             | Reply::VoiceModels { .. }
             | Reply::Usage { .. }
             | Reply::UsageTotals { .. }
@@ -1950,6 +2011,7 @@ fn start() -> io::Result<()> {
         return Ok(());
     }
     let mut worker = worker_command(mode, package)?;
+    worker.env("T3CODE_RUNE_EXECUTABLE", std::env::current_exe()?);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1980,9 +2042,11 @@ fn start() -> io::Result<()> {
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
             let contrast = s.contrast.cancel_unfocused_drag(tx);
+            let dictation = s.reconcile_dictation();
             let microphone = s.poll_microphone(tx);
             s.poll_answer(tx)
                 || microphone
+                || dictation
                 || stop
                 || clock
                 || renamed
@@ -2140,7 +2204,8 @@ fn start() -> io::Result<()> {
                 }
                 return true;
             }
-            if s.thread_action_shortcut(ev, tx)
+            if s.dictation_shortcut(ev, tx)
+                || s.thread_action_shortcut(ev, tx)
                 || s.model_shortcut(ev, tx)
                 || s.permission_shortcut(ev, tx)
             {
@@ -2334,7 +2399,7 @@ fn start() -> io::Result<()> {
                 {
                     s.reader_title = reader_title;
                     s.sync_window_title(tx);
-                    s.settings_labels = Some(settings_labels);
+                    s.settings_labels = Some(*settings_labels);
                     if s.slash_skills != slash_skills {
                         s.slash_skills = slash_skills;
                         s.mentions.slash_settings_changed();
@@ -2459,8 +2524,14 @@ fn start() -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--microphone-test")) {
-        return microphone::helper();
+    match std::env::args_os()
+        .nth(1)
+        .and_then(|a| a.into_string().ok())
+        .as_deref()
+    {
+        Some("--microphone-test") => return microphone::helper(false),
+        Some("--capture-dictation") => return microphone::helper(true),
+        _ => {}
     }
     #[cfg(target_os = "macos")]
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--exchange-mac-update"))

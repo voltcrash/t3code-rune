@@ -229,7 +229,10 @@ impl Desktop {
         );
     }
 
-    fn send_message(&mut self) {
+    pub(super) fn send_message(&mut self) {
+        if self.finish_dictation(true) {
+            return;
+        }
         if self.pending || !self.can_operate || self.submit_after_paste() {
             return;
         }
@@ -321,6 +324,9 @@ pub(super) fn view(
             &s.composer_hints.message,
             theme,
             |field| {
+                if s.dictating(&target) {
+                    return super::dictation::recording_field(field);
+                }
                 let field = field
                     .label("Message")
                     .disabled(s.pending)
@@ -353,7 +359,7 @@ pub(super) fn view(
         cx,
         theme,
         "Send message",
-        !s.pending && !empty && !guarded,
+        !s.pending && (!empty || s.dictating(&target)) && !guarded,
         Desktop::send_message,
     );
     let mut controls = row().w_full().center_y().gap(9.0);
@@ -379,13 +385,16 @@ pub(super) fn view(
     controls = controls.child(spacer());
     if !asking {
         controls = controls.child(crate::models::control(s, thread, theme, cx, overlays));
+        if let Some(button) = s.dictation_button(&target, theme) {
+            controls = controls.child(button);
+        }
     }
     let show_stop = s.can_operate
         && pane.active_run.is_some()
         && (asking || empty || pane.stop_feedback.is_some());
     if asking {
         controls = controls.child(super::questions::controls(s, id, theme));
-    } else if !show_stop || !empty {
+    } else if !show_stop || !empty || s.dictating(&target) {
         controls = controls.child(send);
     }
     if show_stop && let Some(run) = &pane.active_run {

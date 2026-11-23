@@ -249,5 +249,19 @@
   "1df95cbe8d51f396": "Microphone input level",
   "22d83d5c866695af": "Could not access the microphone.",
   "9b581819633e98f1": "No audio was recorded. Try again.",
-  "0315c97b2fce2512": "Could not play this recording. Try recording again."
+  "0315c97b2fce2512": "Could not play this recording. Try recording again.",
+  "5c3711f9ed600d2a": "Transcribe with",
+  "90a258fff61fd77e": "Off",
+  "ad63d228b2f3491e": "Start voice input",
+  "cae195de360a3d75": "Cancel voice input",
+  "5c572579e2230b4e": "Finish voice input",
+  "8e8acd5aa22b46c6": "Transcribing…",
+  "21f8de934db6d28e": "Could not save settings.",
+  "0ef4193f2c7ee925": "Choose a transcription destination in Voice settings.",
+  "aefccd4dd22d4121": "Could not prepare voice transcription.",
+  "6be0d6f18425b5c7": "Choose a transcription model in Voice settings.",
+  "499fb0b7d2e2bb5f": "Could not start the microphone.",
+  "43692a5af811085a": "Voice transcription failed. Check the destination in Settings → Voice.",
+  "b6e6c93abb35a98e": "No speech was detected.",
+  "a20b495b9e6f82b9": "Starting…"
 }

@@ -334,7 +334,7 @@ impl Picker {
 }
 
 impl Target {
-    fn field_key(&self) -> &'static str {
+    pub(super) fn field_key(&self) -> &'static str {
         match self {
             Self::Thread(_) => "message-input",
             Self::Project(_) => "new-thread-prompt",

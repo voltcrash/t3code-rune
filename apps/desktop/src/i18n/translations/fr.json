@@ -249,5 +249,19 @@
   "1df95cbe8d51f396": "Niveau d’entrée du microphone",
   "22d83d5c866695af": "Impossible d’accéder au microphone.",
   "9b581819633e98f1": "Aucun son n’a été enregistré. Réessayez.",
-  "0315c97b2fce2512": "Impossible de lire cet enregistrement. Essayez de réenregistrer."
+  "0315c97b2fce2512": "Impossible de lire cet enregistrement. Essayez de réenregistrer.",
+  "5c3711f9ed600d2a": "Transcrire avec",
+  "90a258fff61fd77e": "Désactivé",
+  "ad63d228b2f3491e": "Démarrer la saisie vocale",
+  "cae195de360a3d75": "Annuler la saisie vocale",
+  "5c572579e2230b4e": "Terminer la saisie vocale",
+  "8e8acd5aa22b46c6": "Transcription…",
+  "21f8de934db6d28e": "Impossible d’enregistrer les paramètres.",
+  "0ef4193f2c7ee925": "Choisissez une destination de transcription dans les paramètres vocaux.",
+  "aefccd4dd22d4121": "Impossible de préparer la transcription vocale.",
+  "6be0d6f18425b5c7": "Choisissez un modèle de transcription dans les paramètres vocaux.",
+  "499fb0b7d2e2bb5f": "Impossible de démarrer le microphone.",
+  "43692a5af811085a": "Échec de la transcription vocale. Vérifiez la destination dans Paramètres → Voix.",
+  "b6e6c93abb35a98e": "Aucune parole détectée.",
+  "a20b495b9e6f82b9": "Démarrage…"
 }
