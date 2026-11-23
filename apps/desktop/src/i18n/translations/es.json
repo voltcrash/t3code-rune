@@ -192,5 +192,15 @@
   "0e83c3bf28f8958e": "Comandos",
   "df02c1d51d158d32": "Cambiar el modelo de respuesta de este hilo",
   "75bc6a7e61897051": "El texto pegado es demasiado grande para adjuntarlo",
-  "a70abf17e99c2d6d": "Quita algo de texto o un adjunto y vuelve a pegar."
+  "a70abf17e99c2d6d": "Quita algo de texto o un adjunto y vuelve a pegar.",
+  "0a75e464d833bca8": "Ajustes",
+  "fa19046edd6cfbd4": "Apariencia",
+  "afda415d2d75a5d3": "Chat",
+  "a7384e7d2952afad": "Cuadro de mensaje",
+  "2757a250104b4b7e": "Avanzado",
+  "4b46043fd3700c17": "Mostrar skills en el menú de barra",
+  "4a1201bd18283940": "Incluye también las skills en el menú de comandos /. Las skills siempre aparecen al escribir $.",
+  "950712602a01125d": "Restablecer las skills del menú de barra al valor predeterminado",
+  "54ec29e2adae5d93": "Cerrar ajustes",
+  "dcc1969a12fc311b": "No se pudo guardar este ajuste en este equipo."
 }

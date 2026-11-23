@@ -192,5 +192,15 @@
   "0e83c3bf28f8958e": "Comandos",
   "df02c1d51d158d32": "Trocar o modelo de resposta desta thread",
   "75bc6a7e61897051": "O texto colado é grande demais para anexar",
-  "a70abf17e99c2d6d": "Remova parte do texto ou um anexo e cole novamente."
+  "a70abf17e99c2d6d": "Remova parte do texto ou um anexo e cole novamente.",
+  "0a75e464d833bca8": "Configurações",
+  "fa19046edd6cfbd4": "Aparência",
+  "afda415d2d75a5d3": "Chat",
+  "a7384e7d2952afad": "Editor de mensagens",
+  "2757a250104b4b7e": "Avançado",
+  "4b46043fd3700c17": "Mostrar skills no menu de barra",
+  "4a1201bd18283940": "Inclui também as skills no menu de comandos /. As skills sempre aparecem quando você digita $.",
+  "950712602a01125d": "Redefinir as skills no menu de barra para o padrão",
+  "54ec29e2adae5d93": "Fechar configurações",
+  "dcc1969a12fc311b": "Não foi possível salvar esta configuração neste computador."
 }

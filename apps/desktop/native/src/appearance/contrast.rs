@@ -143,14 +143,14 @@ impl Desktop {
         let Some(value) = self.contrast.pending else {
             return;
         };
-        if self.saving_client_appearance {
+        if self.saving_client_settings {
             return;
         }
         if value == self.contrast.saved {
             self.contrast.pending = None;
         } else if self.write_request(None, Request::SetContrast { value }) {
             self.contrast.sending = Some(value);
-            self.saving_client_appearance = true;
+            self.saving_client_settings = true;
         }
     }
 

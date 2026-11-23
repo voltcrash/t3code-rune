@@ -29,10 +29,7 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
-import {
-  readClientSettings,
-  patchClientAppearance,
-} from "../src/settings/DesktopClientSettings.ts";
+import { readClientSettings, patchClientSettings } from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -768,9 +765,23 @@ const releaseUpdate = runeUpdates({
 });
 const clientSettingsPath = NodePath.join(homes.server, "userdata", "client-settings.json");
 let clientSettings = DEFAULT_CLIENT_SETTINGS;
-function publishClientAppearance(error) {
+function publishClientSettings(error) {
   write({
-    type: "clientappearance",
+    type: "clientsettings",
+    slash_skills: clientSettings.showSkillsInSlashMenu,
+    settings_labels: {
+      settings: m(msg("Settings")),
+      appearance: m(msg("Appearance")),
+      chat: m(msg("Chat")),
+      composer: m(msg("Composer")),
+      advanced: m(msg("Advanced")),
+      slash_skills: m(msg("Show skills in slash menu")),
+      slash_description: m(
+        msg("Also include skills in the / command menu. Skills always appear when you type $."),
+      ),
+      slash_reset: m(msg("Reset skills in slash menu to default")),
+      close: m(msg("Close settings")),
+    },
     chat_width: clientSettings.chatWidth,
     contrast: clientSettings.appearanceContrast,
     sans: clientSettings.fontFamilySans,
@@ -785,17 +796,19 @@ let clientSettingsWrites = Effect.runPromise(
     Effect.provideService(Logger.LogToStderr, true),
     Effect.catch(() => Effect.succeed(Option.none())),
   ),
-).then((saved) => {
+).then(async (saved) => {
   clientSettings = Option.getOrElse(saved, () => DEFAULT_CLIENT_SETTINGS);
-  publishClientAppearance();
-  return selectLanguage(clientSettings.language, [Intl.DateTimeFormat().resolvedOptions().locale]);
+  await selectLanguage(clientSettings.language, [Intl.DateTimeFormat().resolvedOptions().locale]);
+  publishClientSettings();
 });
 
-async function setClientAppearance(request) {
+async function setClientSetting(request) {
   try {
     let changes;
     if (request.type === "setfontsmoothing" && typeof request.smoothing === "boolean") {
       changes = { fontSmoothing: request.smoothing };
+    } else if (request.type === "setslashskills" && typeof request.enabled === "boolean") {
+      changes = { showSkillsInSlashMenu: request.enabled };
     } else if (
       request.type === "setfontfamily" &&
       (request.slot === "sans" || request.slot === "code") &&
@@ -814,17 +827,17 @@ async function setClientAppearance(request) {
       request.value <= MAX_APPEARANCE_CONTRAST
     ) {
       changes = { appearanceContrast: request.value };
-    } else throw new Error("Invalid appearance setting");
+    } else throw new Error("Invalid client setting");
     clientSettings = await Effect.runPromise(
-      patchClientAppearance(clientSettingsPath, changes).pipe(
+      patchClientSettings(clientSettingsPath, changes).pipe(
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
         Effect.provideService(Logger.LogToStderr, true),
       ),
     );
-    publishClientAppearance();
+    publishClientSettings();
   } catch {
-    publishClientAppearance("Couldn’t save the appearance setting on this computer.");
+    publishClientSettings(m(msg("Couldn’t save this setting on this computer.")));
   }
 }
 
@@ -1720,11 +1733,12 @@ try {
       setAppearance(request.mode);
     } else if (
       request?.type === "setfontsmoothing" ||
+      request?.type === "setslashskills" ||
       request?.type === "setfontfamily" ||
       request?.type === "setchatwidth" ||
       request?.type === "setcontrast"
     ) {
-      clientSettingsWrites = clientSettingsWrites.then(() => setClientAppearance(request));
+      clientSettingsWrites = clientSettingsWrites.then(() => setClientSetting(request));
     } else if (request?.type === "openeditor" || request?.type === "chooseeditor") {
       void handleEditor(request, reply);
     } else if (request?.type === "setdetailsvisible") {

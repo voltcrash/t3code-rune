@@ -192,5 +192,15 @@
   "0e83c3bf28f8958e": "Commands",
   "df02c1d51d158d32": "Switch response model for this thread",
   "75bc6a7e61897051": "Pasted text is too large to attach",
-  "a70abf17e99c2d6d": "Remove some text or an attachment, then paste again."
+  "a70abf17e99c2d6d": "Remove some text or an attachment, then paste again.",
+  "0a75e464d833bca8": "Settings",
+  "fa19046edd6cfbd4": "Appearance",
+  "afda415d2d75a5d3": "Chat",
+  "a7384e7d2952afad": "Composer",
+  "2757a250104b4b7e": "Advanced",
+  "4b46043fd3700c17": "Show skills in slash menu",
+  "4a1201bd18283940": "Also include skills in the / command menu. Skills always appear when you type $.",
+  "950712602a01125d": "Reset skills in slash menu to default",
+  "54ec29e2adae5d93": "Close settings",
+  "dcc1969a12fc311b": "Couldn’t save this setting on this computer."
 }

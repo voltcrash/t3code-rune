@@ -262,20 +262,21 @@ describe("DesktopClientSettings", () => {
         if (Option.isSome(persisted)) {
           assert.equal(persisted.value.timestampFormat, "12-hour");
         }
-        const updated = yield* DesktopClientSettings.patchClientAppearance(
+        const updated = yield* DesktopClientSettings.patchClientSettings(
           environment.clientSettingsPath,
-          { fontSmoothing: false },
+          { fontSmoothing: false, showSkillsInSlashMenu: false },
         );
         assert.isFalse(updated.fontSmoothing);
-        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
+        assert.isFalse(updated.showSkillsInSlashMenu);
+        yield* DesktopClientSettings.patchClientSettings(environment.clientSettingsPath, {
           fontFamilySans: "Georgia",
         });
-        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientSettings(environment.clientSettingsPath, {
           fontFamilyCode: "Menlo",
           chatWidth: "full",
           appearanceContrast: 125,
         });
-        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientSettings(environment.clientSettingsPath, {
           fontFamilySans: "",
         });
         assert.deepEqual(
@@ -284,6 +285,7 @@ describe("DesktopClientSettings", () => {
             settings: {
               timestampFormat: "12-hour",
               futurePreference: "keep",
+              showSkillsInSlashMenu: false,
               fontSmoothing: false,
               fontFamilySans: "",
               fontFamilyCode: "Menlo",
@@ -314,7 +316,7 @@ describe("DesktopClientSettings", () => {
         assert.equal(error.operation, "decode-document");
         assert.equal(error.path, environment.clientSettingsPath);
         assert.instanceOf(error.cause, Schema.SchemaError);
-        yield* DesktopClientSettings.patchClientAppearance(environment.clientSettingsPath, {
+        yield* DesktopClientSettings.patchClientSettings(environment.clientSettingsPath, {
           fontSmoothing: false,
         }).pipe(Effect.flip);
         assert.equal(
