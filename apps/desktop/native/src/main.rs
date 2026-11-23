@@ -133,6 +133,7 @@ enum Reply {
         settings_labels: Box<appearance::SettingsLabels>,
         thread_labels: Box<workspace::thread_actions::Labels>,
         confirm_delete: bool,
+        confirm_archive: bool,
         slash_skills: bool,
         reader_title: bool,
         sans: String,
@@ -410,6 +411,11 @@ enum Reply {
         watch: u64,
         error: Option<String>,
     },
+    ArchivedThreads {
+        operation: u64,
+        groups: Vec<appearance::ArchivedGroup>,
+        error: Option<String>,
+    },
     ModelSaved {
         thread: String,
         instance: String,
@@ -656,6 +662,19 @@ enum Request<'a> {
         watch: u64,
         operation: String,
     },
+    ArchiveThread {
+        thread: String,
+        watch: u64,
+        operation: String,
+    },
+    UnarchiveThread {
+        thread: String,
+        watch: u64,
+        operation: String,
+    },
+    ArchivedThreads {
+        operation: u64,
+    },
     VisitThread {
         thread: Option<&'a str>,
     },
@@ -877,6 +896,8 @@ struct Desktop {
     settings_labels: Option<appearance::SettingsLabels>,
     thread_labels: Option<Box<workspace::thread_actions::Labels>>,
     confirm_thread_delete: bool,
+    confirm_thread_archive: bool,
+    archived: appearance::Archived,
     slash_skills: bool,
     reader_title: bool,
     window_title: Option<[String; 5]>,
@@ -947,6 +968,8 @@ impl Desktop {
             settings_labels: None,
             thread_labels: None,
             confirm_thread_delete: true,
+            confirm_thread_archive: false,
+            archived: Default::default(),
             slash_skills: true,
             reader_title: false,
             window_title: None,
@@ -1009,6 +1032,8 @@ impl Desktop {
             settings_labels: self.settings_labels.take(),
             thread_labels: self.thread_labels.take(),
             confirm_thread_delete: self.confirm_thread_delete,
+            confirm_thread_archive: self.confirm_thread_archive,
+            archived: Default::default(),
             slash_skills: self.slash_skills,
             reader_title: self.reader_title,
             chat_width: self.chat_width,
@@ -1366,7 +1391,17 @@ impl Desktop {
             self.settings_error = error;
             return;
         }
+        if let Reply::ArchivedThreads {
+            operation,
+            groups,
+            error,
+        } = message.reply
+        {
+            self.receive_archived(operation, groups, error);
+            return;
+        }
         if let Reply::ThreadEdited { watch, error } = message.reply {
+            self.archived_edit_finished();
             if self.workspace.feed == Some(watch) {
                 if let Some(message) = error {
                     self.error = Some(message);
@@ -1768,6 +1803,7 @@ impl Desktop {
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
+            | Reply::ArchivedThreads { .. }
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }
             | Reply::WorkspaceProviders { .. }
@@ -2644,6 +2680,7 @@ fn start() -> io::Result<()> {
                     settings_labels,
                     thread_labels,
                     confirm_delete,
+                    confirm_archive,
                     slash_skills,
                     reader_title,
                     sans,
@@ -2659,6 +2696,7 @@ fn start() -> io::Result<()> {
                     s.settings_labels = Some(*settings_labels);
                     s.thread_labels = Some(thread_labels);
                     s.confirm_thread_delete = confirm_delete;
+                    s.confirm_thread_archive = confirm_archive;
                     if s.slash_skills != slash_skills {
                         s.slash_skills = slash_skills;
                         s.mentions.slash_settings_changed();

@@ -18,11 +18,13 @@ pub(crate) struct Labels {
     copy_path: String,
     copy_branch: String,
     copy_thread_id: String,
+    archive: String,
+    archive_title: String,
     delete: String,
-    delete_title: String,
-    delete_description: String,
-    cancel: String,
-    confirm: String,
+    pub(crate) delete_title: String,
+    pub(crate) delete_description: String,
+    pub(crate) cancel: String,
+    pub(crate) confirm: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -57,6 +59,7 @@ struct Rename {
 pub(super) struct Actions {
     menu: Option<OpenMenu>,
     copy_open: bool,
+    archiving: Option<Target>,
     deleting: Option<Target>,
     rename: Option<Rename>,
     forward: Option<Forward>,
@@ -81,6 +84,7 @@ impl Default for Actions {
         Self {
             menu: None,
             copy_open: false,
+            archiving: None,
             deleting: None,
             rename: None,
             forward: None,
@@ -119,6 +123,9 @@ impl Workspace {
         }
         if self.actions.deleting.as_ref().is_some_and(|t| !valid(t)) {
             self.actions.deleting = None;
+        }
+        if self.actions.archiving.as_ref().is_some_and(|t| !valid(t)) {
+            self.actions.archiving = None;
         }
     }
 }
@@ -166,6 +173,40 @@ impl Desktop {
             self.workspace.actions.deleting = Some(target);
         } else {
             self.delete_thread(target);
+        }
+    }
+
+    fn request_archive(&mut self, id: &str, origin: Origin) {
+        self.workspace.actions.close_menu();
+        if !self.can_operate || self.workspace_edit_pending() {
+            return;
+        }
+        let Some(target) = self.workspace.action_target(id, origin) else {
+            return;
+        };
+        if self.confirm_thread_archive {
+            self.workspace.actions.archiving = Some(target);
+        } else {
+            self.archive_thread(target);
+        }
+    }
+
+    fn confirm_archive(&mut self) {
+        if let Some(target) = self.workspace.actions.archiving.take() {
+            self.archive_thread(target);
+        }
+    }
+
+    fn archive_thread(&mut self, target: Target) {
+        if self.can_operate && self.workspace.feed == Some(target.watch) {
+            self.write_request(
+                None,
+                Request::ArchiveThread {
+                    thread: target.thread,
+                    watch: target.watch,
+                    operation: Uuid::new_v4().to_string(),
+                },
+            );
         }
     }
 
@@ -547,6 +588,11 @@ const TRASH: rune::Icon = rune::Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2"/></g>"#,
 };
 
+const ARCHIVE: rune::Icon = rune::Icon {
+    name: "archive",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></g>"#,
+};
 const PIN: rune::Icon = rune::Icon {
     name: "pin",
     view: 24.,
@@ -700,6 +746,13 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
         )
         .separator();
     let id = thread.id.clone();
+    menu = menu.item(
+        MenuItem::new(&labels.archive)
+            .icon(&ARCHIVE)
+            .disabled(locked || thread.status.timed())
+            .on_select(move |s: &mut Desktop| s.request_archive(&id, origin)),
+    );
+    let id = thread.id.clone();
     menu.item(
         MenuItem::new(&labels.delete)
             .icon(&TRASH)
@@ -707,6 +760,32 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
             .disabled(locked)
             .on_select(move |s: &mut Desktop| s.request_delete(&id, origin)),
     )
+}
+
+pub(super) fn archive_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
+    let (Some(target), Some(labels)) = (&s.workspace.actions.archiving, &s.thread_labels) else {
+        return;
+    };
+    let Some(&i) = s.workspace.by_thread.get(&target.thread) else {
+        return;
+    };
+    let title = labels
+        .archive_title
+        .replace("{title}", &s.workspace.threads[i].title);
+    crate::confirm_dialog::overlay(
+        crate::confirm_dialog::Confirm {
+            key: "archive-thread",
+            title: &title,
+            description: None,
+            cancel: &labels.cancel,
+            confirm: &labels.confirm,
+            destructive: false,
+        },
+        theme,
+        |s| s.workspace.actions.archiving = None,
+        Desktop::confirm_archive,
+        overlays,
+    );
 }
 
 pub(super) fn delete_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
@@ -759,7 +838,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn delete_waits_for_confirmation_only_when_the_setting_asks_for_it() {
+    fn archive_and_delete_wait_for_confirmation_only_when_settings_ask() {
         use std::io::{Read, Seek};
         let mut wire = tempfile::tempfile().unwrap();
         #[cfg(unix)]
@@ -786,6 +865,11 @@ mod tests {
         app.confirm_thread_delete = false;
         app.request_delete("b", Origin::Sidebar);
         app.mark_unread("b");
+        app.request_archive("b", Origin::Sidebar);
+        app.confirm_thread_archive = true;
+        app.request_archive("a", Origin::Header);
+        assert!(app.workspace.actions.archiving.is_some());
+        app.confirm_archive();
         wire.rewind().unwrap();
         let mut text = String::new();
         wire.read_to_string(&mut text).unwrap();
@@ -803,6 +887,8 @@ mod tests {
             ("deletethread", "a"),
             ("deletethread", "b"),
             ("markunread", "b"),
+            ("archivethread", "b"),
+            ("archivethread", "a"),
         ];
         assert_eq!(sent, expected.map(|(t, id)| (t.to_owned(), id.to_owned())));
     }

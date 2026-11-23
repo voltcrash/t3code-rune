@@ -402,5 +402,22 @@
   "95184480a503090c": "Supprimer",
   "2d1c111e1b4ae0b0": "Supprimer le fil « {title} » ?",
   "c568ab8dad798ec5": "Cela efface définitivement l’historique de conversation de ce fil.",
-  "56e9fabcabc90c46": "Confirmer"
+  "56e9fabcabc90c46": "Confirmer",
+  "3ce9741f164fb944": "Impossible de charger les fils archivés",
+  "da43691fb8ad8006": "Échec de l’archivage du fil",
+  "8e4a82fb94d107bb": "Échec du désarchivage du fil",
+  "70399412ec5a7026": "Archiver le fil",
+  "6c13d520b6601f65": "Archiver le fil « {title} » ?",
+  "2a546119bf3879ee": "Archives",
+  "ad25ae072f65b934": "Aucun fil archivé",
+  "89d08a5be3347890": "Les fils archivés apparaîtront ici.",
+  "4568f63340b7a586": "Chargement des fils archivés",
+  "4e690f420bcbdb5d": "Vérification des environnements connectés.",
+  "8e944f7583a727fd": "Désarchiver",
+  "9e4e731164d1d283": "Désarchiver {title}",
+  "ea24f015d73520fd": "Supprimer",
+  "d6b75f6c2f576a2c": "Supprimer {title}",
+  "9ad1400c5097a705": "il y a",
+  "30589efe06e4d26f": "à l’instant",
+  "2a364723e6e2978e": "Archivé {archived} · Créé {created}"
 }

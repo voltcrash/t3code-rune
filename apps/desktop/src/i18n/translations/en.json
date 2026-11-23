@@ -402,5 +402,22 @@
   "95184480a503090c": "Delete",
   "2d1c111e1b4ae0b0": "Delete thread \"{title}\"?",
   "c568ab8dad798ec5": "This permanently clears conversation history for this thread.",
-  "56e9fabcabc90c46": "Confirm"
+  "56e9fabcabc90c46": "Confirm",
+  "3ce9741f164fb944": "Could not load archived threads",
+  "da43691fb8ad8006": "Failed to archive thread",
+  "8e4a82fb94d107bb": "Failed to unarchive thread",
+  "70399412ec5a7026": "Archive thread",
+  "6c13d520b6601f65": "Archive thread \"{title}\"?",
+  "2a546119bf3879ee": "Archive",
+  "ad25ae072f65b934": "No archived threads",
+  "89d08a5be3347890": "Archived threads will appear here.",
+  "4568f63340b7a586": "Loading archived threads",
+  "4e690f420bcbdb5d": "Checking connected environments.",
+  "8e944f7583a727fd": "Unarchive",
+  "9e4e731164d1d283": "Unarchive {title}",
+  "ea24f015d73520fd": "Delete",
+  "d6b75f6c2f576a2c": "Delete {title}",
+  "9ad1400c5097a705": "ago",
+  "30589efe06e4d26f": "just now",
+  "2a364723e6e2978e": "Archived {archived} · Created {created}"
 }
