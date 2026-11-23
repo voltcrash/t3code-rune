@@ -82,6 +82,10 @@ impl Resize {
 
     fn drag(&mut self, delta: [f32; 2], limits: &device::Limits, ratio: Option<f64>) {
         let (_, x, y) = HANDLES[self.edge];
+        if (x == 0 || delta[0] == 0.) && (y == 0 || delta[1] == 0.) {
+            self.next = self.start;
+            return;
+        }
         let mut desired = self.start.map(f64::from);
         for (i, sign) in [x, y].into_iter().enumerate() {
             if sign == 0 {
@@ -374,4 +378,28 @@ pub(super) fn canvas(
         area = area.child(handle);
     }
     area
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returning_to_the_drag_origin_preserves_a_rounded_locked_size() {
+        let size = [501, 251];
+        let mut resize = Resize {
+            source: [800, 400],
+            start: size,
+            next: size,
+            edge: 2,
+            mode: Mode::Drag,
+            layout: layout([900., 600.], size, 1.),
+        };
+        let limits =
+            serde_json::from_value(json!({"min":240,"max":4096,"area":8_000_000})).unwrap();
+        resize.drag([0., 10.], &limits, Some(2.));
+        assert!(resize.next[1] > size[1]);
+        resize.drag([12., 0.], &limits, Some(2.));
+        assert_eq!(resize.next, size);
+    }
 }
