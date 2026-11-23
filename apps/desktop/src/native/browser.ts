@@ -146,7 +146,10 @@ type Page = {
 };
 
 export function openBrowserPanel(
-  session: Session,
+  session: Pick<
+    Session,
+    "httpBaseUrl" | "http" | "label" | "token" | "environmentId" | "browserWritable"
+  >,
   thread: string,
   signal: AbortSignal,
   publish: (page: Page) => void,
@@ -487,8 +490,10 @@ export function openBrowserPanel(
         return;
       const rpc = service;
       if (request.action === "adjust") {
+        const selection = attaching?.signal;
+        if (!selection) return;
         const apply = async () => {
-          if (lifetime.aborted || rpc !== service || request.tab !== selected) return;
+          if (selection.aborted || lifetime.aborted || busy || !session.browserWritable) return;
           const tab = tabs.find((t) => t.tabId === request.tab);
           const change = tab && tabAdjustment(tab, request.setting);
           if (!change) return;
@@ -498,7 +503,7 @@ export function openBrowserPanel(
             rpc[WS_METHODS.previewAdjust]({ threadId, tabId: request.tab, ...change }),
             { signal: lifetime },
           );
-          if (rpc !== service || lifetime.aborted) return;
+          if (selection.aborted || lifetime.aborted) return;
           if (before === revision) {
             tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
             emit();
@@ -506,7 +511,7 @@ export function openBrowserPanel(
           await refresh();
         };
         adjustments = adjustments.then(apply).catch(() => {
-          if (rpc === service && selected === request.tab && !lifetime.aborted) {
+          if (!selection.aborted && !lifetime.aborted) {
             error = m(msg("Could not update the browser tab."));
             emit();
           }
