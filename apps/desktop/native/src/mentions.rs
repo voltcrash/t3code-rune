@@ -398,6 +398,7 @@ impl Desktop {
         };
         let len = s.entries.len();
         match event.key {
+            Key::Enter if !s.loaded && s.trigger.instance.is_some() => {}
             Key::Escape => s.dismissed = true,
             Key::Down if len > 0 => s.active = (s.active + 1) % len,
             Key::Up if len > 0 => s.active = (s.active + len - 1) % len,
@@ -469,6 +470,61 @@ mod tests {
         edit.undo();
         edit.undo();
         assert_eq!(prompt(&edit), "Review @co here @dir");
+    }
+    #[test]
+    fn enter_waits_for_a_highlighted_skill_to_refresh() {
+        let mut app = Desktop::new();
+        app.can_operate = true;
+        app.workspace.feed = Some(1);
+        app.mentions.connection(1, true);
+        app.workspace.replace(serde_json::from_value(serde_json::json!([{
+            "id": "p", "title": "Project", "path": "/project", "archived": false, "scratch": false
+        }])).unwrap(), vec![]);
+        app.new_threads.configure(
+            "p".into(),
+            serde_json::from_value(serde_json::json!([{
+                "id": "model", "name": "Model", "provider": "Replay", "runtime": "default",
+                "instance": "replay", "preferred": true
+            }]))
+            .unwrap(),
+            Default::default(),
+            false,
+            "",
+        );
+        app.new_threads.edit_prompt("p").unwrap().insert("$rev");
+        let mut rt = rune::Runtime::new(
+            app,
+            |_, _| rune::el().key("new-thread-prompt").focusable(true),
+            (320., 200.),
+            Default::default(),
+        );
+        rt.frame(0.);
+        rt.update(|_, tx| tx.focus("new-thread-prompt", true));
+        rt.frame(0.);
+        rt.update(|s, tx| {
+            s.sync_mentions(tx);
+            let operation = s.mentions.search.as_ref().unwrap().operation;
+            let row = || Entry {
+                path: "review".into(),
+                kind: "skill".into(),
+                link: "$review".into(),
+                label: None,
+                description: None,
+            };
+            s.mentions.receive(operation, vec![row()]);
+            s.mentions.skills_changed(1, "replay");
+            let enter = KeyEvent {
+                key: Key::Enter,
+                mods: Default::default(),
+            };
+            let owner = Target::Project("p".into());
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert_eq!(s.new_threads.prompt("p").unwrap().text, "$rev");
+            let fresh = s.mentions.search.as_ref().unwrap().operation;
+            s.mentions.receive(fresh, vec![row()]);
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
+        });
     }
     #[test]
     fn skill_tokens_use_the_provider_name_and_leave_currency_amounts_alone() {
