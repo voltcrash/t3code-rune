@@ -555,6 +555,10 @@
       "types": "./src/threadSearch.ts",
       "import": "./src/threadSearch.ts"
     },
+    "./assistantFileLinks": {
+      "types": "./src/assistantFileLinks.ts",
+      "import": "./src/assistantFileLinks.ts"
+    },
     "./markdownLinks": {
       "types": "./src/markdownLinks.ts",
       "import": "./src/markdownLinks.ts"

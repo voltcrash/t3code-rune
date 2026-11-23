@@ -185,6 +185,10 @@ enum Reply {
         paths: Vec<String>,
         error: Option<String>,
     },
+    WorkspaceFileLink {
+        operation: u64,
+        link: Option<workspace::workspace_files::LinkTarget>,
+    },
     FileSource {
         operation: u64,
         contents: Option<String>,
@@ -1287,6 +1291,10 @@ impl Desktop {
             self.receive_file_matches(operation, paths, error);
             return;
         }
+        if let Reply::WorkspaceFileLink { operation, link } = message.reply {
+            self.receive_workspace_link(operation, link);
+            return;
+        }
         if let Reply::FileSource {
             operation,
             contents,
@@ -1732,6 +1740,7 @@ impl Desktop {
             | Reply::ComposerFilesReady { .. }
             | Reply::ComposerFiles { .. }
             | Reply::FilteredFiles { .. }
+            | Reply::WorkspaceFileLink { .. }
             | Reply::FileSource { .. }
             | Reply::StopResult { .. }
             | Reply::WorkspaceClock { .. }

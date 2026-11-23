@@ -8,12 +8,11 @@ import {
   renderCodexInlineDirectivesAsMarkdown,
 } from "./codexMarkdownDirectives.ts";
 import { codexArtifactTemplatePresentationLabel } from "./codexArtifactTemplates.ts";
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "./fileLinks.ts";
+import { markdownFileParentSuffixes } from "./markdownFileLabels.ts";
+import { fileLinkLabel } from "./fileLinks.ts";
 import {
   classifyMarkdownImageSource,
   isMarkdownFileLinkLabel,
-  extractMarkdownLinkHrefs,
-  extractInlineCodeSpans,
   inlineCodeFilePathCandidate,
   resolveMarkdownFileLink,
   shouldRenderMarkdownImageAsFileLink,
@@ -38,7 +37,6 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   CHAT_USER_MARKDOWN_REMARK_PLUGINS,
   chatMarkdownImageSource,
-  decodeMarkdownLinkEscapes,
   type ChatMarkdownImageProperties,
 } from "./markdownPipeline.ts";
 
@@ -140,16 +138,11 @@ function markdownThreadFindText(
       : insightProcessor
     : processor;
   const tree = renderer.runSync(renderer.parse(markdown), markdown);
-  const paths = [
-    ...extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(markdown)).map(
-      decodeMarkdownLinkEscapes,
-    ),
-    ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
-  ].flatMap((href) => {
-    const resolved = resolveMarkdownFileLink(href, cwd);
-    return resolved ? [resolved.position.path] : [];
-  });
-  const parentSuffixes = buildFileLinkParentSuffixByPath(paths);
+  const parentSuffixes = markdownFileParentSuffixes(
+    markdown,
+    renderCodexInlineDirectivesAsMarkdown(markdown),
+    cwd,
+  );
   const segments: string[] = [];
   let text = "";
   const flush = () => {

@@ -84,6 +84,8 @@ import {
   readWorkspace,
   writePlanToWorkspace,
   readWorkspaceFiles,
+  resolveWorkspaceMarkdownLink,
+  workspaceMarkdownLink,
 } from "../src/native/projects.ts";
 
 const packaged = process.argv[2] === "--packaged";
@@ -641,6 +643,27 @@ async function openThread(owner, request, reply) {
 
 async function workspaceFiles(request, reply) {
   const record = watching;
+  if (request.action === "resolve") {
+    const link =
+      record && record.id === request.watch && record.owner === session && session.canBrowse
+        ? await Effect.runPromise(
+            resolveWorkspaceMarkdownLink(
+              record.owner,
+              request.href,
+              request.root,
+              workspaceFeed?.activeRpc(),
+            ).pipe(
+              Effect.scoped,
+              Effect.timeout("12 seconds"),
+              Effect.provide(record.owner.http),
+              Effect.orElseSucceed(() => workspaceMarkdownLink(request.href, request.root)),
+            ),
+            { signal: record.controller.signal },
+          ).catch(() => null)
+        : null;
+    reply({ type: "workspacefilelink", operation: request.operation, link });
+    return;
+  }
   const filter = request.action === "filter";
   const search = request.action === "search" || filter;
   const list = request.action === "list";

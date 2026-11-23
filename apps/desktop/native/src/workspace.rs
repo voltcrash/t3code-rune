@@ -119,6 +119,13 @@ impl Thread {
 }
 
 #[derive(Deserialize)]
+struct AssistantFileLink {
+    href: String,
+    copy: String,
+    prefix: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct MessageRow {
     entry_id: Option<String>,
     #[serde(skip)]
@@ -127,6 +134,7 @@ pub(super) struct MessageRow {
     role: String,
     body: String,
     copy_body: Option<String>,
+    file_links: Option<std::sync::Arc<std::collections::HashMap<String, AssistantFileLink>>>,
     attachments: Vec<images::Attachment>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
@@ -305,6 +313,7 @@ pub(super) struct Workspace {
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
+    pub(crate) resolving_file_link: Option<(u64, workspace_files::Location)>,
     pub(crate) file_preview: Option<workspace_files::Preview>,
     pub(crate) attachment_labels: crate::attachments::Labels,
     pub(crate) attachment_viewport: rune::Live<[f32; 4]>,
@@ -384,6 +393,7 @@ impl Workspace {
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
+            resolving_file_link: None,
             file_preview: None,
             attachment_labels: Default::default(),
             attachment_viewport: rune::Live::new([0.; 4]),
@@ -2474,6 +2484,7 @@ mod tests {
                 remove: 0,
                 rows: vec![MessageRow {
                     copy_body: None,
+                    file_links: None,
                     entry_id: None,
                     preview: Default::default(),
                     key: "msg".into(),
@@ -2641,6 +2652,7 @@ mod tests {
         let workspace = &mut desktop.workspace;
         let message = |key: &str| MessageRow {
             copy_body: None,
+            file_links: None,
             entry_id: None,
             preview: Default::default(),
             key: key.into(),

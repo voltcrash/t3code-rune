@@ -21,6 +21,7 @@ pub(crate) enum Input {
     Search { query: String, cancel: bool },
     Filter { query: String, cancel: bool },
     Read { path: String, cancel: bool },
+    Resolve { href: String },
     List { directory: String, cancel: bool },
 }
 
@@ -30,7 +31,14 @@ enum Origin {
     Attachment(Attachment),
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct LinkTarget {
+    path: String,
+    line: Option<usize>,
+}
+
 pub(crate) struct Preview {
+    reveal_line: Option<usize>,
     origin: Origin,
     rendered: bool,
     operation: u64,
@@ -165,6 +173,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_file_preview(&mut self) {
+        self.workspace.resolving_file_link = None;
         if let Some(p) = self.workspace.file_preview.take() {
             match p.origin {
                 Origin::Workspace(location) => self.file_request(
@@ -204,6 +213,29 @@ impl Desktop {
     }
 
     pub(super) fn open_workspace_file(&mut self, location: Location, path: String) {
+        self.preview_workspace_path(location, path, None);
+    }
+
+    pub(super) fn resolve_workspace_link(&mut self, location: Location, href: String) {
+        let operation = self.next_request_id();
+        self.workspace.resolving_file_link = Some((operation, location.clone()));
+        self.file_request(location, operation, Input::Resolve { href });
+    }
+
+    pub(crate) fn receive_workspace_link(&mut self, operation: u64, link: Option<LinkTarget>) {
+        let Some((_, location)) = self
+            .workspace
+            .resolving_file_link
+            .take_if(|(id, _)| *id == operation)
+        else {
+            return;
+        };
+        if let Some(link) = link {
+            self.preview_workspace_path(location, link.path, link.line);
+        }
+    }
+
+    fn preview_workspace_path(&mut self, location: Location, path: String, line: Option<usize>) {
         if self.file_location().as_ref() != Some(&location) {
             return;
         }
@@ -213,6 +245,7 @@ impl Desktop {
         let operation = self.next_request_id();
         self.workspace.file_preview = Some(Preview {
             origin: Origin::Workspace(location.clone()),
+            reveal_line: line,
             rendered: false,
             operation,
             path: path.clone(),
@@ -235,7 +268,7 @@ impl Desktop {
         };
         match &p.origin {
             Origin::Workspace(location) => {
-                self.open_workspace_file(location.clone(), p.path.clone())
+                self.preview_workspace_path(location.clone(), p.path.clone(), p.reveal_line)
             }
             Origin::Attachment(file) => {
                 if !file.reads_text() {
@@ -489,9 +522,20 @@ fn source_view(app: &Desktop, preview: &Preview, theme: &tok::Theme, kit: &Kit) 
             },
         )
         .virtual_rows_version(preview.operation);
+    let operation = preview.operation;
     panel.child(
         col()
-            .key(format!("file-source-{}", preview.operation))
+            .key(format!("file-source-{operation}"))
+            .on_layout_tx(move |s: &mut Desktop, _, tx| {
+                if let Some(p) = &mut s.workspace.file_preview
+                    && p.operation == operation
+                    && let Some(line) = p.reveal_line.take()
+                    && let Some(source) = &p.source
+                {
+                    let row = line.min(source.lines.len()).saturating_sub(1);
+                    tx.scroll_to_y(format!("file-source-{operation}"), row as f32 * 20.);
+                }
+            })
             .grow(1.)
             .min_h(0.)
             .scroll_xy()
@@ -513,6 +557,7 @@ mod tests {
                 root: "/repo".into(),
             }),
             operation: 12,
+            reveal_line: None,
             path: "src/main.rs".into(),
             source: None,
             error: None,

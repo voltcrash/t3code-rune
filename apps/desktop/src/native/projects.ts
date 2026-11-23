@@ -57,7 +57,19 @@ import {
   isUnsupportedWindowsProjectPath,
 } from "@t3tools/client-runtime/state/projects";
 import { parseOAuthScope } from "@t3tools/shared/oauthScope";
-import { isHostPath, normalizeProjectPathForDispatch } from "@t3tools/shared/path";
+import { resolveMarkdownFileLink } from "@t3tools/shared/markdownLinks";
+import {
+  isHostPath,
+  normalizeProjectPathForDispatch,
+  resolveWorkspaceFilePath,
+  workspaceRelativeFilePath,
+} from "@t3tools/shared/path";
+import {
+  WORKSPACE_BASENAME_LOOKUP_LIMIT,
+  needsWorkspaceBasenameLookup,
+  pickWorkspaceLinkMatch,
+  workspaceLinkLookupQuery,
+} from "@t3tools/client-runtime/workspace-basename-lookup";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
 import { m } from "../i18n/catalog.ts";
@@ -497,6 +509,40 @@ type WorkspaceFileInput =
   | { readonly action: "search" | "filter"; readonly query: string }
   | { readonly action: "read"; readonly path: string }
   | { readonly action: "list"; readonly directory: string };
+
+export function workspaceMarkdownLink(href: string, root: string) {
+  const position = resolveMarkdownFileLink(href, root)?.position;
+  const path = position && workspaceRelativeFilePath(position.path, root);
+  return path && path !== "." ? { path, line: position.line } : null;
+}
+
+/** Like the web client, a link that names no file as written opens the one file search finds. */
+export const resolveWorkspaceMarkdownLink = Effect.fn("nativeDesktop.resolveWorkspaceMarkdownLink")(
+  function* (
+    session: Session,
+    href: string,
+    root: string,
+    activeRpc?: Effect.Success<ReturnType<typeof openEnvironmentRpc>>,
+  ) {
+    const link = workspaceMarkdownLink(href, root);
+    const query = link && workspaceLinkLookupQuery(link.path, root);
+    if (!link || query == null) return link;
+    const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
+    if (!needsWorkspaceBasenameLookup(link.path)) {
+      const { entries } = yield* rpc[WS_METHODS.filesystemGetMetadata]({
+        paths: [resolveWorkspaceFilePath(link.path, root)],
+      });
+      if (entries[0] !== null) return link;
+    }
+    const { entries } = yield* rpc[WS_METHODS.projectsSearchEntries]({
+      cwd: root,
+      query,
+      limit: WORKSPACE_BASENAME_LOOKUP_LIMIT,
+      kind: "file",
+    });
+    return { ...link, path: pickWorkspaceLinkMatch(link.path, root, entries) ?? link.path };
+  },
+);
 
 export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(function* (
   session: Session,
