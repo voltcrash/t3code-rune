@@ -1253,6 +1253,8 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         mention_labels: {
           search: m(msg("Search files")),
+          commands: m(msg("Commands")),
+          switch_model: m(msg("Switch response model for this thread")),
           skills: m(msg("Skills")),
           no_skills: m(msg("No results found.")),
           searching: m(msg("Searching…")),
