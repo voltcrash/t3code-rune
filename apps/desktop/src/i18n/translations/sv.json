@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "Kunde inte skicka filerna till sidan",
   "95afdc33a06d3030": "Sidan ber om filer.",
   "69c659d8b6e271cc": "Sidan ber om en fil.",
-  "59c87648d44b958c": "Välj fil"
+  "59c87648d44b958c": "Välj fil",
+  "0fd1c746a0e38003": "Det gick inte att ta bort tråden",
+  "f51626441b9dfc39": "Fäst tråd",
+  "47d5db2958bd01c9": "Lossa tråd",
+  "56198134d0174861": "Markera tråden som klar",
+  "0b75d1fefd7710fe": "Markera tråden som ej klar",
+  "d1259290b8c63577": "Byt namn på tråd",
+  "dffd2e20f7ff5aa1": "Markera som oläst",
+  "d2ba9ab14fd2e81c": "Kopiera",
+  "a9abbabbd3106847": "Sökväg",
+  "bd86c9f5e546d3d9": "Gren",
+  "f053d7461b8ecce5": "Tråd-ID",
+  "95184480a503090c": "Ta bort",
+  "2d1c111e1b4ae0b0": "Ta bort tråden ”{title}”?",
+  "c568ab8dad798ec5": "Det här rensar konversationshistoriken för den här tråden permanent.",
+  "56e9fabcabc90c46": "Bekräfta"
 }

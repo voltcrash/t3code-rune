@@ -12,6 +12,7 @@ mod approval;
 mod attachments;
 mod browser;
 mod composer;
+mod confirm_dialog;
 mod dictation;
 mod image_decode;
 mod issues;
@@ -130,6 +131,8 @@ enum Reply {
     },
     ClientSettings {
         settings_labels: Box<appearance::SettingsLabels>,
+        thread_labels: Box<workspace::thread_actions::Labels>,
+        confirm_delete: bool,
         slash_skills: bool,
         reader_title: bool,
         sans: String,
@@ -643,6 +646,16 @@ enum Request<'a> {
         watch: u64,
         operation: String,
     },
+    MarkUnread {
+        thread: String,
+        watch: u64,
+        operation: String,
+    },
+    DeleteThread {
+        thread: String,
+        watch: u64,
+        operation: String,
+    },
     VisitThread {
         thread: Option<&'a str>,
     },
@@ -862,6 +875,8 @@ struct Desktop {
     settings_open: bool,
     settings_page: appearance::SettingsPage,
     settings_labels: Option<appearance::SettingsLabels>,
+    thread_labels: Option<Box<workspace::thread_actions::Labels>>,
+    confirm_thread_delete: bool,
     slash_skills: bool,
     reader_title: bool,
     window_title: Option<[String; 5]>,
@@ -930,6 +945,8 @@ impl Desktop {
             settings_open: false,
             settings_page: Default::default(),
             settings_labels: None,
+            thread_labels: None,
+            confirm_thread_delete: true,
             slash_skills: true,
             reader_title: false,
             window_title: None,
@@ -990,6 +1007,8 @@ impl Desktop {
             font_smoothing: self.font_smoothing,
             saving_client_settings: self.saving_client_settings,
             settings_labels: self.settings_labels.take(),
+            thread_labels: self.thread_labels.take(),
+            confirm_thread_delete: self.confirm_thread_delete,
             slash_skills: self.slash_skills,
             reader_title: self.reader_title,
             chat_width: self.chat_width,
@@ -2623,6 +2642,8 @@ fn start() -> io::Result<()> {
                 }
                 if let Reply::ClientSettings {
                     settings_labels,
+                    thread_labels,
+                    confirm_delete,
                     slash_skills,
                     reader_title,
                     sans,
@@ -2636,6 +2657,8 @@ fn start() -> io::Result<()> {
                     s.reader_title = reader_title;
                     s.sync_window_title(tx);
                     s.settings_labels = Some(*settings_labels);
+                    s.thread_labels = Some(thread_labels);
+                    s.confirm_thread_delete = confirm_delete;
                     if s.slash_skills != slash_skills {
                         s.slash_skills = slash_skills;
                         s.mentions.slash_settings_changed();

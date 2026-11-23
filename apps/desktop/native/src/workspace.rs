@@ -26,7 +26,7 @@ mod plan;
 #[path = "sidebar_header.rs"]
 mod sidebar_header;
 #[path = "thread_actions.rs"]
-mod thread_actions;
+pub(crate) mod thread_actions;
 #[path = "thread_details.rs"]
 pub(crate) mod thread_details;
 #[path = "thread_find.rs"]
@@ -2384,6 +2384,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         }
     }
     thread_details::menu(s, &kit, &mut overlays);
+    thread_actions::delete_dialog(s, theme, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let available = viewport[0] - if show_sidebar { width } else { 0. };
     let max_panel_width = panel_width::max_width(viewport[0], available);

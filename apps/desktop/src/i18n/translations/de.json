@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "Die Dateien konnten nicht an die Seite gesendet werden",
   "95afdc33a06d3030": "Die Seite fragt nach Dateien.",
   "69c659d8b6e271cc": "Die Seite fragt nach einer Datei.",
-  "59c87648d44b958c": "Datei auswählen"
+  "59c87648d44b958c": "Datei auswählen",
+  "0fd1c746a0e38003": "Thread konnte nicht gelöscht werden",
+  "f51626441b9dfc39": "Thread anheften",
+  "47d5db2958bd01c9": "Thread loslösen",
+  "56198134d0174861": "Thread erledigen",
+  "0b75d1fefd7710fe": "Erledigt aufheben",
+  "d1259290b8c63577": "Thread umbenennen",
+  "dffd2e20f7ff5aa1": "Als ungelesen markieren",
+  "d2ba9ab14fd2e81c": "Kopieren",
+  "a9abbabbd3106847": "Pfad",
+  "bd86c9f5e546d3d9": "Branch",
+  "f053d7461b8ecce5": "Thread-ID",
+  "95184480a503090c": "Löschen",
+  "2d1c111e1b4ae0b0": "Thread „{title}“ löschen?",
+  "c568ab8dad798ec5": "Dadurch wird der Gesprächsverlauf dieses Threads dauerhaft gelöscht.",
+  "56e9fabcabc90c46": "Bestätigen"
 }

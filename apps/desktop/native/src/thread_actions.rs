@@ -2,8 +2,28 @@ use super::{
     Desktop, El, Request, TextEdit, TextStyle, Thread, Tx, Workspace, icon, label, row, text_input,
     tok,
 };
-use rune_kit::{Kit, Menu, MenuItem, glyphs};
+use rune_kit::{Kit, Menu, MenuEntry, MenuItem, glyphs};
+use serde::Deserialize;
 use uuid::Uuid;
+
+#[derive(Deserialize)]
+pub(crate) struct Labels {
+    pin: String,
+    unpin: String,
+    settle: String,
+    unsettle: String,
+    rename: String,
+    mark_unread: String,
+    copy: String,
+    copy_path: String,
+    copy_branch: String,
+    copy_thread_id: String,
+    delete: String,
+    delete_title: String,
+    delete_description: String,
+    cancel: String,
+    confirm: String,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Origin {
@@ -36,6 +56,8 @@ struct Rename {
 
 pub(super) struct Actions {
     menu: Option<OpenMenu>,
+    copy_open: bool,
+    deleting: Option<Target>,
     rename: Option<Rename>,
     forward: Option<Forward>,
     input: TextEdit,
@@ -50,6 +72,7 @@ impl Actions {
 
     pub(super) fn close_menu(&mut self) {
         self.menu = None;
+        self.copy_open = false;
     }
 }
 
@@ -57,6 +80,8 @@ impl Default for Actions {
     fn default() -> Self {
         Self {
             menu: None,
+            copy_open: false,
+            deleting: None,
             rename: None,
             forward: None,
             input: TextEdit::new(""),
@@ -92,6 +117,9 @@ impl Workspace {
         {
             self.actions.rename = None;
         }
+        if self.actions.deleting.as_ref().is_some_and(|t| !valid(t)) {
+            self.actions.deleting = None;
+        }
     }
 }
 
@@ -102,10 +130,63 @@ impl Desktop {
 
     fn thread_menu(&mut self, thread: &str, origin: Origin, point: Option<(f32, f32)>) {
         self.commit_title();
+        self.workspace.actions.copy_open = false;
         self.workspace.actions.menu = self
             .workspace
             .action_target(thread, origin)
             .map(|target| OpenMenu { target, point });
+    }
+
+    fn mark_unread(&mut self, id: &str) {
+        self.workspace.actions.close_menu();
+        let Some(target) = self.workspace.action_target(id, Origin::Sidebar) else {
+            return;
+        };
+        if self.can_operate {
+            self.write_request(
+                None,
+                Request::MarkUnread {
+                    thread: target.thread,
+                    watch: target.watch,
+                    operation: Uuid::new_v4().to_string(),
+                },
+            );
+        }
+    }
+
+    fn request_delete(&mut self, id: &str, origin: Origin) {
+        self.workspace.actions.close_menu();
+        if !self.can_operate || self.workspace_edit_pending() {
+            return;
+        }
+        let Some(target) = self.workspace.action_target(id, origin) else {
+            return;
+        };
+        if self.confirm_thread_delete {
+            self.workspace.actions.deleting = Some(target);
+        } else {
+            self.delete_thread(target);
+        }
+    }
+
+    fn confirm_delete(&mut self) {
+        if let Some(target) = self.workspace.actions.deleting.take() {
+            self.delete_thread(target);
+        }
+    }
+
+    fn delete_thread(&mut self, target: Target) {
+        if !self.can_operate || self.workspace.feed != Some(target.watch) {
+            return;
+        }
+        self.write_request(
+            None,
+            Request::DeleteThread {
+                thread: target.thread,
+                watch: target.watch,
+                operation: Uuid::new_v4().to_string(),
+            },
+        );
     }
 
     fn set_pin(&mut self, id: &str, pinned: bool) {
@@ -430,6 +511,42 @@ pub(super) fn header(
         .build(kit, overlays)
 }
 
+const CIRCLE_CHECK: rune::Icon = rune::Icon {
+    name: "circle-check",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></g>"#,
+};
+const PENCIL: rune::Icon = rune::Icon {
+    name: "pencil",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></g>"#,
+};
+const MAIL_OPEN: rune::Icon = rune::Icon {
+    name: "mail-open",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/></g>"#,
+};
+const FOLDER: rune::Icon = rune::Icon {
+    name: "folder",
+    view: 24.,
+    body: r#"<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+const GIT_BRANCH: rune::Icon = rune::Icon {
+    name: "git-branch",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></g>"#,
+};
+const HASH: rune::Icon = rune::Icon {
+    name: "hash",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></g>"#,
+};
+const TRASH: rune::Icon = rune::Icon {
+    name: "trash",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2"/></g>"#,
+};
+
 const PIN: rune::Icon = rune::Icon {
     name: "pin",
     view: 24.,
@@ -476,66 +593,146 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
         .filter(|m| m.target.origin == origin && m.target.thread == thread.id);
     let mut menu = Menu::new(key)
         .open(open.is_some())
-        .on_close(|s: &mut Desktop| s.workspace.actions.menu = None);
+        .on_close(|s: &mut Desktop| s.workspace.actions.close_menu());
     if let Some(point) = open.and_then(|m| m.point) {
         menu = menu.at(point.0, point.1);
     }
+    let Some(labels) = &s.thread_labels else {
+        return menu;
+    };
     if origin == Origin::Header
         && s.can_find_thread()
         && s.workspace
             .visible_thread()
             .is_some_and(|t| t.id == thread.id)
-        && let Some(labels) = &s.workspace.find_labels
+        && let Some(find) = &s.workspace.find_labels
     {
         menu = menu.item(
-            MenuItem::new(&labels.title).on_select_tx(|s: &mut Desktop, tx| {
-                s.workspace.actions.menu = None;
-                s.open_thread_find(Some("thread-actions-trigger"), tx);
-            }),
+            MenuItem::new(&find.title)
+                .icon(&glyphs::SEARCH)
+                .on_select_tx(|s: &mut Desktop, tx| {
+                    s.workspace.actions.close_menu();
+                    s.open_thread_find(Some("thread-actions-trigger"), tx);
+                }),
         );
     }
-    if s.can_operate {
-        let id = thread.id.clone();
-        menu = menu.item(
-            MenuItem::new("Rename thread")
-                .disabled(s.workspace_edit_pending())
-                .on_select_tx(move |s: &mut Desktop, tx| s.begin_rename(&id, origin, tx)),
-        );
-    }
-    if s.can_operate {
-        let id = thread.id.clone();
-        let settled = !thread.settled;
-        menu = menu.item(
-            MenuItem::new(if settled {
-                "Settle thread"
-            } else {
-                "Un-settle thread"
-            })
-            .icon(&glyphs::CHECK)
-            .disabled(s.workspace_edit_pending())
-            .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
-        );
-    }
+    let locked = !s.can_operate || s.workspace_edit_pending();
     if s.can_pin {
         let id = thread.id.clone();
         let pinned = !thread.pinned;
         menu = menu.item(
-            MenuItem::new(if pinned { "Pin thread" } else { "Unpin thread" })
+            MenuItem::new(if pinned { &labels.pin } else { &labels.unpin })
                 .icon(if pinned { &PIN } else { &UNPIN })
                 .disabled(s.workspace_edit_pending())
                 .on_select(move |s: &mut Desktop| s.set_pin(&id, pinned)),
         );
     }
     let id = thread.id.clone();
+    let settled = !thread.settled;
+    menu = menu
+        .item(
+            MenuItem::new(if settled {
+                &labels.settle
+            } else {
+                &labels.unsettle
+            })
+            .icon(&CIRCLE_CHECK)
+            .disabled(locked)
+            .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
+        )
+        .separator();
+    let id = thread.id.clone();
+    menu = menu.item(
+        MenuItem::new(&labels.rename)
+            .icon(&PENCIL)
+            .disabled(locked)
+            .on_select_tx(move |s: &mut Desktop, tx| s.begin_rename(&id, origin, tx)),
+    );
+    let id = thread.id.clone();
+    menu = menu
+        .item(
+            MenuItem::new(&labels.mark_unread)
+                .icon(&MAIL_OPEN)
+                .disabled(!s.can_operate)
+                .on_select(move |s: &mut Desktop| s.mark_unread(&id)),
+        )
+        .separator();
+    let copy = |text: String| {
+        move |s: &mut Desktop, tx: &mut Tx| {
+            tx.copy(&text);
+            s.workspace.actions.close_menu();
+        }
+    };
+    let path = thread.worktree.clone().or_else(|| {
+        s.workspace
+            .project(&thread.project)
+            .map(|p| p.path.clone())
+            .filter(|p| !p.is_empty())
+    });
+    let mut copies = Vec::new();
+    if let Some(path) = path {
+        copies.push(MenuEntry::item(
+            MenuItem::new(&labels.copy_path)
+                .icon(&FOLDER)
+                .on_select_tx(copy(path)),
+        ));
+    }
+    if let Some(branch) = thread.branch.clone() {
+        copies.push(MenuEntry::item(
+            MenuItem::new(&labels.copy_branch)
+                .icon(&GIT_BRANCH)
+                .on_select_tx(copy(branch)),
+        ));
+    }
+    copies.push(MenuEntry::item(
+        MenuItem::new(&labels.copy_thread_id)
+            .icon(&HASH)
+            .on_select_tx(copy(thread.id.clone())),
+    ));
+    menu = menu
+        .item(
+            MenuItem::new(&labels.copy)
+                .icon(&glyphs::COPY)
+                .submenu(copies, s.workspace.actions.copy_open)
+                .on_select(|s: &mut Desktop| {
+                    s.workspace.actions.copy_open = !s.workspace.actions.copy_open
+                }),
+        )
+        .separator();
+    let id = thread.id.clone();
     menu.item(
-        MenuItem::new("Copy thread ID").on_select_tx(move |s: &mut Desktop, tx| {
-            tx.copy(&id);
-            s.workspace.actions.menu = None;
-            if origin == Origin::Sidebar {
-                tx.focus(&id, true);
-            }
-        }),
+        MenuItem::new(&labels.delete)
+            .icon(&TRASH)
+            .danger(true)
+            .disabled(locked)
+            .on_select(move |s: &mut Desktop| s.request_delete(&id, origin)),
     )
+}
+
+pub(super) fn delete_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
+    let (Some(target), Some(labels)) = (&s.workspace.actions.deleting, &s.thread_labels) else {
+        return;
+    };
+    let Some(&i) = s.workspace.by_thread.get(&target.thread) else {
+        return;
+    };
+    let title = labels
+        .delete_title
+        .replace("{title}", &s.workspace.threads[i].title);
+    crate::confirm_dialog::overlay(
+        crate::confirm_dialog::Confirm {
+            key: "delete-thread",
+            title: &title,
+            description: Some(&labels.delete_description),
+            cancel: &labels.cancel,
+            confirm: &labels.confirm,
+            destructive: true,
+        },
+        theme,
+        |s| s.workspace.actions.deleting = None,
+        Desktop::confirm_delete,
+        overlays,
+    );
 }
 
 pub(super) fn sidebar_menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
@@ -560,6 +757,55 @@ mod tests {
     use super::*;
     use crate::WorkerMessage;
     use serde_json::json;
+
+    #[test]
+    fn delete_waits_for_confirmation_only_when_the_setting_asks_for_it() {
+        use std::io::{Read, Seek};
+        let mut wire = tempfile::tempfile().unwrap();
+        #[cfg(unix)]
+        let output = std::os::fd::OwnedFd::from(wire.try_clone().unwrap());
+        #[cfg(windows)]
+        let output = std::os::windows::io::OwnedHandle::from(wire.try_clone().unwrap());
+        let mut app = Desktop::new();
+        app.output = Some(output.into());
+        app.can_operate = true;
+        app.workspace.feed = Some(1);
+        app.workspace.replace(
+            vec![],
+            serde_json::from_value(json!([
+                {"id":"a","project":"p","title":"a","model":"m","status":"idle","settled":false,"snoozed_until":null},
+                {"id":"b","project":"p","title":"b","model":"m","status":"idle","settled":false,"snoozed_until":null}
+            ]))
+            .unwrap(),
+        );
+        app.request_delete("a", Origin::Sidebar);
+        assert!(app.workspace.actions.deleting.is_some());
+        app.workspace.actions.deleting = None;
+        app.request_delete("a", Origin::Header);
+        app.confirm_delete();
+        app.confirm_thread_delete = false;
+        app.request_delete("b", Origin::Sidebar);
+        app.mark_unread("b");
+        wire.rewind().unwrap();
+        let mut text = String::new();
+        wire.read_to_string(&mut text).unwrap();
+        let sent: Vec<(String, String)> = text
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .map(|v| {
+                (
+                    v["type"].as_str().unwrap().into(),
+                    v["thread"].as_str().unwrap().into(),
+                )
+            })
+            .collect();
+        let expected = [
+            ("deletethread", "a"),
+            ("deletethread", "b"),
+            ("markunread", "b"),
+        ];
+        assert_eq!(sent, expected.map(|(t, id)| (t.to_owned(), id.to_owned())));
+    }
 
     #[test]
     fn a_settle_receipt_waits_for_the_destination_in_the_same_shell_batch() {

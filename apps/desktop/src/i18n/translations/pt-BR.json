@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "Não foi possível enviar os arquivos para a página",
   "95afdc33a06d3030": "A página está pedindo arquivos.",
   "69c659d8b6e271cc": "A página está pedindo um arquivo.",
-  "59c87648d44b958c": "Escolher arquivo"
+  "59c87648d44b958c": "Escolher arquivo",
+  "0fd1c746a0e38003": "Falha ao excluir a thread",
+  "f51626441b9dfc39": "Fixar thread",
+  "47d5db2958bd01c9": "Desafixar thread",
+  "56198134d0174861": "Concluir thread",
+  "0b75d1fefd7710fe": "Reabrir thread",
+  "d1259290b8c63577": "Renomear thread",
+  "dffd2e20f7ff5aa1": "Marcar como não lida",
+  "d2ba9ab14fd2e81c": "Copiar",
+  "a9abbabbd3106847": "Caminho",
+  "bd86c9f5e546d3d9": "Branch",
+  "f053d7461b8ecce5": "ID da thread",
+  "95184480a503090c": "Excluir",
+  "2d1c111e1b4ae0b0": "Excluir a thread \"{title}\"?",
+  "c568ab8dad798ec5": "Isso apaga permanentemente o histórico de conversa desta thread.",
+  "56e9fabcabc90c46": "Confirmar"
 }
