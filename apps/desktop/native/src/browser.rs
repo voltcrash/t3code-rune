@@ -1,3 +1,6 @@
+mod dialog;
+mod input;
+
 use super::{Desktop, Request};
 use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, row, text_input, tok};
 use serde::Deserialize;
@@ -23,6 +26,11 @@ pub(crate) struct Labels {
     take: String,
     release: String,
     retry: String,
+    dialog: String,
+    response: String,
+    dismiss: String,
+    accept: String,
+    take_to_respond: String,
 }
 #[derive(Deserialize)]
 pub(crate) struct Tab {
@@ -37,6 +45,7 @@ pub(crate) struct Tab {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Page {
     tabs: Vec<Tab>,
+    dialog: Option<dialog::Dialog>,
     selected: Option<String>,
     can_write: bool,
     controlled: bool,
@@ -64,7 +73,29 @@ pub(crate) struct Panel {
     size: [f32; 2],
     requested_size: Option<[u32; 2]>,
     dragging: bool,
+    input: input::Input,
+    answer: TextEdit,
+    focus_dialog: bool,
 }
+impl Panel {
+    fn new(watch: u64, operation: u64) -> Self {
+        Self {
+            watch,
+            operation,
+            page: Page::default(),
+            address: TextEdit::new(""),
+            submitted_address: None,
+            image: None,
+            size: [0., 0.],
+            requested_size: None,
+            dragging: false,
+            input: input::Input::default(),
+            answer: TextEdit::new(""),
+            focus_dialog: false,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Browser {
     pub labels: Option<Box<Labels>>,
@@ -105,17 +136,7 @@ impl Desktop {
             self.close_diff();
             self.close_files_panel();
             let operation = self.next_request_id();
-            self.workspace.browser.panel = Some(Panel {
-                watch,
-                operation,
-                page: Page::default(),
-                address: TextEdit::new(""),
-                submitted_address: None,
-                image: None,
-                size: [0., 0.],
-                requested_size: None,
-                dragging: false,
-            });
+            self.workspace.browser.panel = Some(Panel::new(watch, operation));
             self.browser_request(json!({"action":"show"}));
             tx.focus_when_shown("browser-address", false);
         }
@@ -138,7 +159,18 @@ impl Desktop {
                 }
                 p.submitted_address = None;
             }
-            if !page.controlled || page.selected != p.page.selected {
+            if p.page.selected != page.selected
+                || p.page.dialog.as_ref().map(|d| d.id) != page.dialog.as_ref().map(|d| d.id)
+            {
+                p.answer = TextEdit::new(
+                    page.dialog
+                        .as_ref()
+                        .map_or("", |d| d.default_value.as_str()),
+                );
+                p.focus_dialog = page.dialog.is_some();
+            }
+            if !page.controlled || page.dialog.is_some() || page.selected != p.page.selected {
+                p.input.reset();
                 p.requested_size = None;
                 p.dragging = false;
             }
@@ -176,6 +208,20 @@ impl Desktop {
         }
         self.browser_request(request);
     }
+    fn retry_browser(&mut self) {
+        let Some(p) = &self.workspace.browser.panel else {
+            return;
+        };
+        if p.page.error.is_some() {
+            self.browser_command("retry");
+        } else if p.page.controlled
+            && let Some(tab) = p.page.tab()
+            && tab.failure.is_some()
+        {
+            self.browser_input(json!({"type": "navigate", "url": tab.url}));
+        }
+    }
+
     fn browser_input(&mut self, input: Value) {
         if let Some(tab) = self
             .workspace
@@ -199,7 +245,7 @@ impl Desktop {
         self.browser_input(json!({"type":"resize","width":size[0],"height":size[1]}));
     }
 
-    pub(crate) fn close_hidden_browser(&mut self) -> bool {
+    pub(crate) fn sync_browser(&mut self, tx: &mut Tx) -> bool {
         let Some(p) = &self.workspace.browser.panel else {
             return false;
         };
@@ -209,7 +255,7 @@ impl Desktop {
             && !self.history.on_issues()
             && !self.settings_open
         {
-            return false;
+            return self.sync_browser_input(tx);
         }
         self.close_browser();
         true
@@ -232,72 +278,6 @@ impl Desktop {
         (p.dragging || ((0.0..vw).contains(&xy[0]) && (0.0..vh).contains(&xy[1])))
             .then(|| [xy[0].clamp(0., vw - 1.), xy[1].clamp(0., vh - 1.)])
     }
-}
-fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx, down: bool) -> bool {
-    if !s
-        .workspace
-        .browser
-        .panel
-        .as_ref()
-        .is_some_and(|p| p.page.controlled)
-    {
-        return false;
-    }
-    if ev.key == Key::Escape && ev.mods.shift {
-        if down {
-            tx.focus("browser-address", true);
-        }
-        return true;
-    }
-    if ev.mods.shift && ev.is_command('j') {
-        return false;
-    }
-    let (key, code_num) = match &ev.key {
-        Key::Text(v) => (
-            v.clone(),
-            v.chars()
-                .next()
-                .filter(char::is_ascii)
-                .map_or(0, |c| c.to_ascii_uppercase() as u32),
-        ),
-        Key::Command(c) => (c.to_string(), c.to_ascii_uppercase() as u32),
-        Key::Left => ("ArrowLeft".into(), 37),
-        Key::Up => ("ArrowUp".into(), 38),
-        Key::Right => ("ArrowRight".into(), 39),
-        Key::Down => ("ArrowDown".into(), 40),
-        Key::Enter => ("Enter".into(), 13),
-        Key::Tab => ("Tab".into(), 9),
-        Key::Backspace => ("Backspace".into(), 8),
-        Key::Delete => ("Delete".into(), 46),
-        Key::Escape => ("Escape".into(), 27),
-        Key::Home => ("Home".into(), 36),
-        Key::End => ("End".into(), 35),
-        Key::PageUp => ("PageUp".into(), 33),
-        Key::PageDown => ("PageDown".into(), 34),
-        _ => return false,
-    };
-    let modifiers = mods(ev.mods);
-    let text = (down && modifiers & 7 == 0).then(|| {
-        if ev.key == Key::Enter {
-            "\r"
-        } else if matches!(ev.key, Key::Text(_)) {
-            &key
-        } else {
-            ""
-        }
-    });
-    let code = tx
-        .physical_key()
-        .map_or_else(|| key.clone(), |k| format!("{k:?}"));
-    let mut value = json!({"type":"key","action":if down {"down"} else {"up"},"key":key,"code":code,"keyCode":code_num,"modifiers":modifiers});
-    if let Some(t) = text.filter(|t| !t.is_empty()) {
-        value["text"] = json!(t)
-    }
-    s.browser_input(value);
-    true
-}
-fn mods(m: rune::Mods) -> u8 {
-    u8::from(m.alt) | (u8::from(m.ctrl) << 1) | (u8::from(m.logo) << 2) | (u8::from(m.shift) << 3)
 }
 
 fn button(
@@ -469,42 +449,8 @@ pub(crate) fn view(
     if let Some(image) = &p.image {
         frame = frame.pixels_fit(image.pixels(), rune::SurfaceFit::Fit)
     }
-    if p.page.controlled {
-        frame = frame.focusable(true)
-            .on_pointer_move_local(|s: &mut Desktop, e, tx| {
-                if s.workspace.browser.panel.as_ref().is_some_and(|p| !p.dragging)
-                    && let Some([x, y]) = s.browser_coords(e.x, e.y) {
-                    s.browser_input(json!({"type":"mouse", "action":"move", "x":x, "y":y, "button":"none", "buttons":0,"clickCount":0,"modifiers":0}));
-                }
-                tx.live_only();
-            })
-            .on_drag(|s: &mut Desktop, d, tx| {
-                let point = s.browser_coords(d.x, d.y);
-                let Some(panel) = &mut s.workspace.browser.panel else {return};
-                let (action, buttons) = match d.phase {
-                    rune::Phase::Down if point.is_some() => {
-                        tx.focus("browser-page", false);
-                        panel.dragging = true;
-                        ("down", 1)
-                    }
-                    rune::Phase::Move if panel.dragging => ("move", 1),
-                    rune::Phase::Up if panel.dragging => {
-                        panel.dragging = false;
-                        ("up", 0)
-                    }
-                    _ => return,
-                };
-                if let Some([x, y]) = point {
-                    s.browser_input(json!({"type":"mouse", "action":action, "x":x, "y":y, "button":"left", "buttons":buttons, "clickCount":d.clicks, "modifiers":0}));
-                }
-            })
-            .on_wheel(|s: &mut Desktop, e, _| {
-                let Some([x, y]) = s.browser_coords(e.x, e.y) else {return false};
-                s.browser_input(json!({"type":"wheel","x":x,"y":y,"deltaX":-e.dx,"deltaY":-e.dy,"modifiers":mods(e.mods)}));
-                true
-            })
-            .on_key(|s: &mut Desktop, e, tx| key(s, e, tx, true))
-            .on_key_up(|s: &mut Desktop, e, tx| key(s, e, tx, false));
+    if p.page.controlled && p.page.dialog.is_none() {
+        frame = input::surface(frame, p, theme);
     }
     let mut body = col().grow(1.).min_w(0.).h_full().child(top).child(toolbar);
     if let Some(error) = p
@@ -528,13 +474,17 @@ pub(crate) fn view(
                 .child(button(
                     &labels.retry,
                     super::workspace::label(&labels.retry, 12., 500., theme.text),
-                    true,
+                    p.page.error.is_some() || p.page.controlled,
                     theme,
-                    |s, _| s.browser_command("retry"),
+                    |s, _| s.retry_browser(),
                 )),
         );
     }
-    body = body.child(frame);
+    let mut area = col().w_full().min_h(0.).grow(1.).child(frame);
+    if let Some(d) = &p.page.dialog {
+        area = area.child(dialog::view(p, d, labels, theme));
+    }
+    body = body.child(area);
     if !p.page.status.is_empty() {
         let mut status = row().w_full().px(8.).h(28.).gap(6.).center_y().child(
             super::workspace::label(&p.page.status, 12., 400., theme.text_secondary)

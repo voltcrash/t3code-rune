@@ -330,5 +330,10 @@
   "ddfd0a52a1ee3fa9": "No se pudo conectar con el navegador.",
   "0d1ea8b09b898559": "Es necesario configurar el navegador",
   "a80e61a5207708c6": "No se pudieron cargar las pestañas del navegador.",
-  "cce3835fff43f440": "No se pudo actualizar la pestaña del navegador."
+  "cce3835fff43f440": "No se pudo actualizar la pestaña del navegador.",
+  "e6a3fa7cfc14f86a": "Cuadro de diálogo del navegador",
+  "61a552a67e9e3eac": "Respuesta al cuadro de diálogo",
+  "5bbf199afe39d5e1": "Descartar",
+  "edb4ece52df96685": "Aceptar",
+  "255ae21697461ef6": "Toma el control para responder."
 }

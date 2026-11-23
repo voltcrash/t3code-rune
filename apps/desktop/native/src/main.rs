@@ -2120,7 +2120,7 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_window_title(tx);
             s.sync_draft_model_watch();
-            let browser = s.close_hidden_browser();
+            let browser = s.sync_browser(tx);
             let issues = s.sync_issues(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
@@ -2375,9 +2375,11 @@ fn start() -> io::Result<()> {
         families: (appearance::SANS, appearance::MONO),
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
-    let app = App::new(spec).on_open_url(|s, url, _| {
-        s.write_request(None, Request::OpenUrl { url });
-    });
+    let app = App::new(spec)
+        .on_ime(Desktop::browser_ime)
+        .on_open_url(|s, url, _| {
+            s.write_request(None, Request::OpenUrl { url });
+        });
     #[cfg(target_os = "macos")]
     let app = app.font_smoothing(rune::FontSmoothing::Off);
     #[cfg(target_os = "macos")]

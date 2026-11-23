@@ -330,5 +330,10 @@
   "ddfd0a52a1ee3fa9": "Could not connect to the browser.",
   "0d1ea8b09b898559": "Browser setup required",
   "a80e61a5207708c6": "Could not load browser tabs.",
-  "cce3835fff43f440": "Could not update the browser tab."
+  "cce3835fff43f440": "Could not update the browser tab.",
+  "e6a3fa7cfc14f86a": "Browser dialog",
+  "61a552a67e9e3eac": "Dialog response",
+  "5bbf199afe39d5e1": "Dismiss",
+  "edb4ece52df96685": "Accept",
+  "255ae21697461ef6": "Take control to respond."
 }

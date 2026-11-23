@@ -330,5 +330,10 @@
   "ddfd0a52a1ee3fa9": "Die Verbindung zum Browser ist fehlgeschlagen.",
   "0d1ea8b09b898559": "Browser muss eingerichtet werden",
   "a80e61a5207708c6": "Die Browser-Tabs konnten nicht geladen werden.",
-  "cce3835fff43f440": "Der Browser-Tab konnte nicht aktualisiert werden."
+  "cce3835fff43f440": "Der Browser-Tab konnte nicht aktualisiert werden.",
+  "e6a3fa7cfc14f86a": "Browserdialog",
+  "61a552a67e9e3eac": "Antwort auf Dialog",
+  "5bbf199afe39d5e1": "Verwerfen",
+  "edb4ece52df96685": "Annehmen",
+  "255ae21697461ef6": "Übernimm die Steuerung, um zu antworten."
 }

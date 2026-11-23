@@ -330,5 +330,10 @@
   "ddfd0a52a1ee3fa9": "Det gick inte att ansluta till webbläsaren.",
   "0d1ea8b09b898559": "Webbläsaren behöver konfigureras",
   "a80e61a5207708c6": "Det gick inte att läsa in webbläsarflikarna.",
-  "cce3835fff43f440": "Det gick inte att uppdatera webbläsarfliken."
+  "cce3835fff43f440": "Det gick inte att uppdatera webbläsarfliken.",
+  "e6a3fa7cfc14f86a": "Webbläsardialog",
+  "61a552a67e9e3eac": "Dialogsvar",
+  "5bbf199afe39d5e1": "Stäng",
+  "edb4ece52df96685": "Acceptera",
+  "255ae21697461ef6": "Ta kontrollen för att svara."
 }

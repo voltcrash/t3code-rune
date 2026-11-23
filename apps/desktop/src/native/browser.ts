@@ -30,6 +30,11 @@ export function browserLabels() {
     take: m(msg("Take control")),
     release: m(msg("Release control")),
     retry: m(msg("Try again")),
+    dialog: m(msg("Browser dialog")),
+    response: m(msg("Dialog response")),
+    dismiss: m(msg("Dismiss")),
+    accept: m(msg("Accept")),
+    takeToRespond: m(msg("Take control to respond.")),
   };
 }
 
@@ -39,6 +44,7 @@ type BrowserRequest =
   | { action: "select"; tab: string }
   | { action: "close"; tab: string }
   | { action: "input"; tab: string; input: PreviewStreamInput }
+  | { action: "dialog"; tab: string; dialogId: number; accept: boolean; promptText?: string }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
 
@@ -57,6 +63,7 @@ function tabView(tab: PreviewSessionSnapshot) {
 type Page = {
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
+  dialog: (NonNullable<PreviewStreamControl["dialog"]> & { id: number }) | null;
   canWrite: boolean;
   controlled: boolean;
   canControl: boolean;
@@ -83,6 +90,8 @@ export function openBrowserPanel(
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
   let control: PreviewStreamControl | null = null;
+  let dialogId = 0;
+  let answeredDialog = false;
   let viewport: readonly [number, number] = [0, 0];
   let busy = false;
   let error: string | null = null;
@@ -97,6 +106,7 @@ export function openBrowserPanel(
     publish({
       tabs: tabs.map(tabView),
       selected,
+      dialog: control?.dialog && !answeredDialog ? { ...control.dialog, id: dialogId } : null,
       canWrite: !!service && session.browserWritable,
       canControl: control?.canOperate === true,
       controlled: control?.controller === "you",
@@ -159,6 +169,16 @@ export function openBrowserPanel(
             emit();
           },
           onControl(next) {
+            if (
+              answeredDialog ||
+              control?.dialog?.type !== next.dialog?.type ||
+              control?.dialog?.message !== next.dialog?.message ||
+              control?.dialog?.defaultValue !== next.dialog?.defaultValue ||
+              control?.generation !== next.generation
+            ) {
+              dialogId++;
+              answeredDialog = false;
+            }
             control = next;
             emit();
           },
@@ -209,7 +229,20 @@ export function openBrowserPanel(
     if (result.revision < revision) return;
     listFailed = false;
     revision = result.revision;
-    tabs = result.sessions.filter((tab) => tab.runtime === "server" || tab.headless);
+    const present = new Map(
+      result.sessions
+        .filter((tab) => tab.runtime === "server" || tab.headless)
+        .map((tab) => [tab.tabId, tab] as const),
+    );
+    const retained: PreviewSessionSnapshot[] = [];
+    for (const tab of tabs) {
+      const current = present.get(tab.tabId);
+      if (current) {
+        retained.push(current);
+        present.delete(tab.tabId);
+      }
+    }
+    tabs = [...retained, ...present.values()];
     const choice =
       [preferred, selected].find((id) => tabs.some((tab) => tab.tabId === id)) ??
       tabs[0]?.tabId ??
@@ -286,6 +319,26 @@ export function openBrowserPanel(
       if (request.action === "select") {
         if (request.tab !== selected && tabs.some((t) => t.tabId === request.tab))
           void select(request.tab);
+        return;
+      }
+      if (request.action === "dialog") {
+        if (
+          request.tab === selected &&
+          control?.dialog &&
+          session.browserWritable &&
+          !answeredDialog &&
+          request.dialogId === dialogId
+        ) {
+          answeredDialog =
+            stream?.send({
+              type: "dialog",
+              accept: request.accept,
+              ...(control.dialog.type === "prompt" && request.accept
+                ? { promptText: request.promptText }
+                : {}),
+            }) === true;
+          emit();
+        }
         return;
       }
       if (request.action === "input") {
