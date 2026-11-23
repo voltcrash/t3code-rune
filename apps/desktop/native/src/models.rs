@@ -32,6 +32,12 @@ pub(super) struct Picker {
     empty: String,
 }
 
+struct Selected<'a> {
+    instance: Option<&'a str>,
+    name: &'a str,
+    index: Option<usize>,
+}
+
 impl Picker {
     pub(super) fn close(&mut self) {
         self.combo.close();
@@ -143,7 +149,7 @@ impl Desktop {
             self.models.choices = options;
             if self.models.combo.search().text.is_empty()
                 && let Some(thread) = self.workspace.visible_thread()
-                && let Some(i) = self.model_choice_index(thread)
+                && let Some(i) = self.selected_thread_model(thread).index
             {
                 self.models.combo.step(ComboboxEvent::Highlight {
                     id: i.to_string(),
@@ -154,16 +160,26 @@ impl Desktop {
         }
     }
 
-    fn model_choice_index(&self, thread: &Thread) -> Option<usize> {
-        let requested = self.workspace.drafts.get(&thread.id)?.model.as_ref();
-        let instance = requested
-            .map(|m| m.instance.as_str())
-            .or_else(|| thread.permission.as_ref().map(|p| p.instance.as_str()))?;
-        let model = requested.map_or(thread.model.as_str(), |m| m.model.as_str());
-        self.models
+    fn selected_thread_model<'a>(&'a self, thread: &'a Thread) -> Selected<'a> {
+        let current = thread.permission.as_ref().map(|p| p.instance.as_str());
+        let handoff =
+            current.and_then(|id| self.workspace.drafts.get(&thread.id)?.handoff_from(id));
+        let instance = handoff.map(|h| h.instance.as_str()).or(current);
+        let model = handoff.map_or(thread.model.as_str(), |h| h.model.as_str());
+        let index = self
+            .models
             .choices
             .iter()
-            .position(|c| c.instance == instance && c.model == model)
+            .position(|c| Some(c.instance.as_str()) == instance && c.model == model);
+        let name = index
+            .map(|i| self.models.choices[i].name.as_str())
+            .or_else(|| handoff.map(|h| h.name.as_str()))
+            .unwrap_or(model);
+        Selected {
+            instance,
+            name,
+            index,
+        }
     }
 
     fn choose_thread_model(&mut self, index: &str, tx: &mut Tx) {
@@ -215,7 +231,20 @@ impl Desktop {
     }
 }
 
-pub(super) fn trigger(caption: &str, theme: &tok::Theme, available: bool, width: f32) -> El {
+pub(super) fn trigger(
+    s: &Desktop,
+    instance: Option<&str>,
+    caption: &str,
+    theme: &tok::Theme,
+    available: bool,
+    cx: &rune::Cx<Desktop>,
+) -> El {
+    let width = cx.layout_size("thread-titlebar").map_or(840., |r| r[0]);
+    let mark = if width >= 404. {
+        instance.and_then(|id| s.workspace.providers.composer_mark(id, s.dark(cx), theme))
+    } else {
+        None
+    };
     row()
         .role("button")
         .label("Model")
@@ -228,9 +257,10 @@ pub(super) fn trigger(caption: &str, theme: &tok::Theme, available: bool, width:
         .h(28.)
         .px(4.)
         .center_y()
-        .gap(3.)
+        .gap(if mark.is_some() { 6. } else { 3. })
         .radius(5.)
         .hover(theme.text.alpha(0.07))
+        .children(mark)
         .child(
             label(caption, 13., 500., theme.text_secondary)
                 .min_w(0.)
@@ -253,24 +283,12 @@ pub(super) fn control(
         && s.can_operate
         && s.workspace.terminal_watch().is_some()
         && thread.permission.is_some();
-    let index = s.model_choice_index(thread);
-    let name = index
-        .map(|i| s.models.choices[i].name.as_str())
-        .or_else(|| {
-            s.workspace
-                .drafts
-                .get(&thread.id)?
-                .model
-                .as_ref()
-                .map(|m| m.name.as_str())
-        })
-        .unwrap_or(&thread.model);
-    let trigger = trigger(
+    let Selected {
+        instance,
         name,
-        theme,
-        available,
-        cx.layout_size("thread-titlebar").map_or(840., |r| r[0]),
-    );
+        index,
+    } = s.selected_thread_model(thread);
+    let trigger = trigger(s, instance, name, theme, available, cx);
     if !s.models.combo.is_open() {
         return rune_kit::Popover::new("thread-model")
             .trigger(trigger.on_press_tx(Desktop::show_thread_models))
@@ -291,4 +309,63 @@ pub(super) fn control(
     .placement(Placement::TopEnd)
     .on_choose(Desktop::choose_thread_model)
     .build(&s.contrast.kit(s.dark(cx)), overlays)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_remote_provider_change_supersedes_the_draft_handoff_in_the_picker() {
+        let mut app = Desktop::new();
+        let mut thread: Thread = serde_json::from_value(json!({
+            "id":"t", "project":"p", "title":"test", "status":"idle", "settled":false,
+            "model":"model-a", "permission":{"instance":"a","mode":"default","label":"Default"}
+        }))
+        .unwrap();
+        app.workspace
+            .drafts
+            .entry("t".into())
+            .or_default()
+            .set_model(
+                Some(Handoff {
+                    project: "p".into(),
+                    source: "a".into(),
+                    instance: "b".into(),
+                    model: "model-b".into(),
+                    name: "Beta".into(),
+                }),
+                "b",
+                "model-b",
+            );
+        app.models.choices = vec![
+            Choice {
+                instance: "b".into(),
+                model: "model-b".into(),
+                name: "Beta".into(),
+                provider: "B".into(),
+            },
+            Choice {
+                instance: "c".into(),
+                model: "model-c".into(),
+                name: "Gamma".into(),
+                provider: "C".into(),
+            },
+        ];
+        let selected = app.selected_thread_model(&thread);
+        assert_eq!(
+            (selected.instance, selected.name, selected.index),
+            (Some("b"), "Beta", Some(0))
+        );
+        thread.permission.as_mut().unwrap().instance = "c".into();
+        thread.model = "model-c".into();
+        let selected = app.selected_thread_model(&thread);
+        assert_eq!(
+            (selected.instance, selected.name, selected.index),
+            (Some("c"), "Gamma", Some(1))
+        );
+        app.models.choices.clear();
+        assert_eq!(app.selected_thread_model(&thread).name, "model-c");
+    }
 }

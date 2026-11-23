@@ -55,10 +55,11 @@ impl Draft {
         }
     }
     pub(super) fn target_instance<'a>(&'a self, current: &'a str) -> &'a str {
-        self.model
-            .as_ref()
-            .filter(|m| m.source == current)
+        self.handoff_from(current)
             .map_or(current, |m| m.instance.as_str())
+    }
+    pub(super) fn handoff_from(&self, current: &str) -> Option<&crate::models::Handoff> {
+        self.model.as_ref().filter(|m| m.source == current)
     }
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
