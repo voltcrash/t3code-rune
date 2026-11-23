@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "Impossible d’envoyer les fichiers à la page",
   "95afdc33a06d3030": "La page demande des fichiers.",
   "69c659d8b6e271cc": "La page demande un fichier.",
-  "59c87648d44b958c": "Choisir un fichier"
+  "59c87648d44b958c": "Choisir un fichier",
+  "0fd1c746a0e38003": "Échec de la suppression du fil",
+  "f51626441b9dfc39": "Épingler le fil",
+  "47d5db2958bd01c9": "Désépingler le fil",
+  "56198134d0174861": "Clore le fil",
+  "0b75d1fefd7710fe": "Rouvrir le fil",
+  "d1259290b8c63577": "Renommer le fil",
+  "dffd2e20f7ff5aa1": "Marquer comme non lu",
+  "d2ba9ab14fd2e81c": "Copier",
+  "a9abbabbd3106847": "Chemin",
+  "bd86c9f5e546d3d9": "Branche",
+  "f053d7461b8ecce5": "ID du fil",
+  "95184480a503090c": "Supprimer",
+  "2d1c111e1b4ae0b0": "Supprimer le fil « {title} » ?",
+  "c568ab8dad798ec5": "Cela efface définitivement l’historique de conversation de ce fil.",
+  "56e9fabcabc90c46": "Confirmer"
 }

@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "No se pudieron enviar los archivos a la página",
   "95afdc33a06d3030": "La página solicita archivos.",
   "69c659d8b6e271cc": "La página solicita un archivo.",
-  "59c87648d44b958c": "Elegir archivo"
+  "59c87648d44b958c": "Elegir archivo",
+  "0fd1c746a0e38003": "No se pudo eliminar el hilo",
+  "f51626441b9dfc39": "Fijar hilo",
+  "47d5db2958bd01c9": "Desfijar hilo",
+  "56198134d0174861": "Resolver hilo",
+  "0b75d1fefd7710fe": "Quitar hilo de resueltos",
+  "d1259290b8c63577": "Cambiar nombre del hilo",
+  "dffd2e20f7ff5aa1": "Marcar como no leído",
+  "d2ba9ab14fd2e81c": "Copiar",
+  "a9abbabbd3106847": "Ruta",
+  "bd86c9f5e546d3d9": "Rama",
+  "f053d7461b8ecce5": "ID del hilo",
+  "95184480a503090c": "Eliminar",
+  "2d1c111e1b4ae0b0": "¿Eliminar el hilo \"{title}\"?",
+  "c568ab8dad798ec5": "Esto borra de forma permanente el historial de conversación de este hilo.",
+  "56e9fabcabc90c46": "Confirmar"
 }

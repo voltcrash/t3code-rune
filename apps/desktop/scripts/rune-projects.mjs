@@ -1,4 +1,5 @@
 import { threadFindLabels, findInThread } from "../src/native/threadFind.ts";
+import { threadMenuLabels } from "../src/native/threadMenu.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
@@ -853,6 +854,8 @@ function publishClientSettings(error) {
     type: "clientsettings",
     slash_skills: clientSettings.showSkillsInSlashMenu,
     reader_title: clientSettings.screenReaderWindowTitle,
+    thread_labels: threadMenuLabels(),
+    confirm_delete: clientSettings.confirmThreadDelete,
     settings_labels: {
       settings: m(msg("Settings")),
       appearance: m(msg("Appearance")),
@@ -1640,6 +1643,42 @@ async function handleWorkspaceRequest(request, reply) {
       );
       if (request.advance && receipt.sequence !== undefined) feed.publishThrough(receipt.sequence);
       reply({ type: "settlementchanged", watch: request.watch, sequence: receipt.sequence });
+      return;
+    } else if (request.type === "markunread" || request.type === "deletethread") {
+      reading = session;
+      const feed = workspaceFeed;
+      const result = { type: "threadedited", watch: request.watch };
+      const remove = request.type === "deletethread";
+      if (
+        !reading?.canOperate ||
+        !feed ||
+        feed.watch !== request.watch ||
+        !feed.hasThread(request.thread)
+      ) {
+        reply({ ...result, error: "This thread cannot be changed on this connection." });
+        return;
+      }
+      try {
+        await Effect.runPromise(
+          openEnvironmentRpc(reading).pipe(
+            Effect.flatMap((rpc) =>
+              rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+                type: remove ? "thread.delete" : "thread.mark-unread",
+                threadId: ThreadId.make(request.thread),
+                commandId: CommandId.make(request.operation),
+              }),
+            ),
+            Effect.scoped,
+            Effect.timeout("15 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        reply(result);
+      } catch {
+        // Like the web client, a failed mark-unread stays silent.
+        reply(remove ? { ...result, error: m(msg("Failed to delete thread")) } : result);
+      }
       return;
     } else if (request.type === "renamethread" || request.type === "setpin") {
       reading = session;

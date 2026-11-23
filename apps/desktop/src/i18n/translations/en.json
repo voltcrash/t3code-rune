@@ -387,5 +387,20 @@
   "16c1876c1c9e5579": "Could not send the files to the page",
   "95afdc33a06d3030": "The page asks for files.",
   "69c659d8b6e271cc": "The page asks for a file.",
-  "59c87648d44b958c": "Choose file"
+  "59c87648d44b958c": "Choose file",
+  "0fd1c746a0e38003": "Failed to delete thread",
+  "f51626441b9dfc39": "Pin thread",
+  "47d5db2958bd01c9": "Unpin thread",
+  "56198134d0174861": "Settle thread",
+  "0b75d1fefd7710fe": "Un-settle thread",
+  "d1259290b8c63577": "Rename thread",
+  "dffd2e20f7ff5aa1": "Mark unread",
+  "d2ba9ab14fd2e81c": "Copy",
+  "a9abbabbd3106847": "Path",
+  "bd86c9f5e546d3d9": "Branch",
+  "f053d7461b8ecce5": "Thread ID",
+  "95184480a503090c": "Delete",
+  "2d1c111e1b4ae0b0": "Delete thread \"{title}\"?",
+  "c568ab8dad798ec5": "This permanently clears conversation history for this thread.",
+  "56e9fabcabc90c46": "Confirm"
 }
