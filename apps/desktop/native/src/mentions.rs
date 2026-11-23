@@ -177,12 +177,18 @@ struct Search {
 
 impl Search {
     fn waiting_for_selection(&self) -> bool {
-        !self.loaded
+        (!self.loaded || !self.entries.is_empty())
             && self.restore.as_deref().is_some_and(|path| {
                 self.entries
                     .get(self.active)
                     .is_none_or(|entry| entry.path != path)
             })
+    }
+
+    fn hover(&mut self, index: usize) {
+        if index < self.entries.len() && !self.waiting_for_selection() {
+            self.active = index;
+        }
     }
 }
 
@@ -225,11 +231,15 @@ impl Picker {
             && !s.dismissed
             && !s.needs_refresh
         {
-            let restore = s.restore.take();
             if let Some(entries) = entries {
-                s.active = restore
-                    .and_then(|path| entries.iter().position(|entry| entry.path == path))
-                    .unwrap_or(0);
+                let restored = s
+                    .restore
+                    .as_ref()
+                    .and_then(|path| entries.iter().position(|entry| &entry.path == path));
+                s.active = restored.unwrap_or(0);
+                if restored.is_some() || s.trigger.kind != Kind::Command {
+                    s.restore = None;
+                }
                 s.entries = entries;
             }
             s.loaded = true;
@@ -300,10 +310,8 @@ impl Picker {
             .on_active(move |app, index| {
                 if let Some(s) = &mut app.mentions.search
                     && s.operation == operation
-                    && index < s.entries.len()
                 {
-                    s.active = index;
-                    s.restore = None;
+                    s.hover(index);
                 }
             })
             .on_choose(move |app, path, tx| app.choose_mention(operation, path, tx))
@@ -526,12 +534,20 @@ impl Desktop {
             Key::Enter if len == 0 && !s.loaded && s.trigger.kind == Kind::Skill => {}
             Key::Escape => s.dismissed = true,
             Key::Down if len > 0 => {
+                s.active = if s.waiting_for_selection() {
+                    0
+                } else {
+                    (s.active + 1) % len
+                };
                 s.restore = None;
-                s.active = (s.active + 1) % len;
             }
             Key::Up if len > 0 => {
+                s.active = if s.waiting_for_selection() {
+                    len - 1
+                } else {
+                    (s.active + len - 1) % len
+                };
                 s.restore = None;
-                s.active = (s.active + len - 1) % len;
             }
             Key::Tab | Key::Enter if len > 0 => {
                 let path = s.entries[s.active].path.clone();
@@ -704,14 +720,22 @@ mod tests {
             let search = s.mentions.search.as_ref().unwrap();
             assert_eq!(search.entries[0].path, "/model");
             assert!(search.waiting_for_selection());
+            s.mentions.search.as_mut().unwrap().hover(0);
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert_eq!(s.new_threads.prompt("p").unwrap().text, "/");
             s.mentions.receive(fresh, None);
             assert_eq!(
                 s.mentions.search.as_ref().unwrap().entries[0].path,
                 "/model"
             );
-            assert!(!s.mentions.search.as_ref().unwrap().waiting_for_selection());
-            s.mentions.receive(fresh, Some(vec![model(), row()]));
-            s.mentions.search.as_mut().unwrap().active = 1;
+            let tab = KeyEvent {
+                key: Key::Tab,
+                mods: Default::default(),
+            };
+            s.mentions.search.as_mut().unwrap().hover(0);
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert!(s.mention_key(&owner, &tab, tx));
+            assert_eq!(s.new_threads.prompt("p").unwrap().text, "/");
             s.mentions.skills_changed(1, "replay");
             s.sync_mentions(tx);
             let fresh = s.mentions.search.as_ref().unwrap().operation;
