@@ -134,8 +134,8 @@ impl Action {
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
-            Self::ToggleFiles => &super::workspace_tree::PANEL_ICON,
-            Self::ToggleDetails => &super::thread_details::DETAILS_ICON,
+            Self::ToggleFiles => &PANEL_ICON,
+            Self::ToggleDetails => &DETAILS_ICON,
             Self::OpenEditor => &super::thread_details::editor::OPEN,
             Self::Settings => &crate::appearance::GEAR,
             Self::Usage => &crate::usage::CHART,
@@ -147,6 +147,18 @@ impl Action {
         }
     }
 }
+
+const DETAILS_ICON: Icon = Icon {
+    name: "thread-details",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h.01M10 8h7M7 12h.01M10 12h7M7 16h.01M10 16h7"/></g>"#,
+};
+
+static PANEL_ICON: Icon = Icon {
+    name: "panel-right",
+    view: 24.,
+    body: r#"<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 3v18" fill="none" stroke="currentColor" stroke-width="1.7"/>"#,
+};
 
 pub(crate) static REFRESH: Icon = Icon {
     name: "refresh-workspace",

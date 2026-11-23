@@ -349,7 +349,7 @@ pub(super) fn layout(
     }
 }
 
-pub(super) const DETAILS_ICON: Icon = Icon {
+const DETAILS_ICON: Icon = Icon {
     name: "thread-details",
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h10"/></g>"#,

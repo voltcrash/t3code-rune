@@ -536,7 +536,7 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit, preview_only
         .child(list.child(viewport))
 }
 
-pub(super) static PANEL_ICON: rune::Icon = rune::Icon {
+static PANEL_ICON: rune::Icon = rune::Icon {
     name: "panel-right",
     view: 24.,
     body: r#"<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 3v18" fill="none" stroke="currentColor" stroke-width="2"/>"#,

@@ -1965,7 +1965,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         || s.workspace
             .conversation
             .as_ref()
-            .is_some_and(|pane| pane.status == LiveStatus::Paused || pane.watch.is_none())
+            .is_some_and(|pane| pane.status != LiveStatus::Live || pane.watch.is_none())
     {
         header = header.child(action(
             "Refresh",
