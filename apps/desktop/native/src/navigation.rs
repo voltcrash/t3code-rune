@@ -130,6 +130,7 @@ impl Desktop {
             Some(Page::Home) => self.show_projects(),
             Some(Page::Thread(id)) => self.open_thread(&id),
             Some(Page::NewThread(project)) => {
+                self.close_sidebar_drawer();
                 self.leave_visible_thread();
                 self.close_conversation_inspectors();
                 self.workspace.show_projects = false;

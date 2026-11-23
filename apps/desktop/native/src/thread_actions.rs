@@ -42,6 +42,12 @@ pub(super) struct Actions {
 }
 
 impl Actions {
+    pub(super) fn close_sidebar_menu(&mut self) -> bool {
+        self.menu
+            .take_if(|menu| menu.target.origin == Origin::Sidebar)
+            .is_some()
+    }
+
     pub(super) fn close_menu(&mut self) {
         self.menu = None;
     }

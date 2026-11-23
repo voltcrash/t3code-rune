@@ -1942,6 +1942,7 @@ fn start() -> io::Result<()> {
             let git = s.sync_git();
             let scripts = s.sync_project_scripts();
             let details = s.reconcile_details();
+            let sidebar = s.reconcile_sidebar_menus();
             let stop = s.poll_stop(now, tx);
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
@@ -1957,6 +1958,7 @@ fn start() -> io::Result<()> {
                 || banner
                 || git
                 || scripts
+                || sidebar
                 || details
         }),
         on_key: Some(|s: &mut Desktop, ev, tx| {
