@@ -13,6 +13,7 @@ mod attachments;
 mod composer;
 mod dictation;
 mod image_decode;
+mod issues;
 mod launch_check;
 #[cfg(target_os = "linux")]
 mod linux_frame;
@@ -43,6 +44,12 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    Issues {
+        watch: u64,
+        operation: u64,
+        list: Option<issues::List>,
+        error: Option<String>,
+    },
     DictationChoice {
         watch: u64,
         choice: dictation::Choice,
@@ -202,6 +209,7 @@ enum Reply {
         #[serde(default)]
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
+        issues_labels: Option<Box<issues::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
         usage_preferences: Option<usage::summary::Preferences>,
         details: Option<workspace::thread_details::Settings>,
@@ -430,6 +438,14 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    Issues {
+        watch: u64,
+        operation: u64,
+        action: &'static str,
+        state: issues::Filter,
+        sort: &'static str,
+        query: String,
+    },
     SetDictation {
         watch: u64,
         enabled: bool,
@@ -1068,6 +1084,16 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::Issues {
+            watch,
+            operation,
+            list,
+            error,
+        } = message.reply
+        {
+            self.receive_issues(watch, operation, list, error);
+            return;
+        }
         if let Reply::Usage { watch, view } = message.reply {
             if self.workspace.feed == Some(watch) && self.workspace.usage.open {
                 self.workspace.usage.receive(*view);
@@ -1429,6 +1455,7 @@ impl Desktop {
                 composer_hints,
                 attachment_labels,
                 update_labels,
+                issues_labels,
                 usage_labels,
                 usage_preferences,
                 details,
@@ -1462,6 +1489,7 @@ impl Desktop {
                 self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
+                self.workspace.issues.labels = issues_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.workspace.usage.summary.restore(usage_preferences);
                 self.environment = Some(label);
@@ -1599,6 +1627,7 @@ impl Desktop {
             | Reply::DictationChoice { .. }
             | Reply::Dictation { .. }
             | Reply::VoiceModels { .. }
+            | Reply::Issues { .. }
             | Reply::Usage { .. }
             | Reply::UsageTotals { .. }
             | Reply::WorkspaceEditors { .. }
@@ -2031,6 +2060,7 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_window_title(tx);
             s.sync_draft_model_watch();
+            let issues = s.sync_issues(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
             let git = s.sync_git();
@@ -2045,6 +2075,7 @@ fn start() -> io::Result<()> {
             let dictation = s.reconcile_dictation();
             let microphone = s.poll_microphone(tx);
             s.poll_answer(tx)
+                || issues
                 || microphone
                 || dictation
                 || stop
@@ -2603,6 +2634,7 @@ mod tests {
                 composer_hints: Default::default(),
                 attachment_labels: Default::default(),
                 update_labels: None,
+                issues_labels: None,
                 usage_labels: None,
                 usage_preferences: None,
                 label: "This computer".into(),

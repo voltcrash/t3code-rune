@@ -264,5 +264,20 @@
   "43692a5af811085a": "Falló la transcripción de voz. Revisa el destino en Ajustes → Voz.",
   "b6e6c93abb35a98e": "No se detectó voz.",
   "a20b495b9e6f82b9": "Iniciando…",
-  "acca565dc877084e": "Volver a intentar desactivar el dictado"
+  "acca565dc877084e": "Volver a intentar desactivar el dictado",
+  "8e9626aa27cb188a": "Issues",
+  "86798f07ba2d7f4d": "Buscar issues",
+  "6a717189b43e9f0e": "Abierta",
+  "f8700aef3eb2cf71": "Cerrada",
+  "c9735ce17719123b": "Todas",
+  "006fab820cc5a2f1": "Cargar más",
+  "d827f64a6d0b4706": "No hay issues con estos filtros.",
+  "614811ba85f590a5": "No se pudieron cargar las incidencias.",
+  "d53156b9bd1ef459": "Filtros",
+  "937020f29c4f0a65": "Ordenar",
+  "844f6c8d82ecce5d": "Actualizadas recientemente",
+  "f77af0fd4c6acea1": "Más recientes",
+  "d894f6cb29f7a3ea": "Atrás",
+  "9f341a45df358710": "No hay gestores de issues que leer",
+  "616b3cd868f3d2af": "Añade un proyecto cuyo remoto esté en un gestor de issues compatible."
 }

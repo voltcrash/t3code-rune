@@ -108,6 +108,8 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     serverVersion: descriptor.serverVersion,
     tracksClones: descriptor.capabilities.projectCloneTracking === true,
     vcsBranchStatus: descriptor.capabilities.vcsBranchStatus === true,
+    canReadIssues:
+      descriptor.capabilities.issues === true && scopes.includes(AuthOrchestrationReadScope),
     canPin: descriptor.capabilities.threadPinning === true,
     visitTracking: descriptor.capabilities.threadVisitedTracking === true,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,

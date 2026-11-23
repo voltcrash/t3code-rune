@@ -264,5 +264,20 @@
   "43692a5af811085a": "Falha na transcrição de voz. Verifique o destino em Configurações → Voz.",
   "b6e6c93abb35a98e": "Nenhuma fala detectada.",
   "a20b495b9e6f82b9": "Iniciando…",
-  "acca565dc877084e": "Tentar desativar o ditado novamente"
+  "acca565dc877084e": "Tentar desativar o ditado novamente",
+  "8e9626aa27cb188a": "Issues",
+  "86798f07ba2d7f4d": "Pesquisar issues",
+  "6a717189b43e9f0e": "Aberta",
+  "f8700aef3eb2cf71": "Fechada",
+  "c9735ce17719123b": "Todas",
+  "006fab820cc5a2f1": "Carregar mais",
+  "d827f64a6d0b4706": "Nenhuma issue com esses filtros.",
+  "614811ba85f590a5": "Não foi possível carregar as issues.",
+  "d53156b9bd1ef459": "Filtros",
+  "937020f29c4f0a65": "Ordenar",
+  "844f6c8d82ecce5d": "Atualizados recentemente",
+  "f77af0fd4c6acea1": "Mais recentes",
+  "d894f6cb29f7a3ea": "Voltar",
+  "9f341a45df358710": "Nenhum rastreador para ler",
+  "616b3cd868f3d2af": "Adicione um projeto cujo remoto esteja em um rastreador compatível."
 }

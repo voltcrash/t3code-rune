@@ -1,3 +1,4 @@
+import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
@@ -231,6 +232,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     }),
     voiceModels: watchVoiceModels(owner, signal, (catalog) =>
       write({ type: "voicemodels", watch, catalog }),
+    ),
+    issues: workspaceIssues(owner, signal, feed.activeRpc, (operation, list, error) =>
+      write({ type: "issues", watch, operation, list, error }),
     ),
     hasRegistryIcon: (url) => registryIcons.has(url),
     ...feed,
@@ -1385,6 +1389,7 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
+        issues_labels: session.canReadIssues ? issueLabels() : undefined,
         usage_labels: usageLabels(),
         usage_preferences: usagePreferences(),
         update_labels: {
@@ -1783,6 +1788,14 @@ try {
           .pipe(Effect.timeout("12 seconds")),
         { signal },
       ).then(result, () => result(null));
+      continue;
+    }
+    if (request?.type === "issues") {
+      const feed = workspaceFeed;
+      if (feed?.watch === request.watch) {
+        if (request.action === "close") feed.issues.close();
+        else void feed.issues.request(request);
+      }
       continue;
     }
     if (request?.type === "openurl") {
