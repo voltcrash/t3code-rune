@@ -555,7 +555,7 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
       case "read": {
         const link = input.action === "link" ? workspaceMarkdownLink(input.href, cwd) : null;
         const path = input.action === "read" ? input.path : link?.path;
-        if (!path) return Effect.fail(new Error("No workspace file matches the link."));
+        if (!path) return Effect.fail(new InvalidProjectPath());
         return rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: path }).pipe(
           Effect.map(({ contents, truncated }) => ({
             type: "filesource",
