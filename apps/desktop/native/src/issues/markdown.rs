@@ -40,7 +40,9 @@ pub(super) fn partition(text: String, mut push: impl FnMut(String, bool)) {
     while let Some((event, span)) = events.next() {
         if depth == 0 {
             start = if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Indented))) {
-                text[..span.start].rfind('\n').map_or(0, |end| end + 1)
+                text[..span.start]
+                    .rfind(['\r', '\n'])
+                    .map_or(0, |end| end + 1)
             } else {
                 span.start
             };

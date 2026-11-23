@@ -528,7 +528,7 @@ mod tests {
         ]);
         let (last, earlier) = panel.activity.split_last().unwrap();
         let article = format!(
-            "# Summary\n\n{long}\n\n    [example](https://example.test/)\n\n[Read the guide][guide]\n\n[guide]: https://example.test/guide"
+            "# Summary\n\n{long}\n\n---\r    [example](https://example.test/)\n\n[Read the guide][guide]\n\n[guide]: https://example.test/guide"
         );
         let article = blocks("article", 0, None, article);
         assert!(
