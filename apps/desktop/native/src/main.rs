@@ -2459,6 +2459,9 @@ fn start() -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--microphone-test")) {
+        return microphone::helper();
+    }
     #[cfg(target_os = "macos")]
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--exchange-mac-update"))
     {

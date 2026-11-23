@@ -241,7 +241,7 @@
   "e284b82cf690f402": "Grabar",
   "8b8bc3983a34c5fe": "Grabar de nuevo",
   "985f51e696efc795": "Detener grabación",
-  "7dbd7e8943e8931f": "Abriendo micrófono…",
+  "74b0ab5b2e1030d3": "Abriendo micrófono…",
   "1a80ebca92ad373c": "Cancelar prueba del micrófono",
   "88838a688670154d": "Reproducir grabación",
   "74e7837237a78a93": "Pausar grabación",
@@ -249,5 +249,5 @@
   "1df95cbe8d51f396": "Nivel de entrada del micrófono",
   "22d83d5c866695af": "No se pudo acceder al micrófono.",
   "9b581819633e98f1": "No se grabó audio. Inténtalo de nuevo.",
-  "efa31f38b611e912": "No se pudo reproducir esta grabación. Vuelve a grabar."
+  "0315c97b2fce2512": "No se pudo reproducir esta grabación. Vuelve a grabar."
 }

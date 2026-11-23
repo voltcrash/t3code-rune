@@ -241,7 +241,7 @@
   "e284b82cf690f402": "Record",
   "8b8bc3983a34c5fe": "Record again",
   "985f51e696efc795": "Stop recording",
-  "7dbd7e8943e8931f": "Opening microphone…",
+  "74b0ab5b2e1030d3": "Opening microphone…",
   "1a80ebca92ad373c": "Cancel microphone test",
   "88838a688670154d": "Play recording",
   "74e7837237a78a93": "Pause recording",
@@ -249,5 +249,5 @@
   "1df95cbe8d51f396": "Microphone input level",
   "22d83d5c866695af": "Could not access the microphone.",
   "9b581819633e98f1": "No audio was recorded. Try again.",
-  "efa31f38b611e912": "Could not play this recording. Try recording again."
+  "0315c97b2fce2512": "Could not play this recording. Try recording again."
 }
