@@ -6,6 +6,7 @@ import {
   type OrchestrationV2TurnItem,
   type OrchestrationV2Run,
 } from "@t3tools/contracts";
+import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { expect, it } from "vite-plus/test";
 import { v2Now, v2Projection, v2ThreadId } from "@t3tools/client-runtime/testing/thread-projection";
 import { updateWindow } from "./conversation.ts";
@@ -95,6 +96,15 @@ it("keeps the previous final reply copyable when the next run receives its promp
   expect(state.rows.at(-1)?.copy_body).toBe(
     "See [main.rs](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",
   );
+  for (const example of ["```md\n[example](docs/main.rs)\n```", "[API [draft]](docs/main.rs)"]) {
+    const text = ':codex-file-citation{path="src/main.rs" line_range_start="12"}\n\n' + example;
+    message(1, "assistant", text);
+    const indexed = searchableMessageSegments(
+      { role: "assistant", streaming: false, text },
+      "/repo",
+    )!;
+    expect(state.rows.at(-1)?.body).toBe(`[${indexed[0]}](<src/main.rs#L12>)\n\n${example}`);
+  }
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");
