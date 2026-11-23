@@ -1,5 +1,6 @@
 use super::{Desktop, El, MessageRow};
 use rune_kit::Markdown;
+use std::ops::Range;
 
 fn fold(c: char) -> char {
     match c {
@@ -63,33 +64,68 @@ fn paint(s: &Desktop, row: &MessageRow) -> Option<(String, Option<usize>)> {
 // A repeated character in a large message must not create thousands of paint spans.
 const MARKS_PER_ROW: usize = 128;
 
+fn marked_occurrences(
+    src: &str,
+    needle: &str,
+    mut index: usize,
+    active: Option<usize>,
+    mut mark: impl FnMut(Vec<Range<usize>>, bool),
+) {
+    let through = active.map_or(MARKS_PER_ROW, |n| MARKS_PER_ROW.max(n.saturating_add(1)));
+    let rendered = rune_kit::markdown::Rendered::new(src);
+    for (block, text) in rendered.texts().enumerate() {
+        if index >= through {
+            break;
+        }
+        for range in Folded::new(text).matches(needle).take(through - index) {
+            if Some(index) == active || index < MARKS_PER_ROW {
+                mark(
+                    rendered.source_ranges(src, block, range),
+                    Some(index) == active,
+                );
+            }
+            index += 1;
+        }
+    }
+}
+
+fn text_mark(range: Range<usize>, current: bool, first: bool) -> rune::TextHighlight {
+    if current {
+        let mark = rune::TextHighlight::new(range, rune::oklch(0.78, 0.15, 80.).alpha(0.65));
+        if first {
+            mark.key("thread-find-current")
+        } else {
+            mark
+        }
+    } else {
+        rune::TextHighlight::new(range, rune::oklch(0.85, 0.14, 95.).alpha(0.35))
+    }
+}
+
 pub(in super::super) fn plain(s: &Desktop, row: &MessageRow, source: &str, element: El) -> El {
     let Some((needle, active)) = paint(s, row) else {
         return element;
     };
-    let folded = Folded::new(source);
-    let through = active.map_or(MARKS_PER_ROW, |n| MARKS_PER_ROW.max(n.saturating_add(1)));
-    element.text_highlights(
-        folded
+    let mut marks = Vec::new();
+    if row.plan.is_some() {
+        let through = active.map_or(MARKS_PER_ROW, |n| MARKS_PER_ROW.max(n.saturating_add(1)));
+        for (i, range) in Folded::new(source)
             .matches(&needle)
             .take(through)
             .enumerate()
-            .filter_map(|(i, range)| {
-                if Some(i) == active {
-                    Some(
-                        rune::TextHighlight::new(range, rune::oklch(0.78, 0.15, 80.).alpha(0.65))
-                            .key("thread-find-current"),
-                    )
-                } else if i < MARKS_PER_ROW {
-                    Some(rune::TextHighlight::new(
-                        range,
-                        rune::oklch(0.85, 0.14, 95.).alpha(0.35),
-                    ))
-                } else {
-                    None
-                }
-            }),
-    )
+        {
+            if Some(i) == active || i < MARKS_PER_ROW {
+                marks.push(text_mark(range, Some(i) == active, true));
+            }
+        }
+    } else {
+        marked_occurrences(source, &needle, 0, active, |ranges, current| {
+            for (i, range) in ranges.into_iter().enumerate() {
+                marks.push(text_mark(range, current, i == 0));
+            }
+        });
+    }
+    element.text_highlights(marks)
 }
 
 pub(in super::super) fn markdown(s: &Desktop, row: &MessageRow, src: &str) -> Markdown {
@@ -97,40 +133,46 @@ pub(in super::super) fn markdown(s: &Desktop, row: &MessageRow, src: &str) -> Ma
     let Some((needle, active)) = paint(s, row) else {
         return md;
     };
-    let mut index = if row.plan.is_some() {
+    let index = if row.plan.is_some() {
         Folded::new(row.caption.as_deref().unwrap_or("Proposed plan"))
             .matches(&needle)
             .count()
     } else {
         0
     };
-    let through = active.map_or(MARKS_PER_ROW, |n| MARKS_PER_ROW.max(n.saturating_add(1)));
     let mut highlights = Vec::new();
-    let rendered = rune_kit::markdown::Rendered::new(src);
-    for (block, text) in rendered.texts().enumerate() {
-        if index >= through {
-            break;
-        }
-        for range in Folded::new(text).matches(&needle).take(through - index) {
-            let mark = if Some(index) == active {
-                Some(rune_kit::markdown::Highlight::current().key("thread-find-current"))
-            } else if index < MARKS_PER_ROW {
-                Some(rune_kit::markdown::Highlight::new())
-            } else {
-                None
-            };
-            if let Some(mark) = mark {
-                highlights.push((rendered.source_ranges(src, block, range), mark));
-            }
-            index += 1;
-        }
-    }
+    marked_occurrences(src, &needle, index, active, |ranges, current| {
+        let mark = if current {
+            rune_kit::markdown::Highlight::current().key("thread-find-current")
+        } else {
+            rune_kit::markdown::Highlight::new()
+        };
+        highlights.push((ranges, mark));
+    });
     md.highlights(highlights)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_markdown_prompt_highlights_visible_text_in_the_raw_source() {
+        let source = "See [reference](https://example.com/needle), then needle. Please call **the** function.";
+        let mut matches = Vec::new();
+        marked_occurrences(source, "needle", 0, Some(0), |ranges, current| {
+            matches.extend(ranges.into_iter().map(|range| (range, current)));
+        });
+        let start = source.rfind("needle").unwrap();
+        assert_eq!(matches, [(start..start + 6, true)]);
+        let mut phrase = String::new();
+        marked_occurrences(source, "call the function", 0, None, |ranges, _| {
+            for range in ranges {
+                phrase.push_str(&source[range]);
+            }
+        });
+        assert_eq!(phrase, "call the function");
+    }
+
     #[test]
     fn search_keeps_original_byte_offsets_for_curly_quotes_and_dotted_i() {
         let source = "İt’s Σς. IT'S";

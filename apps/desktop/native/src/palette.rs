@@ -643,7 +643,19 @@ impl Desktop {
             Action::ToggleBrowser => self.toggle_browser(tx),
             Action::TogglePanelMaximized => self.toggle_panel_maximized(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
-            Action::FindThread => self.open_thread_find(tx),
+            Action::FindThread => {
+                let focus = if self.can_operate
+                    && self
+                        .workspace
+                        .visible_thread()
+                        .is_some_and(|t| !self.workspace.questions.contains_key(&t.id))
+                {
+                    "message-input"
+                } else {
+                    "thread-actions-trigger"
+                };
+                self.open_thread_find(Some(focus), tx)
+            }
             Action::ToggleDetails => self.toggle_details(tx),
             Action::OpenEditor => self.open_editor(),
             Action::Refresh => self.refresh_visible(),

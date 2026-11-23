@@ -28,7 +28,7 @@ export const findInThread = Effect.fn("nativeDesktop.findInThread")(function* (
   thread: string,
   request: {
     query: string;
-    index: number;
+    index?: number;
     dark: boolean;
     start?: { entryId: string; occurrence: number };
   },
@@ -39,7 +39,8 @@ export const findInThread = Effect.fn("nativeDesktop.findInThread")(function* (
   const input = {
     threadId: ThreadId.make(thread),
     query: request.query,
-    ...(request.start ? { start: request.start } : { index: request.index }),
+    ...(request.start && { start: request.start }),
+    ...(request.index !== undefined && !request.start && { index: request.index }),
     theme: request.dark ? ("dark" as const) : ("light" as const),
   };
   if (progressive) {

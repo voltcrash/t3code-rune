@@ -55,10 +55,11 @@ pub(super) struct Search {
     input: TextEdit,
     dark: Cell<bool>,
     due: Option<Instant>,
+    watch: Option<u64>,
     requested: Option<(u64, u64)>,
     requested_sequence: Option<u64>,
     requested_dark: bool,
-    index: usize,
+    index: Option<usize>,
     result: Option<ResultPage>,
     failed: bool,
     reveal: bool,
@@ -77,6 +78,13 @@ impl Search {
             .is_some_and(|p| p.complete != Some(false) && p.total_matches > 0)
     }
 
+    fn needs_refresh(&self, watch: u64, sequence: Option<u64>) -> bool {
+        self.watch != Some(watch)
+            || (!self.failed
+                && self.requested.is_none()
+                && (self.requested_sequence != sequence || self.requested_dark != self.dark.get()))
+    }
+
     fn occurrence(&self, row: &MessageRow) -> Option<usize> {
         let m = self.result.as_ref()?.selected.as_ref()?;
         (row.entry_id.as_deref() == Some(&m.entry_id)).then_some(m.occurrence)
@@ -90,17 +98,29 @@ impl Desktop {
             && matches!(self.details_target(), Some((false, _)))
     }
 
-    pub(crate) fn open_thread_find(&mut self, tx: &mut Tx) {
+    pub(crate) fn open_thread_find(&mut self, return_focus: Option<&str>, tx: &mut Tx) {
         if !self.can_find_thread() {
             return;
         }
         let pane = self.workspace.conversation.as_mut().unwrap();
         let find = pane.find.get_or_insert_with(|| Search {
-            return_focus: tx.focused().map(str::to_owned),
+            return_focus: return_focus.or(tx.focused()).map(str::to_owned),
             ..Default::default()
         });
         find.input.set_selection(0, find.input.text.len());
         tx.focus_when_shown("thread-find-query", true);
+    }
+
+    pub(crate) fn interrupt_thread_find(&mut self) {
+        if let Some(find) = self
+            .workspace
+            .conversation
+            .as_mut()
+            .and_then(|pane| pane.find.as_mut())
+        {
+            find.watch = None;
+            find.requested = None;
+        }
     }
 
     fn cancel_thread_search(&mut self, request: Option<(u64, u64)>) {
@@ -110,7 +130,7 @@ impl Desktop {
                 Request::FindThread {
                     watch,
                     operation,
-                    index: 0,
+                    index: None,
                     query: String::new(),
                     dark: false,
                     start: None,
@@ -137,7 +157,7 @@ impl Desktop {
         true
     }
 
-    fn schedule_find(&mut self, index: usize, delay: Duration, tx: &mut Tx) {
+    fn schedule_find(&mut self, index: Option<usize>, delay: Duration, tx: &mut Tx) {
         let Some(pane) = &mut self.workspace.conversation else {
             return;
         };
@@ -186,12 +206,17 @@ impl Desktop {
                 occurrence: index - neighbor.start_index,
             });
             result.active_index = index;
-            search.index = index;
+            search.index = Some(index);
             search.reveal = true;
             search.history_cursor = None;
+            if let Some(request) = search.requested.take() {
+                search.due = Some(Instant::now());
+                self.cancel_thread_search(Some(request));
+                tx.wake_after(Duration::ZERO);
+            }
             return;
         }
-        self.schedule_find(index, Duration::ZERO, tx);
+        self.schedule_find(Some(index), Duration::ZERO, tx);
     }
 
     pub(crate) fn receive_thread_find(
@@ -206,6 +231,9 @@ impl Desktop {
         let Some(search) = &mut pane.find else { return };
         if pane.watch != Some(watch) || search.requested != Some((watch, operation)) {
             return;
+        }
+        if result.as_ref().is_none_or(|p| p.complete != Some(false)) {
+            search.requested = None;
         }
         search.failed = result.is_none();
         let previous = search.result.as_ref().and_then(|p| p.selected.as_ref());
@@ -261,16 +289,7 @@ impl Desktop {
             }
             find.reveal = false;
         }
-        if find.due.is_none()
-            && (find.requested.is_none_or(|(id, _)| id != watch)
-                || (!find.failed
-                    && find
-                        .result
-                        .as_ref()
-                        .is_some_and(|r| r.complete != Some(false))
-                    && (find.requested_sequence != pane.sequence
-                        || find.requested_dark != find.dark.get())))
-        {
+        if find.due.is_none() && find.needs_refresh(watch, pane.sequence) {
             let delay = Duration::from_millis(450);
             find.due = Some(Instant::now() + delay);
             tx.wake_after(delay);
@@ -294,6 +313,7 @@ impl Desktop {
             .find
             .as_mut()
             .unwrap();
+        search.watch = Some(watch);
         search.requested = Some((watch, operation));
         search.requested_sequence = sequence;
         search.requested_dark = dark;
@@ -338,7 +358,9 @@ pub(super) fn bar(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bo
                 .unwrap()
                 .input
         })
-        .on_input_change(|s: &mut Desktop, tx| s.schedule_find(0, Duration::from_millis(150), tx))
+        .on_input_change(|s: &mut Desktop, tx| {
+            s.schedule_find(None, Duration::from_millis(150), tx)
+        })
         .on_input_key(|s: &mut Desktop, e, tx| {
             if e.key == Key::Escape {
                 return s.close_thread_find(tx);
@@ -389,7 +411,7 @@ pub(super) fn bar(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bo
             &labels.retry,
             theme,
             true,
-            |s, tx| s.schedule_find(0, Duration::ZERO, tx),
+            |s, tx| s.schedule_find(None, Duration::ZERO, tx),
         ));
     }
     let button =
@@ -438,6 +460,73 @@ pub(super) fn bar(s: &Desktop, pane: &Conversation, theme: &tok::Theme, dark: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_partial_search_resumes_even_when_failed_paging_restores_the_same_watch() {
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        let pane = app.workspace.conversation.as_mut().unwrap();
+        pane.begin_watch(8);
+        pane.find = Some(Search {
+            requested: Some((8, 22)),
+            watch: Some(8),
+            ..Default::default()
+        });
+        let partial = serde_json::from_value(serde_json::json!({
+            "complete":false, "activeIndex":0, "totalMatches":1,
+            "match":{"entryId":"older", "occurrence":0}
+        }))
+        .unwrap();
+        app.receive_thread_find(8, 22, Some(partial));
+        assert!(
+            !app.workspace
+                .conversation
+                .as_ref()
+                .unwrap()
+                .find
+                .as_ref()
+                .unwrap()
+                .needs_refresh(8, None)
+        );
+        app.interrupt_thread_find();
+        app.receive_thread_find(8, 22, None);
+        let find = app.workspace.conversation.unwrap().find.unwrap();
+        assert!(find.needs_refresh(8, None));
+        assert_eq!(find.result.unwrap().selected.unwrap().entry_id, "older");
+    }
+
+    #[test]
+    fn a_refresh_reply_cannot_undo_navigation_to_a_cached_neighbor() {
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        let pane = app.workspace.conversation.as_mut().unwrap();
+        pane.begin_watch(8);
+        let page = || {
+            serde_json::from_value(serde_json::json!({
+                "activeIndex": 0, "totalMatches": 2, "match": {"entryId":"row", "occurrence":0},
+                "navigation":[{"entryId":"row","startIndex":0,"count":2}]
+            }))
+            .unwrap()
+        };
+        pane.find = Some(Search {
+            input: TextEdit::new("term"),
+            result: Some(page()),
+            requested: Some((8, 23)),
+            ..Default::default()
+        });
+        app.step_find(false, &mut Tx::default());
+        app.receive_thread_find(8, 23, Some(page()));
+        assert_eq!(
+            app.workspace
+                .conversation
+                .unwrap()
+                .find
+                .unwrap()
+                .result
+                .unwrap()
+                .active_index,
+            1
+        );
+    }
     #[test]
     fn an_old_search_cannot_replace_the_result_after_typing_or_reconnect() {
         let mut app = Desktop::new();

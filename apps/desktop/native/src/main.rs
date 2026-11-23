@@ -477,7 +477,8 @@ enum Request<'a> {
         watch: u64,
         operation: u64,
         query: String,
-        index: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
         dark: bool,
     },
     Browser {
@@ -1052,6 +1053,7 @@ impl Desktop {
         self.permission_menu = None;
         self.models.close();
         if matches!(request, Request::Thread { .. }) {
+            self.interrupt_thread_find();
             self.close_conversation_inspectors();
         }
         self.answer_advance = None;
@@ -2330,7 +2332,7 @@ fn start() -> io::Result<()> {
                 )
             {
                 if !tx.key_repeat() {
-                    s.open_thread_find(tx);
+                    s.open_thread_find(None, tx);
                 }
                 return true;
             }

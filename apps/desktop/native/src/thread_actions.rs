@@ -490,7 +490,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
         menu = menu.item(
             MenuItem::new(&labels.title).on_select_tx(|s: &mut Desktop, tx| {
                 s.workspace.actions.menu = None;
-                s.open_thread_find(tx);
+                s.open_thread_find(Some("thread-actions-trigger"), tx);
             }),
         );
     }
