@@ -218,7 +218,7 @@ enum Reply {
         watch: u64,
         error: String,
     },
-    DetailsSaveError {
+    LayoutSaveError {
         watch: u64,
         error: String,
     },
@@ -230,6 +230,8 @@ enum Reply {
         #[serde(default)]
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
+        #[serde(default)]
+        panel_width: workspace::panel_width::Widths,
         browser_labels: Option<Box<browser::Labels>>,
         issues_labels: Option<Box<issues::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
@@ -536,6 +538,11 @@ enum Request<'a> {
         operation: u64,
         #[serde(flatten)]
         input: workspace::workspace_files::Input,
+    },
+    SetPanelWidth {
+        watch: u64,
+        thread: &'a str,
+        width: u32,
     },
     SetSidebarWidth {
         width: Option<u32>,
@@ -1159,7 +1166,7 @@ impl Desktop {
             self.update_editors(watch, catalog);
             return;
         }
-        if let Reply::DetailsSaveError { watch, error } | Reply::EditorError { watch, error } =
+        if let Reply::LayoutSaveError { watch, error } | Reply::EditorError { watch, error } =
             message.reply
         {
             if self.workspace.feed == Some(watch) {
@@ -1510,6 +1517,7 @@ impl Desktop {
                 composer_hints,
                 attachment_labels,
                 update_labels,
+                panel_width,
                 browser_labels,
                 issues_labels,
                 usage_labels,
@@ -1545,6 +1553,7 @@ impl Desktop {
                 self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
+                self.workspace.panel_width = panel_width;
                 self.workspace.browser.labels = browser_labels;
                 self.workspace.issues.labels = issues_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
@@ -1693,7 +1702,7 @@ impl Desktop {
             | Reply::WorkspaceEditors { .. }
             | Reply::EditorError { .. }
             | Reply::EditorOpened { .. }
-            | Reply::DetailsSaveError { .. }
+            | Reply::LayoutSaveError { .. }
             | Reply::SidebarLayout { .. }
             | Reply::ClientSettings { .. }
             | Reply::RestartUpdated { .. }
@@ -2132,6 +2141,7 @@ fn start() -> io::Result<()> {
             let clock = s.workspace.poll_sidebar_clock(tx);
             let renamed = s.finish_title_on_blur();
             let resized = s.sidebar_layout.cancel_unfocused_drag(tx);
+            let panel_resized = s.cancel_panel_resize(tx);
             let contrast = s.contrast.cancel_unfocused_drag(tx);
             let dictation = s.reconcile_dictation();
             let microphone = s.poll_microphone(tx);
@@ -2144,6 +2154,7 @@ fn start() -> io::Result<()> {
                 || clock
                 || renamed
                 || resized
+                || panel_resized
                 || contrast
                 || mentions
                 || banner
@@ -2737,6 +2748,7 @@ mod tests {
                 composer_hints: Default::default(),
                 attachment_labels: Default::default(),
                 update_labels: None,
+                panel_width: Default::default(),
                 browser_labels: None,
                 issues_labels: None,
                 usage_labels: None,

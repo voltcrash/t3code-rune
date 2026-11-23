@@ -336,5 +336,7 @@
   "5bbf199afe39d5e1": "Descartar",
   "edb4ece52df96685": "Aceptar",
   "255ae21697461ef6": "Toma el control para responder.",
-  "eb32ab8473821e3f": "Comprobar el diálogo pendiente"
+  "eb32ab8473821e3f": "Comprobar el diálogo pendiente",
+  "2eba31001f8cbdba": "Cambiar el tamaño del panel derecho",
+  "5001018045518f6c": "No se pudo guardar el ancho del panel."
 }

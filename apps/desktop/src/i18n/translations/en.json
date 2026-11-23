@@ -336,5 +336,7 @@
   "5bbf199afe39d5e1": "Dismiss",
   "edb4ece52df96685": "Accept",
   "255ae21697461ef6": "Take control to respond.",
-  "eb32ab8473821e3f": "Check pending dialog"
+  "eb32ab8473821e3f": "Check pending dialog",
+  "2eba31001f8cbdba": "Resize right panel",
+  "5001018045518f6c": "Couldn’t save the panel width."
 }
