@@ -10,6 +10,8 @@ import { resolveDeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubA
 import {
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
+  FILL_PREVIEW_VIEWPORT,
+  type PreviewViewportSetting,
   PREVIEW_ZOOM_LEVELS,
   type PreviewAdjustInput,
   type PreviewSessionSnapshot,
@@ -22,6 +24,7 @@ import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
+import { browserDeviceLabels, deviceViewport, type DeviceChange } from "./browserViewport.ts";
 import { BrowserDialog } from "./browserDialog.ts";
 import { openEnvironmentRpc, preparedConnection } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
@@ -45,6 +48,7 @@ export function browserLabels() {
     accept: m(msg("Accept")),
     recheckDialog: m(msg("Check pending dialog")),
     takeToRespond: m(msg("Take control to respond.")),
+    device: browserDeviceLabels(),
     menu: {
       title: m(msg("Preview menu")),
       reload: m(msg("Hard reload")),
@@ -84,6 +88,7 @@ type BrowserRequest =
         | "cookies"
         | "cache";
     }
+  | { action: "viewport"; tab: string; change: DeviceChange }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
 
@@ -123,6 +128,7 @@ function tabView(tab: PreviewSessionSnapshot) {
     url: nav._tag === "Idle" ? "" : nav.url,
     title: nav._tag === "Idle" ? m(msg("New tab")) : nav.title || nav.url,
     zoom: Math.round(100 * (tab.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR)),
+    device: tab.viewport && tab.viewport._tag !== "fill" ? tab.viewport : null,
     scheme: tab.colorScheme ?? DEFAULT_PREVIEW_APPEARANCE,
     can_zoom_in: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS.at(-1),
     can_zoom_out: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS[0],
@@ -133,6 +139,7 @@ function tabView(tab: PreviewSessionSnapshot) {
 }
 
 type Page = {
+  deviceChange?: "rotate" | { preset: number };
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
   dialog: BrowserDialog["current"];
@@ -155,6 +162,7 @@ export function openBrowserPanel(
   publish: (page: Page) => void,
   paint: (tab: string, sequence: number, jpeg: ArrayBuffer) => void,
   address: (input: string) => string = resolveAddressBarInput,
+  initialViewport: () => PreviewViewportSetting = () => FILL_PREVIEW_VIEWPORT,
 ) {
   const threadId = ThreadId.make(thread);
   const stopped = new AbortController();
@@ -162,6 +170,7 @@ export function openBrowserPanel(
   let service: Rpc | undefined;
   let tabs: PreviewSessionSnapshot[] = [];
   let selected: string | null = null;
+  let selectionVersion = 0;
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
   let checking: AbortController | undefined;
@@ -177,9 +186,10 @@ export function openBrowserPanel(
   let waiting: ArrayBuffer | null = null;
   let revision = -1;
 
-  function emit() {
+  function emit(deviceChange?: Page["deviceChange"]) {
     if (lifetime.aborted) return;
     publish({
+      ...(deviceChange === undefined ? {} : { deviceChange }),
       tabs: tabs.map(tabView),
       selected,
       dialog: dialogs.current,
@@ -224,6 +234,7 @@ export function openBrowserPanel(
   }
   async function select(id: string | null, refreshTicket = true) {
     detach();
+    if (selected !== id) selectionVersion++;
     selected = id;
     error = null;
     emit();
@@ -387,6 +398,7 @@ export function openBrowserPanel(
       Effect.sync(() => {
         service = undefined;
         detach();
+        selectionVersion++;
         selected = null;
         emit();
       }),
@@ -522,7 +534,40 @@ export function openBrowserPanel(
       error = null;
       emit();
       try {
-        if (request.action === "close") {
+        if (request.action === "viewport") {
+          const tab = tabs.find((t) => t.tabId === request.tab);
+          if (!tab) return;
+          const current = tab.viewport ?? FILL_PREVIEW_VIEWPORT;
+          const viewport = deviceViewport(
+            request.change,
+            current,
+            initialViewport(),
+            tab.zoomFactor ?? 1,
+          );
+          if (!viewport || viewport === current) return;
+          const before = revision;
+          const selection = selectionVersion;
+          const updated = await Effect.runPromise(
+            rpc[WS_METHODS.previewResize]({ threadId, tabId: tab.tabId, viewport }),
+            { signal: lifetime },
+          );
+          if (lifetime.aborted || service !== rpc) return;
+          if (revision === before)
+            tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
+          const device = updated.viewport;
+          if (selection === selectionVersion && device && device._tag !== "fill") {
+            emit(
+              request.change.kind === "rotate"
+                ? "rotate"
+                : request.change.kind === "preset"
+                  ? { preset: device.width / device.height }
+                  : undefined,
+            );
+          } else {
+            emit();
+          }
+          await refresh();
+        } else if (request.action === "close") {
           await Effect.runPromise(rpc[WS_METHODS.previewClose]({ threadId, tabId: request.tab }), {
             signal: lifetime,
           });

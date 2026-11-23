@@ -4,7 +4,7 @@ import {
   resizeBrowserViewportFromRail,
   resolveBrowserViewportTransform,
   resolveFittedBrowserViewport,
-} from "./browserViewportLayout";
+} from "./browserViewportLayout.js";
 
 describe("resolveBrowserViewportLayout", () => {
   it("preserves the last logical viewport when fitting a fill-mode surface", () => {

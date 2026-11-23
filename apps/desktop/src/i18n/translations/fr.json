@@ -358,5 +358,17 @@
   "f85c17f4b58b65f7": "Clair",
   "a5c95bd27616b2b2": "Sombre",
   "27e6fb07a6592a8b": "Effacer les cookies",
-  "9bce41be8fc55a47": "Vider le cache"
+  "9bce41be8fc55a47": "Vider le cache",
+  "fc5cfdeae309ee8b": "Afficher la barre d’outils des appareils",
+  "005f02e39db59ee6": "Masquer la barre d’outils des appareils",
+  "03602b7aee75e4b2": "Fermer la barre d’outils des appareils",
+  "f5f61c338cc5aeb5": "Barre d’outils des appareils du navigateur",
+  "3b4eb5b5ec5e60cb": "Préréglage d’appareil du navigateur",
+  "6dff8d487001c6cf": "Adaptatif",
+  "dbd1db6da340c156": "Largeur de la fenêtre d’affichage",
+  "bee688a681ee62e9": "Hauteur de la fenêtre d’affichage",
+  "d3e2def23ddae7ad": "Faire pivoter la fenêtre d’affichage",
+  "598e809696fe21d9": "Verrouiller le format de la fenêtre d’affichage",
+  "f015055c5e278657": "Déverrouiller le format de la fenêtre d’affichage",
+  "99c7cc7c32021770": "Dimensions"
 }

@@ -1,4 +1,4 @@
-import type { BrowserViewportResizeDirection } from "~/browser/browserViewportLayout";
+import type { BrowserViewportResizeDirection } from "@t3tools/client-runtime/preview/viewport-layout";
 import type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize } from "~/previewMiniPlayerStore";
 
 import {

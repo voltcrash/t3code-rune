@@ -11,7 +11,7 @@ import {
   BROWSER_VIEWPORT_RESIZE_RAIL_SIZE,
   type BrowserViewportLayout,
   type BrowserViewportResizeDirection,
-} from "./browserViewportLayout";
+} from "@t3tools/client-runtime/preview/viewport-layout";
 
 interface Props {
   readonly layout: BrowserViewportLayout;

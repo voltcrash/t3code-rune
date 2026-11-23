@@ -79,11 +79,12 @@ impl Desktop {
 
 pub(super) fn view(
     panel: &Panel,
-    labels: &Labels,
+    all: &super::Labels,
     theme: &tok::Theme,
     kit: &Kit,
     overlays: &mut Vec<El>,
 ) -> El {
+    let labels = &all.menu;
     let tab = panel.page.tab();
     let open = panel.menu_open && tab.is_some();
     let trigger = button(
@@ -124,6 +125,21 @@ pub(super) fn view(
         };
         menu = menu
             .item(item(&labels.reload, "hardReload", true))
+            .separator()
+            .item(
+                MenuItem::new(if tab.device.is_some() {
+                    &all.device.hide
+                } else {
+                    &all.device.show
+                })
+                .disabled(!panel.page.can_write || panel.page.busy)
+                .on_select(|s: &mut Desktop| {
+                    if let Some(p) = &mut s.workspace.browser.panel {
+                        p.menu_open = false;
+                    }
+                    s.toggle_device();
+                }),
+            )
             .separator()
             .group_label(format!("{} · {}%", labels.zoom, tab.zoom))
             .item(item(&labels.zoom_in, "zoomIn", tab.can_zoom_in))

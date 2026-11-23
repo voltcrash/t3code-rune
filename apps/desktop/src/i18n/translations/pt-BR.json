@@ -358,5 +358,17 @@
   "f85c17f4b58b65f7": "Claro",
   "a5c95bd27616b2b2": "Escuro",
   "27e6fb07a6592a8b": "Limpar cookies",
-  "9bce41be8fc55a47": "Limpar cache"
+  "9bce41be8fc55a47": "Limpar cache",
+  "fc5cfdeae309ee8b": "Mostrar a barra de dispositivos",
+  "005f02e39db59ee6": "Ocultar a barra de dispositivos",
+  "03602b7aee75e4b2": "Fechar a barra de dispositivos",
+  "f5f61c338cc5aeb5": "Barra de dispositivos do navegador",
+  "3b4eb5b5ec5e60cb": "Predefinição de dispositivo do navegador",
+  "6dff8d487001c6cf": "Responsivo",
+  "dbd1db6da340c156": "Largura da viewport",
+  "bee688a681ee62e9": "Altura da viewport",
+  "d3e2def23ddae7ad": "Girar a viewport",
+  "598e809696fe21d9": "Travar a proporção da viewport",
+  "f015055c5e278657": "Destravar a proporção da viewport",
+  "99c7cc7c32021770": "Dimensões"
 }

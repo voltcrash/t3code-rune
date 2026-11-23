@@ -358,5 +358,17 @@
   "f85c17f4b58b65f7": "Claro",
   "a5c95bd27616b2b2": "Oscuro",
   "27e6fb07a6592a8b": "Borrar cookies",
-  "9bce41be8fc55a47": "Borrar caché"
+  "9bce41be8fc55a47": "Borrar caché",
+  "fc5cfdeae309ee8b": "Mostrar la barra de dispositivos",
+  "005f02e39db59ee6": "Ocultar la barra de dispositivos",
+  "03602b7aee75e4b2": "Cerrar la barra de dispositivos",
+  "f5f61c338cc5aeb5": "Barra de dispositivos del navegador",
+  "3b4eb5b5ec5e60cb": "Dispositivo predefinido del navegador",
+  "6dff8d487001c6cf": "Adaptable",
+  "dbd1db6da340c156": "Ancho del viewport",
+  "bee688a681ee62e9": "Alto del viewport",
+  "d3e2def23ddae7ad": "Girar el viewport",
+  "598e809696fe21d9": "Bloquear la relación de aspecto del viewport",
+  "f015055c5e278657": "Desbloquear la relación de aspecto del viewport",
+  "99c7cc7c32021770": "Dimensiones"
 }

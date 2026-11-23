@@ -87,3 +87,79 @@ it.each(["switch away and back", "close the tab", "revoke write access"])(
     }
   },
 );
+
+it.each(["reconnect", "switch away and back"])(
+  "confirms a resize for the same selected tab after %s and a failed list refresh",
+  async (change) => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const ready = Promise.withResolvers<void>();
+    const tab = {
+      tabId: "a",
+      runtime: "server",
+      navStatus: { _tag: "Idle" },
+      viewport: { _tag: "freeform", width: 600, height: 400 },
+    };
+    const resized = { ...tab, viewport: { _tag: "freeform", width: 400, height: 600 } };
+    const list = vi
+      .fn()
+      .mockReturnValue(Effect.fail("offline" as const))
+      .mockReturnValueOnce(
+        Effect.succeed({ revision: 1, sessions: [tab, { ...tab, tabId: "b" }] }),
+      );
+    openRpc.mockReturnValue(
+      Effect.succeed({
+        [WS_METHODS.subscribePreviewEvents]: () => Stream.never,
+        [WS_METHODS.previewList]: list,
+        [WS_METHODS.previewResize]: () =>
+          Effect.promise(async () => {
+            started.resolve();
+            await release.promise;
+            return resized;
+          }),
+      }),
+    );
+    const pages: unknown[] = [];
+    const rotations: string[] = [];
+    const panel = openBrowserPanel(
+      {
+        environmentId: EnvironmentId.make("browser"),
+        httpBaseUrl: "https://example.test",
+        http: layerRemoteHttpClient(globalThis.fetch),
+        label: "Browser",
+        token: "fixture",
+        browserWritable: true,
+      },
+      "thread",
+      new AbortController().signal,
+      (page) => {
+        pages.push(page);
+        if (page.deviceChange === "rotate" && page.selected) rotations.push(page.selected);
+        if (page.selected === "a") ready.resolve();
+      },
+      () => {},
+    );
+    try {
+      await ready.promise;
+      const resize = panel.request({ action: "viewport", tab: "a", change: { kind: "rotate" } });
+      await started.promise;
+      if (change === "reconnect") await panel.request({ action: "retry" });
+      else {
+        await panel.request({ action: "select", tab: "b" });
+        await panel.request({ action: "select", tab: "a" });
+      }
+      release.resolve();
+      await resize;
+      expect(rotations).toEqual(change === "reconnect" ? ["a"] : []);
+      expect(pages.at(-1)).toMatchObject({
+        error: expect.any(String),
+        tabs: expect.arrayContaining([
+          expect.objectContaining({ id: "a", device: resized.viewport }),
+        ]),
+      });
+    } finally {
+      release.resolve();
+      panel.stop();
+    }
+  },
+);

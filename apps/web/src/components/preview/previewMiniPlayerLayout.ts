@@ -4,7 +4,7 @@ import type { BrowserSurfaceContentPresentation } from "~/browser/browserSurface
 import {
   resolveFittedBrowserViewport,
   type BrowserViewportResizeDirection,
-} from "~/browser/browserViewportLayout";
+} from "@t3tools/client-runtime/preview/viewport-layout";
 import type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize } from "~/previewMiniPlayerStore";
 
 import type { DeviceScreenSize } from "@t3tools/client-runtime/device/stream";

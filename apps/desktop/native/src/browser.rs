@@ -1,3 +1,4 @@
+mod device;
 mod dialog;
 mod input;
 mod menu;
@@ -18,6 +19,7 @@ pub(crate) const ICON: Icon = Icon {
 pub(crate) struct Labels {
     pub title: String,
     menu: menu::Labels,
+    device: device::Labels,
     address: String,
     add: String,
     close_tab: String,
@@ -42,6 +44,7 @@ pub(crate) struct Tab {
     title: String,
     zoom: u16,
     scheme: String,
+    device: Option<device::Viewport>,
     can_zoom_in: bool,
     can_zoom_out: bool,
     back: bool,
@@ -52,6 +55,7 @@ pub(crate) struct Tab {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Page {
     tabs: Vec<Tab>,
+    device_change: Option<device::LockChange>,
     dialog: Option<dialog::Dialog>,
     selected: Option<String>,
     can_write: bool,
@@ -84,6 +88,7 @@ pub(crate) struct Panel {
     answer: TextEdit,
     focus_dialog: bool,
     menu_open: bool,
+    device: device::Toolbar,
 }
 impl Panel {
     fn new(watch: u64, operation: u64) -> Self {
@@ -101,6 +106,7 @@ impl Panel {
             answer: TextEdit::new(""),
             focus_dialog: false,
             menu_open: false,
+            device: device::Toolbar::default(),
         }
     }
 }
@@ -151,7 +157,7 @@ impl Desktop {
             tx.focus_when_shown("browser-address", false);
         }
     }
-    pub(crate) fn receive_browser(&mut self, watch: u64, operation: u64, page: Page) {
+    pub(crate) fn receive_browser(&mut self, watch: u64, operation: u64, mut page: Page) {
         if let Some(p) = &mut self.workspace.browser.panel
             && (p.watch, p.operation) == (watch, operation)
         {
@@ -184,6 +190,14 @@ impl Desktop {
                 p.input.reset();
                 p.requested_size = None;
                 p.buttons = 0;
+            }
+            let new_tab = p.page.selected != page.selected;
+            let viewport = page.tab().and_then(|t| t.device.as_ref());
+            if new_tab || p.page.tab().and_then(|t| t.device.as_ref()) != viewport {
+                p.device.sync(viewport, new_tab);
+            }
+            if let Some(change) = page.device_change.take() {
+                p.device.confirm(change);
             }
             p.page = page;
             self.resize_browser();
@@ -266,7 +280,7 @@ impl Desktop {
             && !self.history.on_issues()
             && !self.settings_open
         {
-            return self.sync_browser_input(tx);
+            return self.sync_device_focus(tx) || self.sync_browser_input(tx);
         }
         self.close_browser();
         true
@@ -445,7 +459,7 @@ pub(crate) fn view(
                 field.disabled(true)
             },
         )
-        .child(menu::view(p, &labels.menu, theme, kit, overlays));
+        .child(menu::view(p, labels, theme, kit, overlays));
     let mut frame = el()
         .key("browser-page")
         .label(&labels.title)
@@ -466,6 +480,9 @@ pub(crate) fn view(
         frame = input::surface(frame, p, theme);
     }
     let mut body = col().grow(1.).min_w(0.).h_full().child(top).child(toolbar);
+    if let Some(size) = tab.and_then(|t| t.device.as_ref()) {
+        body = body.child(device::view(p, size, &labels.device, theme, kit, overlays));
+    }
     if let Some(error) = p
         .page
         .error

@@ -25,7 +25,7 @@ import {
   useActiveBrowserRecordingTabIds,
 } from "~/browser/browserRecording";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
-import type { BrowserViewportResizeDirection } from "~/browser/browserViewportLayout";
+import type { BrowserViewportResizeDirection } from "@t3tools/client-runtime/preview/viewport-layout";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { rendersServerTabNatively } from "~/browser/previewRuntime";
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";

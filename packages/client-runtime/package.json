@@ -81,6 +81,10 @@
       "types": "./src/device/hubAccess.ts",
       "default": "./src/device/hubAccess.ts"
     },
+    "./preview/viewport-layout": {
+      "types": "./src/preview/browserViewportLayout.ts",
+      "default": "./src/preview/browserViewportLayout.ts"
+    },
     "./preview/server-browser-stream": {
       "types": "./src/preview/serverBrowserStream.ts",
       "default": "./src/preview/serverBrowserStream.ts"

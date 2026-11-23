@@ -23,7 +23,10 @@ import {
 } from "~/components/ui/select";
 import { cn } from "~/lib/utils";
 
-import { BROWSER_DEVICE_TOOLBAR_HEIGHT, resizeFreeformViewport } from "./browserViewportLayout";
+import {
+  BROWSER_DEVICE_TOOLBAR_HEIGHT,
+  resizeFreeformViewport,
+} from "@t3tools/client-runtime/preview/viewport-layout";
 import { commitViewportAndAspectRatio } from "./browserDeviceToolbarState";
 import { ScreenRotationIcon } from "./ScreenRotationIcon";
 
