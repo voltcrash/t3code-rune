@@ -86,7 +86,9 @@ effectIt.effect("keeps a retryable download and advances past an expired one", (
       const events = yield* Effect.promise(() => attached.promise);
       const open = vi.fn(async () => false);
       yield* Effect.promise(() => panel.openDownload("a", "direct", open));
-      expect(open).toHaveBeenCalledWith("https://[::1]/report.csv?columns%5B%5D=name&sort=%2B&folder=a%5Cb#c%5Cd");
+      expect(open).toHaveBeenCalledWith(
+        "https://[::1]/report.csv?columns%5B%5D=name&sort=%2B&folder=a%5Cb#c%5Cd",
+      );
       expect(openError).toBeTruthy();
       open.mockResolvedValueOnce(true);
       yield* Effect.promise(() => panel.openDownload("a", "direct", open));

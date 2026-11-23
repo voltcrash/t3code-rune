@@ -505,7 +505,7 @@ export function openBrowserPanel(
         !/%(?:00|(?![\da-f]{2}))/i.test(url.href)
       ) {
         const pathStart = url.href.indexOf("/", url.protocol.length + 2);
-        const pathAndQuery = url.href.slice(pathStart).replace(/[[\]^`{|}]/g, encodeURIComponent);
+        const pathAndQuery = url.href.slice(pathStart).replace(/[[\]\\^`{|}]/g, encodeURIComponent);
         const destination = url.href.slice(0, pathStart) + pathAndQuery;
         if (destination.length <= 8192) opened = await open(destination).catch(() => false);
       }
