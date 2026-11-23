@@ -1934,10 +1934,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
-    let measured_width = cx.layout_size("thread-titlebar").map_or(0., |size| size[0]);
-    let toolbar_height = cx
-        .layout_size("workspace-toolbar")
-        .map_or(bar.height, |size| size[1]);
+    let [measured_width, toolbar_height] = cx
+        .layout_size("thread-titlebar")
+        .unwrap_or([0., bar.height]);
     let layout = thread_details::layout(
         s,
         measured_width,
@@ -1947,13 +1946,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     );
     let kit = s.contrast.kit(dark);
     let mut header = row()
-        .key("thread-titlebar")
-        .w_full()
+        .key("workspace-breadcrumb-bar")
+        .w(0.)
+        .grow(1.)
+        .min_w(0.)
         .h(bar.height)
-        .window_drag()
         .center_y()
         .gap(8.0)
-        .px(16.0);
+        .pl(16.0);
     if drawer.is_some() || !s.sidebar_layout.open {
         let caption = "Show sidebar";
         header = header.pl(bar.leading + 12.).child(
@@ -2009,8 +2009,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 )
                 .child(label("/", 13., 400., theme.text_secondary));
         }
-        breadcrumbs = breadcrumbs
-            .child(thread_actions::header(s, thread, theme, &kit, &mut overlays).shrink());
+        breadcrumbs = breadcrumbs.child(
+            thread_actions::header(s, thread, theme, &kit, &mut overlays)
+                .shrink()
+                .min_w(if show_project { 48. } else { 0. }),
+        );
     } else if !empty && !landing {
         breadcrumbs =
             breadcrumbs.child(label("Projects", 14., 500., theme.text).truncate().shrink());
@@ -2096,36 +2099,51 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         0.
     };
     let available = measured_width - leading - trailing;
-    let mut overflow = Vec::new();
-    if !controls.is_empty() {
-        if available < 184. {
-            overflow.append(&mut controls);
-        } else {
-            header = header.child(row().gap(4.).center_y().children(controls));
-        }
+    let panels_inline = !controls.is_empty() && available >= 184.;
+    let actions_inline = !actions.is_empty() && available >= 540.;
+    if !panels_inline && !actions_inline {
+        header = header.w_full().pr(trailing + 12.);
     }
-    if available < 540. {
-        overflow.append(&mut actions);
-    } else {
-        header = header.children(actions);
-    }
-    let mut toolbar = col()
-        .key("workspace-toolbar")
+    let mut toolbar = row()
+        .key("thread-titlebar")
+        .window_drag()
         .w_full()
-        .child(header.pr(trailing + 12.));
-    if !overflow.is_empty() {
-        toolbar = toolbar.child(
-            row()
-                .w_full()
-                .flex_wrap()
-                .center_y()
-                .gap(6.)
-                .px(12.)
-                .py(4.)
-                .children(overflow),
-        );
+        .flex_wrap()
+        .center_y()
+        .child(header);
+    if !controls.is_empty() {
+        let panels = row()
+            .key("workspace-panel-buttons")
+            .center_y()
+            .gap(4.)
+            .children(controls);
+        toolbar = toolbar.child(if panels_inline {
+            panels
+                .ml(8.)
+                .h(bar.height)
+                .mr(if actions_inline { 0. } else { trailing + 12. })
+        } else {
+            panels.w_full().flex_wrap().px(12.).py(4.)
+        });
     }
-    let mut main = col().grow(1.0).min_w(0.0).h_full().child(toolbar);
+    if !actions.is_empty() {
+        let actions = row()
+            .key("workspace-header-actions")
+            .center_y()
+            .gap(8.)
+            .children(actions);
+        toolbar = toolbar.child(if actions_inline {
+            actions.ml(8.).h(bar.height).mr(trailing + 12.)
+        } else {
+            actions.w_full().flex_wrap().px(12.).py(4.)
+        });
+    }
+    let mut main = col()
+        .key("workspace-main")
+        .grow(1.0)
+        .min_w(0.0)
+        .h_full()
+        .child(toolbar);
     if let Some(err) = &s.error {
         main = main.child(
             label(err, 13.0, 400.0, theme.text_secondary)
