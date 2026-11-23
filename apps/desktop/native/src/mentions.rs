@@ -65,21 +65,36 @@ fn query(edit: &TextEdit) -> Option<(Range<usize>, &str)> {
     Some((range, query))
 }
 
-pub(super) fn prompt(edit: &TextEdit) -> String {
-    let mut body = String::with_capacity(edit.text.len());
-    let mut from = 0;
+fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<String> {
+    let mut from = selection.start;
+    let mut body = None;
     for (range, id) in edit.pills() {
+        if range.start < selection.start || range.end > selection.end {
+            continue;
+        }
         if let Some(link) = id
             .strip_prefix("t3-file:")
             .or_else(|| id.strip_prefix("t3-folder:"))
         {
+            let body = body.get_or_insert_with(String::new);
             body.push_str(&edit.text[from..range.start]);
             body.push_str(link);
             from = range.end;
         }
     }
-    body.push_str(&edit.text[from..]);
+    if let Some(body) = &mut body {
+        body.push_str(&edit.text[from..selection.end]);
+    }
     body
+}
+
+pub(super) fn prompt(edit: &TextEdit) -> String {
+    serialized_selection(edit, 0..edit.text.len()).unwrap_or_else(|| edit.text.clone())
+}
+
+pub(super) fn copy_selection(edit: &TextEdit) -> Option<String> {
+    let (start, end) = edit.range();
+    serialized_selection(edit, start..end)
 }
 
 struct Search {
@@ -96,9 +111,19 @@ struct Search {
 pub(super) struct Picker {
     pub(super) labels: Labels,
     search: Option<Search>,
+    ready: Option<u64>,
 }
 
 impl Picker {
+    pub(super) fn connection(&mut self, watch: u64, ready: bool) {
+        if ready {
+            self.ready = Some(watch);
+        } else if self.ready == Some(watch) {
+            self.ready = None;
+            self.search = None;
+        }
+    }
+
     pub(super) fn receive(&mut self, operation: u64, entries: Vec<Entry>) {
         if let Some(s) = &mut self.search
             && s.operation == operation
@@ -162,13 +187,6 @@ impl Picker {
                 }
             })
             .on_choose(move |app, path, tx| app.choose_mention(operation, path, tx))
-            .on_close(move |app| {
-                if let Some(s) = &mut app.mentions.search
-                    && s.operation == operation
-                {
-                    s.dismissed = true;
-                }
-            })
             .build(kit, overlays);
     }
 }
@@ -187,7 +205,10 @@ impl Desktop {
         if self.pending || !self.can_read_files || !self.can_operate {
             return None;
         }
-        let watch = self.workspace.feed?;
+        let watch = self
+            .workspace
+            .feed
+            .filter(|w| Some(*w) == self.mentions.ready)?;
         let (id, draft, root, edit) = match focus? {
             "message-input" => {
                 let id = &self.workspace.visible_thread()?.id;
@@ -382,6 +403,13 @@ mod tests {
             prompt(&edit),
             "Review [code.rs](src/nested/code.rs) here [utils](src/utils) "
         );
+        edit.set_selection("Review ".len(), "Review code.rs".len());
+        assert_eq!(
+            copy_selection(&edit).as_deref(),
+            Some("[code.rs](src/nested/code.rs)")
+        );
+        edit.set_selection(0, "Review".len());
+        assert!(copy_selection(&edit).is_none());
         edit.undo();
         edit.undo();
         assert_eq!(prompt(&edit), "Review @co here @dir");

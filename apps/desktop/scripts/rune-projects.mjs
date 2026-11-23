@@ -196,6 +196,7 @@ function startWorkspaceFeed(owner, initial, watch) {
       editors.configure(config, rpc);
       configureProviders(config);
     },
+    (ready) => write({ type: "composerfilesready", watch, ready }),
   );
   workspaceFeed = {
     watch,

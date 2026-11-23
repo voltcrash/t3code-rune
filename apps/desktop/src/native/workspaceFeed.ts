@@ -85,6 +85,7 @@ export function watchWorkspace(
   refreshFavicons: (projects?: string[]) => void,
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
   onWorkspaceConfig: Parameters<typeof watchDraftModels>[3],
+  onSynchronized: (ready: boolean) => void,
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
@@ -251,6 +252,7 @@ export function watchWorkspace(
       Effect.sync(() => {
         git.connect(undefined);
         draftModels.connect(undefined);
+        if (activeRpc && !signal.aborted) onSynchronized(false);
         activeRpc = undefined;
         fileActions.reconcile();
         retryFavicons = true;
@@ -309,6 +311,7 @@ export function watchWorkspace(
           if (item.kind === "synchronized") {
             if (retryFavicons) refreshFavicons();
             retryFavicons = false;
+            if (activeRpc !== rpc && !signal.aborted) onSynchronized(true);
             activeRpc = rpc;
             fileActions.reconcile();
             git.connect(rpc);

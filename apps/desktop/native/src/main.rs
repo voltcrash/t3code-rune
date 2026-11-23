@@ -105,6 +105,10 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    ComposerFilesReady {
+        watch: u64,
+        ready: bool,
+    },
     ComposerFiles {
         operation: u64,
         entries: Vec<mentions::Entry>,
@@ -980,6 +984,10 @@ impl Desktop {
             self.receive_draft_models(watch, &project, message.id, choices, permissions);
             return;
         }
+        if let Reply::ComposerFilesReady { watch, ready } = message.reply {
+            self.mentions.connection(watch, ready);
+            return;
+        }
         if let Reply::ComposerFiles { operation, entries } = message.reply {
             self.mentions.receive(operation, entries);
             return;
@@ -1439,6 +1447,7 @@ impl Desktop {
             | Reply::Downloaded { .. }
             | Reply::FileMatches { .. }
             | Reply::FileEntries { .. }
+            | Reply::ComposerFilesReady { .. }
             | Reply::ComposerFiles { .. }
             | Reply::FilteredFiles { .. }
             | Reply::FileSource { .. }
