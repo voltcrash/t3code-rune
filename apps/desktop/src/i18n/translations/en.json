@@ -419,5 +419,9 @@
   "d6b75f6c2f576a2c": "Delete {title}",
   "30589efe06e4d26f": "just now",
   "2a364723e6e2978e": "Archived {archived} · Created {created}",
-  "e2678700a48ee5a5": "{age} ago"
+  "e2678700a48ee5a5": "{age} ago",
+  "ee3e8bd8b7918aec": "Search",
+  "858561b97fdd72f2": "Search settings",
+  "fed2d32de2b0c566": "Clear settings search",
+  "f49fcf2df97620b2": "No settings found"
 }

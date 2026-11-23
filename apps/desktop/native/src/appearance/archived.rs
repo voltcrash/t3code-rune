@@ -167,8 +167,8 @@ fn section(title: &str, rows: Vec<El>, theme: &tok::Theme) -> El {
     }
     col()
         .w_full()
-        .gap(8.)
-        .child(label(title, 16., 600., theme.text).pl(12.))
+        .gap(10.)
+        .child(label(title, 16., 600., theme.text).pl(16.))
         .child(group)
 }
 
@@ -232,7 +232,7 @@ pub(super) fn view(s: &Desktop, labels: &Labels, narrow: bool, theme: &tok::Them
             .child(section(&labels.title, vec![body], theme));
     };
     let danger = crate::confirm_dialog::destructive(theme);
-    let mut page = col().w_full().gap(24.);
+    let mut page = col().w_full().gap(32.);
     for group in groups {
         let rows = group
             .threads

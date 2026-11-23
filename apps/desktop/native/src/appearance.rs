@@ -3,6 +3,7 @@ use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
 mod archived;
 pub(crate) use archived::{Archived, Group as ArchivedGroup};
 mod chat;
+mod search;
 pub(crate) mod voice;
 pub(crate) use chat::{SettingsLabels, SettingsPage};
 mod chat_width;
@@ -99,6 +100,7 @@ impl Desktop {
         }
         self.settings_open = false;
         self.archived.deleting = None;
+        self.clear_settings_search();
         tx.focus("settings-trigger", true);
     }
 
@@ -370,9 +372,8 @@ fn typography(
     }
     col()
         .w_full()
-        .pt(16.)
-        .gap(8.)
-        .child(label("Typography", 16., 600., theme.text).pl(12.))
+        .gap(10.)
+        .child(label("Typography", 16., 600., theme.text).pl(16.))
         .child(group)
 }
 
@@ -384,10 +385,10 @@ fn appearance_body(
     theme: &tok::Theme,
     popups: &mut Vec<El>,
 ) -> El {
-    let mut body = col()
+    let scheme = col()
         .w_full()
-        .gap(12.)
-        .child(label("Color scheme", 16., 600., theme.text).pl(12.))
+        .gap(10.)
+        .child(label("Color scheme", 16., 600., theme.text).pl(16.))
         .child(
             row()
                 .role("radiogroup")
@@ -401,6 +402,7 @@ fn appearance_body(
                         .map(|mode| tile(mode, s.appearance == mode, (content - 24.) / 3., theme)),
                 ),
         );
+    let mut body = col().w_full().gap(32.).child(scheme);
     let interface = col()
         .w_full()
         .radius(12.)
@@ -411,9 +413,8 @@ fn appearance_body(
     body = body.child(
         col()
             .w_full()
-            .pt(16.)
-            .gap(8.)
-            .child(label("Interface", 16., 600., theme.text).pl(12.))
+            .gap(10.)
+            .child(label("Interface", 16., 600., theme.text).pl(16.))
             .child(interface),
     );
     body = body.child(typography(s, narrow, theme, s.dark(cx), popups));
@@ -438,8 +439,9 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let top = margin.max(40_f32);
     let width = (w - 2. * margin).min(1280.);
     let height = (h - top - margin).min(960.);
-    let nav = if w >= 720. { 192. } else { 0. };
-    let content = (width - nav - 50.).clamp(90., 960.);
+    let nav = if w >= 768. { 240. } else { 0. };
+    // The web page container: max-w-4xl with 24pt sides, so at most 848pt of content.
+    let content = (width - nav - 48.).clamp(90., 848.);
     let labels = s.settings_labels.as_ref();
     let settings_title = labels.map_or("Settings", |l| l.settings.as_str());
     let close = el()
@@ -476,7 +478,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         _ => appearance_body(s, cx, content, w < 640., theme, &mut popups),
     }
     .w(content)
-    .max_w(960.)
+    .max_w(848.)
     .pt(24.);
     if let Some(err) = &s.settings_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());
@@ -492,14 +494,20 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .border(1., theme.separator)
         .fill(theme.bg);
     if nav > 0. {
-        let links = col()
+        let mut links = col()
             .w(nav)
             .h_full()
-            .padding(12.)
-            .gap(4.)
-            .fill(theme.text.alpha(0.025))
-            .child(label(settings_title, 15., 600., theme.text).padding(8.))
-            .child(SettingsPage::tabs(s, theme, false));
+            .padding(8.)
+            .gap(8.)
+            .fill(theme.text.alpha(0.025));
+        if let Some(labels) = labels {
+            links = links.child(search::field(s, labels, theme)).child(
+                search::results(s, labels, theme)
+                    .unwrap_or_else(|| SettingsPage::tabs(s, theme, false)),
+            );
+        } else {
+            links = links.pt(48.).child(SettingsPage::tabs(s, theme, false));
+        }
         panel = panel.child(links);
     }
     let mut column = col().grow(1.).min_w(0.).h_full().child(header);
@@ -525,7 +533,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                             stick_bottom: false,
                         })
                         .items_center()
-                        .child(body.pb(24.)),
+                        .child(body.pb(48.)),
                 ),
         )
         .modal_tx(true, Desktop::close_settings)

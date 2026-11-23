@@ -894,6 +894,7 @@ struct Desktop {
     settings_open: bool,
     settings_page: appearance::SettingsPage,
     settings_labels: Option<appearance::SettingsLabels>,
+    settings_search: rune::TextEdit,
     thread_labels: Option<Box<workspace::thread_actions::Labels>>,
     confirm_thread_delete: bool,
     confirm_thread_archive: bool,
@@ -966,6 +967,7 @@ impl Desktop {
             settings_open: false,
             settings_page: Default::default(),
             settings_labels: None,
+            settings_search: rune::TextEdit::new(""),
             thread_labels: None,
             confirm_thread_delete: true,
             confirm_thread_archive: false,
@@ -1030,6 +1032,7 @@ impl Desktop {
             font_smoothing: self.font_smoothing,
             saving_client_settings: self.saving_client_settings,
             settings_labels: self.settings_labels.take(),
+            settings_search: std::mem::replace(&mut self.settings_search, rune::TextEdit::new("")),
             thread_labels: self.thread_labels.take(),
             confirm_thread_delete: self.confirm_thread_delete,
             confirm_thread_archive: self.confirm_thread_archive,
@@ -2372,7 +2375,7 @@ fn start() -> io::Result<()> {
                 return true;
             }
             if s.settings_open {
-                return false;
+                return s.settings_search_key(ev, tx);
             }
             if !ev.mods.alt && !ev.mods.shift && ev.is_command('k') {
                 if !tx.key_repeat() {

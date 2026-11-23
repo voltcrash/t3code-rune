@@ -419,5 +419,9 @@
   "d6b75f6c2f576a2c": "Eliminar {title}",
   "30589efe06e4d26f": "ahora mismo",
   "2a364723e6e2978e": "Archivado {archived} · Creado {created}",
-  "e2678700a48ee5a5": "hace {age}"
+  "e2678700a48ee5a5": "hace {age}",
+  "ee3e8bd8b7918aec": "Buscar",
+  "858561b97fdd72f2": "Buscar ajustes",
+  "fed2d32de2b0c566": "Borrar búsqueda de ajustes",
+  "f49fcf2df97620b2": "No se encontraron ajustes"
 }
