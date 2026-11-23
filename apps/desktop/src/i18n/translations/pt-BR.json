@@ -371,5 +371,10 @@
   "598e809696fe21d9": "Travar a proporção da viewport",
   "f015055c5e278657": "Destravar a proporção da viewport",
   "99c7cc7c32021770": "Dimensões",
-  "4fd8927b7afc2a92": "Copiar mensagem"
+  "4fd8927b7afc2a92": "Copiar mensagem",
+  "f9ae290f5fd9c24b": "Redimensionar a viewport do navegador pela borda esquerda",
+  "eed90253d3241141": "Redimensionar a viewport do navegador pela borda direita",
+  "e64d57ecc339edbb": "Redimensionar a viewport do navegador pela borda inferior",
+  "ee3ce2dbd17dde22": "Redimensionar a viewport do navegador pelo canto inferior esquerdo",
+  "44a0347dbc93ba80": "Redimensionar a viewport do navegador pelo canto inferior direito"
 }

@@ -371,5 +371,10 @@
   "598e809696fe21d9": "Seitenverhältnis des Viewports sperren",
   "f015055c5e278657": "Seitenverhältnis des Viewports entsperren",
   "99c7cc7c32021770": "Abmessungen",
-  "4fd8927b7afc2a92": "Nachricht kopieren"
+  "4fd8927b7afc2a92": "Nachricht kopieren",
+  "f9ae290f5fd9c24b": "Browser-Viewport am linken Rand skalieren",
+  "eed90253d3241141": "Browser-Viewport am rechten Rand skalieren",
+  "e64d57ecc339edbb": "Browser-Viewport am unteren Rand skalieren",
+  "ee3ce2dbd17dde22": "Browser-Viewport an der unteren linken Ecke skalieren",
+  "44a0347dbc93ba80": "Browser-Viewport an der unteren rechten Ecke skalieren"
 }

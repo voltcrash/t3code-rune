@@ -371,5 +371,10 @@
   "598e809696fe21d9": "Verrouiller le format de la fenêtre d’affichage",
   "f015055c5e278657": "Déverrouiller le format de la fenêtre d’affichage",
   "99c7cc7c32021770": "Dimensions",
-  "4fd8927b7afc2a92": "Copier le message"
+  "4fd8927b7afc2a92": "Copier le message",
+  "f9ae290f5fd9c24b": "Redimensionner la fenêtre d’affichage depuis le bord gauche",
+  "eed90253d3241141": "Redimensionner la fenêtre d’affichage depuis le bord droit",
+  "e64d57ecc339edbb": "Redimensionner la fenêtre d’affichage depuis le bord inférieur",
+  "ee3ce2dbd17dde22": "Redimensionner la fenêtre d’affichage depuis le coin inférieur gauche",
+  "44a0347dbc93ba80": "Redimensionner la fenêtre d’affichage depuis le coin inférieur droit"
 }

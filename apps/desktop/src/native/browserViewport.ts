@@ -23,6 +23,13 @@ export function browserDeviceLabels() {
     close: m(msg("Close device toolbar")),
     title: m(msg("Browser device toolbar")),
     dimensions: m(msg("Dimensions")),
+    handles: [
+      m(msg("Resize browser viewport from left edge")),
+      m(msg("Resize browser viewport from right edge")),
+      m(msg("Resize browser viewport from bottom edge")),
+      m(msg("Resize browser viewport from bottom-left corner")),
+      m(msg("Resize browser viewport from bottom-right corner")),
+    ],
     limits: {
       min: PREVIEW_VIEWPORT_MIN_DIMENSION,
       max: PREVIEW_VIEWPORT_MAX_DIMENSION,
