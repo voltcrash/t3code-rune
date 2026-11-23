@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 pub(super) struct Labels {
     search: String,
     searching: String,
+    skills: String,
+    no_skills: String,
     empty: String,
 }
 
@@ -17,20 +19,24 @@ pub(super) struct Entry {
     path: String,
     kind: String,
     link: String,
+    label: Option<String>,
+    description: Option<String>,
 }
 
 impl Entry {
     fn name(&self) -> &str {
-        self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path)
+        self.label
+            .as_deref()
+            .unwrap_or_else(|| self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path))
     }
     fn choose(&self, edit: &mut TextEdit, mut range: Range<usize>) {
         if edit.text[range.end..].starts_with(' ') {
             range.end += 1;
         }
-        let prefix = if self.kind == "directory" {
-            "t3-folder:"
-        } else {
-            "t3-file:"
+        let prefix = match self.kind.as_str() {
+            "directory" => "t3-folder:",
+            "skill" => "t3-skill:",
+            _ => "t3-file:",
         };
         edit.undo_group(|edit| {
             edit.replace_with_pill(range, format!("{prefix}{}", self.link), self.name());
@@ -44,17 +50,31 @@ struct Trigger {
     owner: Target,
     watch: u64,
     root: String,
+    instance: Option<String>,
     range: Range<usize>,
     query: String,
 }
 
-fn query(edit: &TextEdit) -> Option<(Range<usize>, &str)> {
+fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, bool)> {
     if edit.anchor != edit.focus || edit.is_composing() {
         return None;
     }
     let before = edit.text.get(..edit.focus)?;
     let token = before.rsplit([' ', '\n', '\t', '\r']).next()?;
-    let query = token.strip_prefix('@')?;
+    let (query, skill) = if let Some(q) = token.strip_prefix('@') {
+        (q, false)
+    } else {
+        static CURRENCY: std::sync::LazyLock<regex::Regex> =
+            std::sync::LazyLock::new(|| regex::Regex::new(r"^\p{Sc}").unwrap());
+        static AMOUNT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"^\.?[0-9][0-9,._]*(?:[kKmMbBtT]|[eE][0-9]+)?[.,;:!?)]*$").unwrap()
+        });
+        let q = &token[CURRENCY.find(token)?.end()..];
+        if AMOUNT.is_match(q) {
+            return None;
+        }
+        (q, true)
+    };
     let range = before.len() - token.len()..before.len();
     if edit
         .pills()
@@ -62,7 +82,7 @@ fn query(edit: &TextEdit) -> Option<(Range<usize>, &str)> {
     {
         return None;
     }
-    Some((range, query))
+    Some((range, query, skill))
 }
 
 fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<String> {
@@ -75,6 +95,7 @@ fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<Stri
         if let Some(link) = id
             .strip_prefix("t3-file:")
             .or_else(|| id.strip_prefix("t3-folder:"))
+            .or_else(|| id.strip_prefix("t3-skill:"))
         {
             let body = body.get_or_insert_with(String::new);
             body.push_str(&edit.text[from..range.start]);
@@ -157,22 +178,32 @@ impl Picker {
                 .strip_suffix(e.name())
                 .unwrap_or("")
                 .trim_end_matches(['/', '\\']);
-            let glyph = if e.kind == "directory" {
+            let glyph = if e.kind == "skill" {
+                &glyphs::SPARKLE
+            } else if e.kind == "directory" {
                 &glyphs::FOLDER
             } else {
                 rune_kit::file_icon(&e.path)
             };
             PopupItem::new(&e.path, e.name())
-                .description(parent)
+                .description(e.description.as_deref().unwrap_or(parent))
                 .leading(rune::icon(glyph, 16.).color(kit.c.text_weak))
         });
         PopupList::<Desktop>::new("composer-file-mentions", key)
             .anchored(key, Side::Top, Align::Start, 6.)
             .width(cx.layout_size(key).map_or(320., |size| size[0]))
             .max_height(290.)
-            .label(&self.labels.search)
+            .label(if s.trigger.instance.is_some() {
+                &self.labels.skills
+            } else {
+                &self.labels.search
+            })
             .empty_message(if s.loaded {
-                &self.labels.empty
+                if s.trigger.instance.is_some() {
+                    &self.labels.no_skills
+                } else {
+                    &self.labels.empty
+                }
             } else {
                 &self.labels.searching
             })
@@ -202,7 +233,7 @@ impl Target {
 
 impl Desktop {
     fn mention_trigger(&self, focus: Option<&str>) -> Option<Trigger> {
-        if self.pending || !self.can_read_files || !self.can_operate {
+        if self.pending || !self.can_operate {
             return None;
         }
         let watch = self
@@ -230,7 +261,14 @@ impl Desktop {
             }
             _ => return None,
         };
-        let (range, q) = query(edit)?;
+        let (range, q, skill) = query(edit)?;
+        let instance = if skill {
+            Some(self.status_target()?.2?.to_owned())
+        } else if self.can_read_files {
+            None
+        } else {
+            return None;
+        };
         let target = if draft {
             Target::Project(id.into())
         } else {
@@ -243,6 +281,7 @@ impl Desktop {
             owner: target,
             watch,
             root: root.into(),
+            instance,
             range,
             query: q.chars().take(256).collect(),
         })
@@ -302,6 +341,7 @@ impl Desktop {
                 draft,
                 target,
                 root: &t.root,
+                instance: t.instance.as_deref(),
                 query: (!cancel).then_some(t.query.as_str()),
             },
         );
@@ -363,7 +403,9 @@ impl Desktop {
 }
 
 pub(super) fn chip(id: &str) -> rune::PillStyle {
-    let glyph = if id.starts_with("t3-folder:") {
+    let glyph = if id.starts_with("t3-skill:") {
+        &glyphs::SPARKLE
+    } else if id.starts_with("t3-folder:") {
         &glyphs::FOLDER
     } else {
         rune_kit::file_icon(id.strip_suffix(')').unwrap_or(id))
@@ -380,11 +422,13 @@ mod tests {
         let entry = Entry {
             path: "src/nested/code.rs".into(),
             kind: "file".into(),
+            label: None,
+            description: None,
             link: "[code.rs](src/nested/code.rs)".into(),
         };
         let mut edit = TextEdit::new("Review @co here @dir");
         edit.set_caret("Review @co".len());
-        let (range, term) = query(&edit).unwrap();
+        let (range, term, _) = query(&edit).unwrap();
         assert_eq!(term, "co");
         entry.choose(&mut edit, range);
         assert_eq!(
@@ -392,10 +436,12 @@ mod tests {
             "Review [code.rs](src/nested/code.rs) here @dir"
         );
         edit.set_caret(edit.text.len());
-        let (range, _) = query(&edit).unwrap();
+        let (range, _, _) = query(&edit).unwrap();
         let folder = Entry {
             path: "src/utils".into(),
             kind: "directory".into(),
+            label: None,
+            description: None,
             link: "[utils](src/utils)".into(),
         };
         folder.choose(&mut edit, range);
@@ -413,5 +459,30 @@ mod tests {
         edit.undo();
         edit.undo();
         assert_eq!(prompt(&edit), "Review @co here @dir");
+    }
+    #[test]
+    fn skill_tokens_use_the_provider_name_and_leave_currency_amounts_alone() {
+        for token in ["$20", "€0.99", "$1.5k", "₹2,500!"] {
+            let mut edit = TextEdit::new(token);
+            edit.set_caret(token.len());
+            assert!(query(&edit).is_none());
+        }
+        let mut edit = TextEdit::new("Run £rev");
+        edit.set_caret(edit.text.len());
+        let (range, query, skill) = query(&edit).unwrap();
+        assert!(skill);
+        assert_eq!(query, "rev");
+        Entry {
+            path: "review-code".into(),
+            kind: "skill".into(),
+            link: "$review-code".into(),
+            label: Some("Review Code".into()),
+            description: None,
+        }
+        .choose(&mut edit, range);
+        assert_eq!(edit.text, "Run Review Code ");
+        assert_eq!(prompt(&edit), "Run $review-code ");
+        edit.undo();
+        assert_eq!(prompt(&edit), "Run £rev");
     }
 }

@@ -45,7 +45,7 @@ impl Status {
 }
 
 impl Desktop {
-    fn status_target(&self) -> Option<Target<'_>> {
+    pub(super) fn status_target(&self) -> Option<Target<'_>> {
         let feed = self.workspace.feed?;
         if let Some(project) = self.new_threads.active.as_deref() {
             return Some((feed, project, self.new_threads.provider_instance()));

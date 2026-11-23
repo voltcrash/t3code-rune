@@ -1252,6 +1252,8 @@ async function handleWorkspaceRequest(request, reply) {
         label: session.label,
         mention_labels: {
           search: m(msg("Search files")),
+          skills: m(msg("Skills")),
+          no_skills: m(msg("No results found.")),
           searching: m(msg("Searching…")),
           empty: m(msg("No files found.")),
         },
@@ -1638,7 +1640,13 @@ try {
       };
       void Effect.runPromise(
         feed
-          .searchComposerFiles(request.draft, request.target, request.root, request.query)
+          .searchComposerEntries(
+            request.draft,
+            request.target,
+            request.root,
+            request.query,
+            request.instance,
+          )
           .pipe(Effect.timeout("12 seconds")),
         { signal },
       ).then(result, () => result([]));

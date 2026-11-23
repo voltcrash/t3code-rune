@@ -413,6 +413,7 @@ enum Request<'a> {
         draft: bool,
         target: &'a str,
         root: &'a str,
+        instance: Option<&'a str>,
         query: Option<&'a str>,
     },
     CheckUpdates,
