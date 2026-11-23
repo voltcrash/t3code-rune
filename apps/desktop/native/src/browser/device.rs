@@ -10,7 +10,8 @@ pub(super) struct Labels {
     close: String,
     title: String,
     dimensions: String,
-    limits: Limits,
+    pub(super) limits: Limits,
+    pub(super) handles: [String; 5],
     preset: String,
     responsive: String,
     width: String,
@@ -21,10 +22,56 @@ pub(super) struct Labels {
     presets: Vec<Preset>,
 }
 #[derive(Deserialize)]
-struct Limits {
+pub(super) struct Limits {
     min: u32,
     max: u32,
     area: u32,
+}
+
+impl Limits {
+    pub(super) fn size(&self, desired: [f64; 2], ratio: Option<f64>, width: bool) -> [u32; 2] {
+        let [mut w, mut h] = desired.map(|v| (v.round() as u32).clamp(self.min, self.max));
+        if let Some(ratio) = ratio {
+            return self.locked(if width { w } else { h }, ratio, width);
+        }
+        if w * h > self.area {
+            if width {
+                w = self.area / h;
+            } else {
+                h = self.area / w;
+            }
+        }
+        [w, h]
+    }
+    fn locked(&self, value: u32, ratio: f64, width: bool) -> [u32; 2] {
+        let to_primary = |value: f64| if width { value * ratio } else { value / ratio };
+        let to_companion = |value: u32| {
+            (if width {
+                f64::from(value) / ratio
+            } else {
+                f64::from(value) * ratio
+            })
+            .round() as u32
+        };
+        let min = f64::from(self.min);
+        let max = f64::from(self.max);
+        let minimum = min.max(to_primary(min)).ceil() as u32;
+        let maximum = max
+            .min(to_primary(max))
+            .min(to_primary(f64::from(self.area)).sqrt())
+            .floor() as u32;
+        let mut primary = value.max(minimum).min(maximum);
+        let mut next = to_companion(primary);
+        while primary * next > self.area && primary > minimum {
+            primary -= 1;
+            next = to_companion(primary);
+        }
+        if width {
+            [primary, next]
+        } else {
+            [next, primary]
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -36,9 +83,9 @@ struct Preset {
 #[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Viewport {
-    width: u32,
-    height: u32,
-    preset_id: Option<String>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) preset_id: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -74,11 +121,16 @@ pub(super) struct Toolbar {
     width: TextEdit,
     height: TextEdit,
     edited: Option<Axis>,
-    aspect_ratio: Option<f64>,
+    pub(super) aspect_ratio: Option<f64>,
     pub picker: bool,
 }
 
 impl Toolbar {
+    pub(super) fn display(&mut self, [width, height]: [u32; 2]) {
+        self.width.replace_text(width.to_string());
+        self.height.replace_text(height.to_string());
+    }
+
     pub fn sync(&mut self, viewport: Option<&Viewport>, new_tab: bool) {
         self.edited = None;
         self.picker = false;
@@ -86,8 +138,7 @@ impl Toolbar {
             self.aspect_ratio = None;
         }
         if let Some(size) = viewport {
-            self.width.replace_text(size.width.to_string());
-            self.height.replace_text(size.height.to_string());
+            self.display([size.width, size.height]);
         }
     }
     pub fn confirm(&mut self, change: LockChange) {
@@ -109,33 +160,33 @@ impl Toolbar {
         if !(limits.min..=limits.max).contains(&value) {
             return;
         }
-        let to_primary = |value: f64| match axis {
-            Axis::Width => value * ratio,
-            Axis::Height => value / ratio,
-        };
-        let to_companion = |value: u32| match axis {
-            Axis::Width => (f64::from(value) / ratio).round() as u32,
-            Axis::Height => (f64::from(value) * ratio).round() as u32,
-        };
-        let min = f64::from(limits.min);
-        let max = f64::from(limits.max);
-        let minimum = min.max(to_primary(min)).ceil() as u32;
-        let maximum = max
-            .min(to_primary(max))
-            .min(to_primary(f64::from(limits.area)).sqrt())
-            .floor() as u32;
-        let mut primary = value.max(minimum).min(maximum);
-        let mut next = to_companion(primary);
-        while primary * next > limits.area && primary > minimum {
-            primary -= 1;
-            next = to_companion(primary);
-        }
+        let next = limits.locked(value, ratio, matches!(axis, Axis::Width))
+            [if matches!(axis, Axis::Width) { 1 } else { 0 }];
         let other = match axis {
             Axis::Width => &mut self.height,
             Axis::Height => &mut self.width,
         };
         other.replace_text(next.to_string());
     }
+    pub(super) fn take_size(&mut self, limits: &Limits) -> Option<[u32; 2]> {
+        let axis = self.edited.take()?;
+        let size = [
+            self.width.text.parse::<u32>().ok()?,
+            self.height.text.parse::<u32>().ok()?,
+        ];
+        if !size.iter().all(|v| (limits.min..=limits.max).contains(v)) {
+            return None;
+        }
+        if self.aspect_ratio.is_none() && size[0] * size[1] > limits.area {
+            return None;
+        }
+        Some(limits.size(
+            size.map(f64::from),
+            self.aspect_ratio,
+            matches!(axis, Axis::Width),
+        ))
+    }
+
     fn edit_request(&self) -> Option<Value> {
         Some(json!({
             "width": self.width.text.parse::<u32>().ok()?,
@@ -160,6 +211,7 @@ impl Desktop {
         {
             change["edit"] = edit;
         }
+        panel.resize = None;
         panel.device.sync(tab.device.as_ref(), false);
         let id = tab.id.clone();
         self.browser_request(json!({"action":"viewport","tab":id,"change":change}));
@@ -223,6 +275,7 @@ fn dimension(p: &Panel, axis: Axis, name: &str, enabled: bool, theme: &tok::Them
         .on_input_change(move |s: &mut Desktop, _| {
             let browser = &mut s.workspace.browser;
             if let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels) {
+                p.resize = None;
                 p.device.update(axis, &labels.device.limits);
             }
         })
@@ -344,6 +397,9 @@ pub(super) fn view(
                 theme,
                 |s, _| {
                     if let Some(p) = &mut s.workspace.browser.panel {
+                        if p.resize.is_some() {
+                            p.display_resize(None);
+                        }
                         p.device.aspect_ratio = if p.device.aspect_ratio.is_some() {
                             None
                         } else {

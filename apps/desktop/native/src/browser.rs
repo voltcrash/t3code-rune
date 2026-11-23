@@ -2,6 +2,7 @@ mod device;
 mod dialog;
 mod input;
 mod menu;
+mod resize;
 
 use super::{Desktop, Request};
 use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, row, text_input, tok};
@@ -82,6 +83,8 @@ pub(crate) struct Panel {
     submitted_address: Option<String>,
     image: Option<rune::Image>,
     size: [f32; 2],
+    frame_size: [f32; 2],
+    resize: Option<resize::Resize>,
     requested_size: Option<[u32; 2]>,
     buttons: u8,
     input: input::Input,
@@ -101,6 +104,8 @@ impl Panel {
             image: None,
             size: [0., 0.],
             requested_size: None,
+            resize: None,
+            frame_size: [0., 0.],
             buttons: 0,
             input: input::Input::default(),
             answer: TextEdit::new(""),
@@ -194,7 +199,18 @@ impl Desktop {
             let new_tab = p.page.selected != page.selected;
             let viewport = page.tab().and_then(|t| t.device.as_ref());
             if new_tab || p.page.tab().and_then(|t| t.device.as_ref()) != viewport {
+                p.resize = None;
                 p.device.sync(viewport, new_tab);
+            } else if let Some(r) = p.resize
+                && (!page.can_write
+                    || page.dialog.is_some()
+                    || if r.sent() {
+                        p.page.busy && !page.busy
+                    } else {
+                        page.busy
+                    })
+            {
+                p.display_resize(None);
             }
             if let Some(change) = page.device_change.take() {
                 p.device.confirm(change);
@@ -280,14 +296,16 @@ impl Desktop {
             && !self.history.on_issues()
             && !self.settings_open
         {
-            return self.sync_device_focus(tx) || self.sync_browser_input(tx);
+            return self.sync_browser_resize(tx)
+                || self.sync_device_focus(tx)
+                || self.sync_browser_input(tx);
         }
         self.close_browser();
         true
     }
     fn browser_coords(&self, x: f32, y: f32) -> Option<[f32; 2]> {
         let p = self.workspace.browser.panel.as_ref()?;
-        let [w, h] = p.size;
+        let [w, h] = p.frame_size;
         let [vw, vh] = p.page.viewport.map(|n| n as f32);
         if !p.page.controlled || p.image.is_none() || vw <= 0. || vh <= 0. {
             return None;
@@ -464,13 +482,9 @@ pub(crate) fn view(
         .key("browser-page")
         .label(&labels.title)
         .role("image")
-        .grow(1.)
-        .min_h(0.)
-        .w_full()
         .on_layout(|s: &mut Desktop, r| {
             if let Some(p) = &mut s.workspace.browser.panel {
-                p.size = [r[2], r[3]];
-                s.resize_browser();
+                p.frame_size = [r[2], r[3]];
             }
         });
     if let Some(image) = &p.image {
@@ -510,7 +524,12 @@ pub(crate) fn view(
                 )),
         );
     }
-    let mut area = col().w_full().min_h(0.).grow(1.).child(frame);
+    let mut area =
+        col()
+            .w_full()
+            .min_h(0.)
+            .grow(1.)
+            .child(resize::canvas(s, frame, p, &labels.device, theme));
     if let Some(d) = &p.page.dialog {
         area = area.child(dialog::view(p, d, labels, theme));
     }

@@ -107,16 +107,20 @@ it.each(["reconnect", "switch away and back"])(
       .mockReturnValueOnce(
         Effect.succeed({ revision: 1, sessions: [tab, { ...tab, tabId: "b" }] }),
       );
+    const resizeRpc = vi.fn((input: { viewport: { width?: number } }) =>
+      input.viewport.width === 400
+        ? Effect.promise(async () => {
+            started.resolve();
+            await release.promise;
+            return resized;
+          })
+        : Effect.succeed(tab),
+    );
     openRpc.mockReturnValue(
       Effect.succeed({
         [WS_METHODS.subscribePreviewEvents]: () => Stream.never,
         [WS_METHODS.previewList]: list,
-        [WS_METHODS.previewResize]: () =>
-          Effect.promise(async () => {
-            started.resolve();
-            await release.promise;
-            return resized;
-          }),
+        [WS_METHODS.previewResize]: resizeRpc,
       }),
     );
     const pages: unknown[] = [];
@@ -141,7 +145,22 @@ it.each(["reconnect", "switch away and back"])(
     );
     try {
       await ready.promise;
-      const resize = panel.request({ action: "viewport", tab: "a", change: { kind: "rotate" } });
+      await panel.request({
+        action: "viewport",
+        tab: "a",
+        from: { width: 600, height: 400, presetId: "pixel-8" },
+        change: {
+          kind: "edit",
+          edit: { width: 750, height: 400, axis: "width", aspectRatio: null },
+        },
+      });
+      expect(resizeRpc).not.toHaveBeenCalled();
+      const resize = panel.request({
+        action: "viewport",
+        tab: "a",
+        from: { width: 600, height: 400, presetId: null },
+        change: { kind: "rotate" },
+      });
       await started.promise;
       if (change === "reconnect") await panel.request({ action: "retry" });
       else {

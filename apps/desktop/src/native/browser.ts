@@ -88,7 +88,12 @@ type BrowserRequest =
         | "cookies"
         | "cache";
     }
-  | { action: "viewport"; tab: string; change: DeviceChange }
+  | {
+      action: "viewport";
+      tab: string;
+      from?: { width: number; height: number; presetId: string | null };
+      change: DeviceChange;
+    }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
 
@@ -538,6 +543,14 @@ export function openBrowserPanel(
           const tab = tabs.find((t) => t.tabId === request.tab);
           if (!tab) return;
           const current = tab.viewport ?? FILL_PREVIEW_VIEWPORT;
+          if (
+            request.from &&
+            (current._tag === "fill" ||
+              current.width !== request.from.width ||
+              current.height !== request.from.height ||
+              (current._tag === "preset" ? current.presetId : null) !== request.from.presetId)
+          )
+            return;
           const viewport = deviceViewport(
             request.change,
             current,
