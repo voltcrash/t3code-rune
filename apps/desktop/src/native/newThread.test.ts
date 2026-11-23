@@ -1,6 +1,6 @@
 import type { OrchestrationV2RuntimeRequest } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { expect, it } from "vitest";
+import { expect, it } from "vite-plus/test";
 import { launchWindowStatus } from "./newThread.ts";
 
 it("names a pending request ahead of run activity in a launch receipt", () => {
