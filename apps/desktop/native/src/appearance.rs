@@ -455,7 +455,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .child(close);
     let mut popups = Vec::new();
     let mut body = match (s.settings_page, labels) {
-        (SettingsPage::Chat, Some(labels)) => chat::composer(s, labels, w < 640., theme),
+        (SettingsPage::Chat, Some(labels)) => chat::settings(s, labels, w < 640., theme),
         _ => appearance_body(s, cx, content, w < 640., theme, &mut popups),
     }
     .w(content)

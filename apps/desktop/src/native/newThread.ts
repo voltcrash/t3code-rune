@@ -1,3 +1,5 @@
+import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
+import { m } from "../i18n/catalog.ts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
@@ -268,6 +270,7 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
             : active
               ? "working"
               : "ready",
+      ...(active && { title_status: m(THREAD_STATUS_TEXT.working) }),
       status_at: active
         ? DateTime.toEpochMillis(run.startedAt ?? run.requestedAt)
         : DateTime.toEpochMillis(run?.completedAt ?? thread.updatedAt),

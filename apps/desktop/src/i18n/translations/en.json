@@ -202,5 +202,15 @@
   "4a1201bd18283940": "Also include skills in the / command menu. Skills always appear when you type $.",
   "950712602a01125d": "Reset skills in slash menu to default",
   "54ec29e2adae5d93": "Close settings",
-  "dcc1969a12fc311b": "Couldn’t save this setting on this computer."
+  "dcc1969a12fc311b": "Couldn’t save this setting on this computer.",
+  "624506a403296638": "Working",
+  "7bfe35051f932b93": "Needs approval",
+  "b67d6bd5c4e311b7": "Needs your input",
+  "166661f94b300f5b": "Done",
+  "d4d89c139de812a8": "Failed",
+  "c1e03a860c856245": "Stopped",
+  "162108e16ed96771": "Screen reader",
+  "0ce04933a7047deb": "Screen reader window title",
+  "45d544caaabd1a31": "Start the window title with the thread's status, like Needs approval, and its name, so screen readers read them first when you switch apps. Taskbars, shared screens, and time trackers see it too.",
+  "a44c3a64fb82f86c": "Reset screen reader window title to default"
 }

@@ -72,6 +72,28 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
+export function resolveThreadWindowStatus(thread: SidebarThreadStatusInput) {
+  // A guest waiting doesn't hide that the agent is still working.
+  switch (
+    resolveSidebarThreadStatus(
+      thread.pendingGuestMessageCount ? { ...thread, pendingGuestMessageCount: 0 } : thread,
+    )
+  ) {
+    case "approval":
+      return "approval";
+    case "input":
+      return "input";
+    case "preparing":
+    case "working":
+      return "working";
+    case "waiting":
+      // Waiting on a child thread is still this turn, so it must not read as finished.
+      return thread.runtime?.status === "running" ? "working" : null;
+    default:
+      return null;
+  }
+}
+
 /** Sidebar row status: a failure the user has already opened settles to ready, like Done. */
 export function resolveSidebarRowStatus(
   thread: CompletionVisit & SidebarThreadStatusInput,

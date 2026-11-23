@@ -24,6 +24,10 @@ pub(crate) struct SettingsLabels {
     slash_skills: String,
     slash_description: String,
     slash_reset: String,
+    screen_reader: String,
+    window_title: String,
+    title_description: String,
+    title_reset: String,
     pub(super) close: String,
 }
 
@@ -104,17 +108,101 @@ impl SettingsPage {
     }
 }
 
-impl Desktop {
-    fn show_slash_skills(&mut self, enabled: bool, tx: &mut Tx) {
-        if self.saving_client_settings || self.slash_skills == enabled {
+#[derive(Clone, Copy)]
+enum ChatSwitch {
+    SlashSkills,
+    WindowTitle,
+}
+
+impl ChatSwitch {
+    fn key(self) -> &'static str {
+        match self {
+            Self::SlashSkills => "settings-slash-skills",
+            Self::WindowTitle => "settings-window-title",
+        }
+    }
+
+    fn set(self, s: &mut Desktop, enabled: bool, tx: &mut Tx) {
+        if s.saving_client_settings {
             return;
         }
-        self.saving_client_settings = self.write_request(None, Request::SetSlashSkills { enabled });
-        tx.focus_when_shown("settings-slash-skills", true);
+        let request = match self {
+            Self::SlashSkills => Request::SetSlashSkills { enabled },
+            Self::WindowTitle => Request::SetReaderTitle { enabled },
+        };
+        s.saving_client_settings = s.write_request(None, request);
+        tx.focus_when_shown(self.key(), true);
+    }
+
+    fn row(self, s: &Desktop, labels: &SettingsLabels, narrow: bool, theme: &tok::Theme) -> El {
+        let key = self.key();
+        let (checked, default, name, description, reset_label, reset_key) = match self {
+            Self::SlashSkills => (
+                s.slash_skills,
+                true,
+                &labels.slash_skills,
+                &labels.slash_description,
+                &labels.slash_reset,
+                "reset-slash-skills",
+            ),
+            Self::WindowTitle => (
+                s.reader_title,
+                false,
+                &labels.window_title,
+                &labels.title_description,
+                &labels.title_reset,
+                "reset-window-title",
+            ),
+        };
+        let disabled = s.saving_client_settings;
+        let thumb = if narrow { 20. } else { 16. };
+        let mut toggle = el()
+            .key(key)
+            .role("switch")
+            .label(name)
+            .checked(checked)
+            .focusable(!disabled)
+            .disabled(disabled)
+            .size(2. * thumb - 2., thumb + 2.)
+            .radius(thumb)
+            .fill(if checked { theme.text } else { theme.separator })
+            .child(
+                el().absolute(if checked { thumb - 2. } else { 2. }, 2.)
+                    .size(thumb - 2., thumb - 2.)
+                    .radius(thumb)
+                    .fill(theme.bg),
+            );
+        if !disabled {
+            toggle = toggle.on_press_tx(move |s: &mut Desktop, tx| self.set(s, !checked, tx));
+        }
+        let mut title = row()
+            .center_y()
+            .gap(4.)
+            .child(label(name, 14., 500., theme.text).wrap());
+        if checked != default {
+            let mut reset = reset_button(reset_key, reset_label, theme).disabled(disabled);
+            if !disabled {
+                reset = reset.on_press_tx(move |s: &mut Desktop, tx| self.set(s, default, tx));
+            }
+            title = title.child(reset);
+        }
+        let copy = col()
+            .min_w(0.)
+            .grow(1.)
+            .gap(3.)
+            .child(title)
+            .child(label(description, 12., 400., theme.text_secondary).wrap());
+        let layout = if narrow { col() } else { row().center_y() };
+        layout
+            .w_full()
+            .padding(if narrow { 12. } else { 16. })
+            .gap(12.)
+            .child(copy)
+            .child(toggle)
     }
 }
 
-pub(super) fn composer(
+pub(super) fn settings(
     s: &Desktop,
     labels: &SettingsLabels,
     narrow: bool,
@@ -142,62 +230,24 @@ pub(super) fn composer(
         .border(1., theme.separator)
         .child(disclosure);
     if s.composer_advanced {
-        let checked = s.slash_skills;
-        let disabled = s.saving_client_settings;
-        let thumb = if narrow { 20. } else { 16. };
-        let mut toggle = el()
-            .key("settings-slash-skills")
-            .role("switch")
-            .label(&labels.slash_skills)
-            .checked(checked)
-            .focusable(!disabled)
-            .disabled(disabled)
-            .size(2. * thumb - 2., thumb + 2.)
-            .radius(thumb)
-            .fill(if checked { theme.text } else { theme.separator })
-            .child(
-                el().absolute(if checked { thumb - 2. } else { 2. }, 2.)
-                    .size(thumb - 2., thumb - 2.)
-                    .radius(thumb)
-                    .fill(theme.bg),
-            );
-        if !disabled {
-            toggle =
-                toggle.on_press_tx(move |s: &mut Desktop, tx| s.show_slash_skills(!checked, tx));
-        }
-        let mut title = row()
-            .center_y()
-            .gap(4.)
-            .child(label(&labels.slash_skills, 14., 500., theme.text).wrap());
-        if !checked {
-            let mut reset =
-                reset_button("reset-slash-skills", &labels.slash_reset, theme).disabled(disabled);
-            if !disabled {
-                reset = reset.on_press_tx(|s: &mut Desktop, tx| s.show_slash_skills(true, tx));
-            }
-            title = title.child(reset);
-        }
-        let copy = col()
-            .min_w(0.)
-            .grow(1.)
-            .gap(3.)
-            .child(title)
-            .child(label(&labels.slash_description, 12., 400., theme.text_secondary).wrap());
-        let layout = if narrow { col() } else { row().center_y() };
         group = group
             .child(el().w_full().h(1.).fill(theme.separator))
-            .child(
-                layout
-                    .w_full()
-                    .padding(if narrow { 12. } else { 16. })
-                    .gap(12.)
-                    .child(copy)
-                    .child(toggle),
-            );
+            .child(ChatSwitch::SlashSkills.row(s, labels, narrow, theme));
     }
+    let section = |name: &str, child: El| {
+        col()
+            .w_full()
+            .gap(8.)
+            .child(label(name, 16., 600., theme.text).pl(12.))
+            .child(child)
+    };
+    let title = ChatSwitch::WindowTitle
+        .row(s, labels, narrow, theme)
+        .radius(12.)
+        .border(1., theme.separator);
     col()
         .w_full()
-        .gap(8.)
-        .child(label(&labels.composer, 16., 600., theme.text).pl(12.))
-        .child(group)
+        .gap(24.)
+        .child(section(&labels.composer, group))
+        .child(section(&labels.screen_reader, title))
 }

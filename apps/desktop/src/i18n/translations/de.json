@@ -202,5 +202,15 @@
   "4a1201bd18283940": "Skills auch im /-Befehlsmenü anzeigen. Skills erscheinen immer, wenn du $ tippst.",
   "950712602a01125d": "Skills im Slash-Menü auf Standard zurücksetzen",
   "54ec29e2adae5d93": "Einstellungen schließen",
-  "dcc1969a12fc311b": "Die Einstellung konnte auf diesem Computer nicht gespeichert werden."
+  "dcc1969a12fc311b": "Die Einstellung konnte auf diesem Computer nicht gespeichert werden.",
+  "624506a403296638": "Arbeitet",
+  "7bfe35051f932b93": "Genehmigung nötig",
+  "b67d6bd5c4e311b7": "Braucht deine Eingabe",
+  "166661f94b300f5b": "Fertig",
+  "d4d89c139de812a8": "Fehlgeschlagen",
+  "c1e03a860c856245": "Gestoppt",
+  "162108e16ed96771": "Screenreader",
+  "0ce04933a7047deb": "Fenstertitel für Screenreader",
+  "45d544caaabd1a31": "Den Fenstertitel mit dem Status des Threads, etwa „Genehmigung erforderlich“, und seinem Namen beginnen, damit Screenreader sie beim App-Wechsel zuerst vorlesen. Taskleisten, geteilte Bildschirme und Zeiterfassungen sehen ihn auch.",
+  "a44c3a64fb82f86c": "Fenstertitel für Screenreader auf Standard zurücksetzen"
 }

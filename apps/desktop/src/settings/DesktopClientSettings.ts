@@ -176,6 +176,7 @@ export const patchClientSettings = Effect.fn("desktop.clientSettings.setTypograp
       | "chatWidth"
       | "appearanceContrast"
       | "showSkillsInSlashMenu"
+      | "screenReaderWindowTitle"
     >
   >,
 ) {

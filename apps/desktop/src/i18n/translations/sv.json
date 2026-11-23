@@ -202,5 +202,15 @@
   "4a1201bd18283940": "Ta även med färdigheter i kommandomenyn /. Färdigheter visas alltid när du skriver $.",
   "950712602a01125d": "Återställ färdigheter i snedstrecksmenyn till standard",
   "54ec29e2adae5d93": "Stäng inställningarna",
-  "dcc1969a12fc311b": "Det gick inte att spara inställningen på den här datorn."
+  "dcc1969a12fc311b": "Det gick inte att spara inställningen på den här datorn.",
+  "624506a403296638": "Arbetar",
+  "7bfe35051f932b93": "Behöver godkännande",
+  "b67d6bd5c4e311b7": "Behöver din input",
+  "166661f94b300f5b": "Klar",
+  "d4d89c139de812a8": "Misslyckades",
+  "c1e03a860c856245": "Stoppad",
+  "162108e16ed96771": "Skärmläsare",
+  "0ce04933a7047deb": "Fönstertitel för skärmläsare",
+  "45d544caaabd1a31": "Inled fönstertiteln med trådens status, till exempel Behöver godkännande, och dess namn, så att skärmläsare läser upp dem först när du byter app. Aktivitetsfält, delade skärmar och tidrapporteringsverktyg ser det också.",
+  "a44c3a64fb82f86c": "Återställ fönstertitel för skärmläsare till standard"
 }

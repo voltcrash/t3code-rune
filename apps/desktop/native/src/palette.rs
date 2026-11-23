@@ -909,6 +909,7 @@ mod tests {
             branch: None,
             worktree: None,
             status: Default::default(),
+            title_status: None,
             status_at: None,
             recedes: false,
             sort_at: 0,

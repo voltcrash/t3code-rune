@@ -202,5 +202,15 @@
   "4a1201bd18283940": "Inclut aussi les skills dans le menu de commandes /. Les skills apparaissent toujours quand vous tapez $.",
   "950712602a01125d": "Réinitialiser les skills dans le menu slash à la valeur par défaut",
   "54ec29e2adae5d93": "Fermer les paramètres",
-  "dcc1969a12fc311b": "Impossible d’enregistrer ce paramètre sur cet ordinateur."
+  "dcc1969a12fc311b": "Impossible d’enregistrer ce paramètre sur cet ordinateur.",
+  "624506a403296638": "En cours",
+  "7bfe35051f932b93": "Approbation requise",
+  "b67d6bd5c4e311b7": "Attend votre réponse",
+  "166661f94b300f5b": "Terminé",
+  "d4d89c139de812a8": "Échec",
+  "c1e03a860c856245": "Arrêté",
+  "162108e16ed96771": "Lecteur d’écran",
+  "0ce04933a7047deb": "Titre de fenêtre pour le lecteur d’écran",
+  "45d544caaabd1a31": "Commence le titre de la fenêtre par le statut du fil, comme Approbation requise, et par son nom, pour que les lecteurs d’écran les lisent en premier quand vous changez d’app. Les barres des tâches, les écrans partagés et les outils de suivi du temps le voient aussi.",
+  "a44c3a64fb82f86c": "Réinitialiser le titre de fenêtre pour le lecteur d’écran à la valeur par défaut"
 }
