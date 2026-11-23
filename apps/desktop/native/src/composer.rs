@@ -72,6 +72,7 @@ impl Draft {
             }
             edit.insert(value);
         });
+        crate::attachments::release_unreachable(&mut self.files, &self.editor);
         self.operation = None;
     }
     pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>, &mut TextEdit)) {
@@ -547,6 +548,32 @@ mod tests {
             app.workspace.conversation.as_ref().unwrap().stop_feedback,
             Some(StopFeedback::Retry)
         ));
+    }
+
+    #[test]
+    fn preserving_a_displaced_answer_releases_a_folded_file_from_redo() {
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        app.pending = false;
+        app.can_operate = true;
+        app.workspace.show_projects = false;
+        app.workspace.drafts.entry("thread".into()).or_default();
+        app.text_paste = serde_json::from_value(serde_json::json!({
+            "threshold": 8, "input": 500, "file": 500,
+        }))
+        .unwrap();
+        assert!(
+            crate::attachments::Target::Thread("thread".into())
+                .paste(&mut app, &rune::ClipboardContent::new("fold this answer"))
+        );
+        let draft = app.workspace.drafts.get_mut("thread").unwrap();
+        let path = std::path::PathBuf::from(&draft.files[0].path);
+        draft.editor.undo();
+        assert!(path.exists());
+        draft.preserve_answer("typed answer");
+        assert_eq!(draft.editor.text, "typed answer");
+        assert!(draft.files.is_empty());
+        assert!(!path.exists());
     }
 
     #[test]

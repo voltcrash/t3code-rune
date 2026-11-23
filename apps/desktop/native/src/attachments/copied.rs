@@ -1,6 +1,6 @@
 use super::{FILE_LIMIT, Selection, Target};
 use crate::Desktop;
-use rune::{ClipboardWrite, TextEdit};
+use rune::{ClipboardContent, ClipboardWrite, CopyDestination, TextEdit};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -12,6 +12,7 @@ use tempfile::TempPath;
 pub(crate) struct Clipboard(Rc<RefCell<Vec<Copied>>>);
 
 struct Copied {
+    selection: CopyDestination,
     text: String,
     files: Weak<Vec<CopiedFile>>,
 }
@@ -22,7 +23,12 @@ struct CopiedFile {
 }
 
 impl Clipboard {
-    pub(super) fn copy(&self, edit: &TextEdit, files: &[Selection]) -> Option<ClipboardWrite> {
+    pub(super) fn copy(
+        &self,
+        edit: &TextEdit,
+        files: &[Selection],
+        selection: CopyDestination,
+    ) -> Option<ClipboardWrite> {
         let mut copies = self.0.borrow_mut();
         copies.retain(|c| c.files.strong_count() != 0);
         let text = crate::mentions::copy_selection(edit)?;
@@ -45,17 +51,19 @@ impl Clipboard {
         }
         let files = Arc::new(copied);
         copies.push(Copied {
+            selection,
             text: text.clone(),
             files: Arc::downgrade(&files),
         });
         Some(ClipboardWrite::text(text).with_resource(files))
     }
 
-    pub(super) fn files(&self, text: &str) -> Option<Vec<Selection>> {
+    pub(super) fn files(&self, text: &str, selection: CopyDestination) -> Option<Vec<Selection>> {
         let copies = self.0.borrow();
         let copied = copies
             .iter()
-            .filter(|clip| clip.text == text)
+            .rev()
+            .filter(|clip| clip.selection == selection && clip.text == text)
             .find_map(|clip| clip.files.upgrade())?;
         copied
             .iter()
@@ -83,8 +91,9 @@ pub(crate) fn release_unreachable(files: &mut Vec<Selection>, edit: &TextEdit) {
 }
 
 impl Target {
-    pub(super) fn paste_copied(&self, app: &mut Desktop, text: &str) -> bool {
-        let Some(copied) = app.copied_files.files(text) else {
+    pub(super) fn paste_copied(&self, app: &mut Desktop, content: &ClipboardContent) -> bool {
+        let text = content.text();
+        let Some(copied) = app.copied_files.files(text, content.selection()) else {
             return false;
         };
         let limits = app.text_paste;

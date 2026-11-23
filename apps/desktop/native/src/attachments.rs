@@ -301,7 +301,9 @@ impl Target {
         let plain = self.clone();
         field
             .pill_style(crate::mentions::chip)
-            .input_copy_write(move |edit, _| clipboard.copy(edit, &selections))
+            .input_copy_write(move |edit, destination| {
+                clipboard.copy(edit, &selections, destination)
+            })
             .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
             .on_input_key(move |app: &mut Desktop, key, tx| {
                 const PASTE_AS_TEXT: rune::Chord = rune::Chord::new(rune::ChordKey::Char('v'))
@@ -469,7 +471,7 @@ impl Target {
     }
 
     pub(super) fn paste(&self, app: &mut Desktop, content: &rune::ClipboardContent) -> bool {
-        if !content.text().is_empty() && self.paste_copied(app, content.text()) {
+        if !content.text().is_empty() && self.paste_copied(app, content) {
             return true;
         }
         let paths = content.files();
@@ -720,7 +722,12 @@ mod tests {
         let (files, edit) = app.new_threads.editable_files().unwrap();
         let path = PathBuf::from(&files[0].path);
         edit.set_selection(0, edit.text.len());
-        let write = clipboard.copy(edit, files).unwrap();
+        let primary = clipboard
+            .copy(edit, files, rune::CopyDestination::PrimarySelection)
+            .unwrap();
+        let write = clipboard
+            .copy(edit, files, rune::CopyDestination::Clipboard)
+            .unwrap();
         let wire = write.content().text().to_owned();
         edit.insert("");
         assert!(source.paste(&mut app, &ClipboardContent::new(&wire)));
@@ -752,7 +759,17 @@ mod tests {
             "a folded file"
         );
         drop(write);
-        assert!(clipboard.files(&wire).is_none());
+        assert!(
+            clipboard
+                .files(&wire, rune::CopyDestination::Clipboard)
+                .is_none()
+        );
+        assert!(
+            clipboard
+                .files(&wire, rune::CopyDestination::PrimarySelection)
+                .is_some()
+        );
+        drop(primary);
         edit.undo();
         files.extend((1..FILE_LIMIT).map(|i| Selection::local(&format!("{i}.txt"))));
         destination.add(&mut app, &[PathBuf::from("one more.txt")]);
