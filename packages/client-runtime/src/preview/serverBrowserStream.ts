@@ -101,6 +101,7 @@ export type PreviewStreamInput =
   | { readonly type: "probe"; readonly x: number; readonly y: number };
 
 export interface PreviewStreamDownload {
+  readonly id: string;
   readonly fileName: string;
   readonly sizeBytes: number;
   /** Authenticated with the stream's own access; cookie sessions must send credentials. */
@@ -323,6 +324,7 @@ export function createPreviewStreamClient(
         typeof sizeBytes === "number"
       ) {
         events.onDownload?.({
+          id,
           fileName,
           sizeBytes,
           url: previewStreamDownloadUrl(target, id),

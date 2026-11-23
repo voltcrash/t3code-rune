@@ -46,7 +46,7 @@ import * as NodePathLayer from "@effect/platform-node/NodePath";
 import { readAttachmentPreview } from "../src/native/attachmentPreview.ts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import {
-  downloadAttachment,
+  downloadFile,
   downloadDestination,
   downloadQueueKey,
 } from "../src/native/downloadAttachment.ts";
@@ -1247,12 +1247,9 @@ function attachmentSave(request) {
   const file = timelineFile(request);
   if (!file) return;
   const owner = record.owner;
-  return (request, reply) => saveAttachment(owner, file, request.path, reply);
-}
-
-async function saveAttachment(owner, file, path, reply) {
-  try {
-    await Effect.runPromise(
+  return ({ path }, reply) =>
+    saveEnvironmentFile(
+      owner,
       openEnvironmentRpc(owner).pipe(
         Effect.flatMap((rpc) =>
           rpc[WS_METHODS.assetsCreateUrl]({
@@ -1264,8 +1261,34 @@ async function saveAttachment(owner, file, path, reply) {
           }),
         ),
         Effect.flatMap(({ relativeUrl }) =>
-          downloadAttachment(owner.httpBaseUrl, relativeUrl, file.bytes, path),
+          downloadFile(owner.httpBaseUrl, relativeUrl, file.bytes, path),
         ),
+      ),
+      reply,
+    );
+}
+
+function browserFileSave(request) {
+  const record = watching;
+  if (
+    !record ||
+    record.id !== request.watch ||
+    record.owner !== session ||
+    !record.browser ||
+    record.browser.operation !== request.operation
+  )
+    return;
+  const file = record.browser.panel.download(request.tab, request.download);
+  if (!file) return;
+  return async ({ path }, reply) => {
+    if (await saveEnvironmentFile(record.owner, file.save(path), reply)) file.saved();
+  };
+}
+
+async function saveEnvironmentFile(owner, transfer, reply) {
+  try {
+    await Effect.runPromise(
+      transfer.pipe(
         Effect.scoped,
         attachmentDownloads.withPermits(1),
         Effect.timeout("5 minutes"),
@@ -1276,8 +1299,10 @@ async function saveAttachment(owner, file, path, reply) {
       { signal: owner.signal },
     );
     reply({ type: "downloaded" });
+    return true;
   } catch {
     reply({ type: "downloaded", error: m(msg("Could not save file")) });
+    return false;
   }
 }
 
@@ -2212,8 +2237,17 @@ try {
       void previewAttachment(request, reply);
     } else if (request?.type === "saveplan") {
       void savePlan(request, reply);
-    } else if (request?.type === "downloadattachment" || request?.type === "downloadplan") {
-      const save = request.type === "downloadplan" ? downloadPlan : attachmentSave(request);
+    } else if (
+      request?.type === "downloadattachment" ||
+      request?.type === "downloadplan" ||
+      request?.type === "downloadbrowserfile"
+    ) {
+      const save =
+        request.type === "downloadplan"
+          ? downloadPlan
+          : request.type === "downloadbrowserfile"
+            ? browserFileSave(request)
+            : attachmentSave(request);
       if (save)
         resolvingDownloads = resolvingDownloads.then(() => queueDownload(request, reply, save));
       else reply({ type: "downloaded", error: m(msg("The attachment is unavailable.")) });

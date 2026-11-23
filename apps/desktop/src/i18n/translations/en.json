@@ -376,5 +376,8 @@
   "eed90253d3241141": "Resize browser viewport from right edge",
   "e64d57ecc339edbb": "Resize browser viewport from bottom edge",
   "ee3ce2dbd17dde22": "Resize browser viewport from bottom-left corner",
-  "44a0347dbc93ba80": "Resize browser viewport from bottom-right corner"
+  "44a0347dbc93ba80": "Resize browser viewport from bottom-right corner",
+  "bbcd3776bcd3e2c5": "Downloaded {fileName}",
+  "da52805f1f7bae35": "Save",
+  "0161b531abf44cba": "This file can’t be shown here"
 }

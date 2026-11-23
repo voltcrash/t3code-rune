@@ -9,6 +9,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::TempPath;
 
+pub(crate) fn suggested_filename(name: &str, fallback: &str) -> String {
+    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
+    let safe: String = name.chars().filter(|c| !c.is_control()).collect();
+    if safe.is_empty() || safe == "." || safe == ".." {
+        fallback.to_owned()
+    } else {
+        safe
+    }
+}
+
 #[derive(serde::Deserialize)]
 #[serde(default)]
 pub(crate) struct Labels {

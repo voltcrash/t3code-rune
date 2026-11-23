@@ -752,6 +752,13 @@ enum Request<'a> {
         operation: u64,
         cancel: bool,
     },
+    DownloadBrowserFile {
+        watch: u64,
+        operation: u64,
+        tab: String,
+        download: String,
+        path: std::path::PathBuf,
+    },
     DownloadAttachment {
         watch: u64,
         key: String,

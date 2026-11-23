@@ -28,13 +28,8 @@ pub(super) fn download_button(
     if let Some(watch) = watch {
         let key = key.to_owned();
         let id = id.to_owned();
-        let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
-        let safe: String = name.chars().filter(|c| !c.is_control()).collect();
-        let filename = if safe.is_empty() || safe == "." || safe == ".." {
-            s.workspace.attachment_labels.file.clone()
-        } else {
-            safe
-        };
+        let filename =
+            crate::attachments::suggested_filename(name, &s.workspace.attachment_labels.file);
         button =
             button
                 .focusable(true)

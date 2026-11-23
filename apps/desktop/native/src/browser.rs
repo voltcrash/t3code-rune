@@ -1,5 +1,6 @@
 mod device;
 mod dialog;
+mod download;
 mod input;
 mod menu;
 mod resize;
@@ -34,6 +35,10 @@ pub(crate) struct Labels {
     dialog: String,
     response: String,
     dismiss: String,
+    downloaded: String,
+    save: String,
+    file_not_shown: String,
+    open_external: String,
     accept: String,
     take_to_respond: String,
     recheck_dialog: String,
@@ -51,6 +56,7 @@ pub(crate) struct Tab {
     back: bool,
     forward: bool,
     failure: Option<String>,
+    download: Option<download::File>,
 }
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +64,7 @@ pub(crate) struct Page {
     tabs: Vec<Tab>,
     device_change: Option<device::LockChange>,
     dialog: Option<dialog::Dialog>,
+    download: Option<download::File>,
     selected: Option<String>,
     can_write: bool,
     controlled: bool,
@@ -524,12 +531,14 @@ pub(crate) fn view(
                 )),
         );
     }
-    let mut area =
-        col()
-            .w_full()
-            .min_h(0.)
-            .grow(1.)
-            .child(resize::canvas(s, frame, p, &labels.device, theme));
+    if let Some(file) = &p.page.download {
+        body = body.child(download::notice(s, p, file, labels, theme));
+    }
+    let content = match tab.and_then(|t| t.download.as_ref().map(|file| (t, file))) {
+        Some((tab, file)) => download::file_page(s, p, tab, file, labels, theme),
+        None => resize::canvas(s, frame, p, &labels.device, theme),
+    };
+    let mut area = col().w_full().min_h(0.).grow(1.).child(content);
     if let Some(d) = &p.page.dialog {
         area = area.child(dialog::view(p, d, labels, theme));
     }
