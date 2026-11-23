@@ -1,4 +1,4 @@
-import type { Root, RootContent } from "mdast";
+import type { Definition, Root, RootContent } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -34,17 +34,17 @@ function plainLabel(node: Node): string {
   return "children" in node ? node.children.map(plainLabel).join("") : "";
 }
 
-function fileHref(node: Node, definitions: ReadonlyMap<string, string>, cwd?: string) {
+function fileHref(node: Node, definitions: ReadonlyMap<string, Definition>, cwd?: string) {
   switch (node.type) {
     case "link":
       return node.url;
     case "linkReference":
-      return definitions.get(node.identifier);
+      return definitions.get(node.identifier)?.url;
     case "inlineCode":
       return inlineCodeFilePathCandidate(node.value);
     case "image":
     case "imageReference": {
-      const url = node.type === "image" ? node.url : definitions.get(node.identifier);
+      const url = node.type === "image" ? node.url : definitions.get(node.identifier)?.url;
       return url &&
         shouldRenderMarkdownImageAsFileLink(
           classifyMarkdownImageSource(url, cwd),
@@ -56,6 +56,14 @@ function fileHref(node: Node, definitions: ReadonlyMap<string, string>, cwd?: st
     default:
       return undefined;
   }
+}
+
+function copyReference(source: string, shorthand: boolean, definition: Definition) {
+  const label = shorthand ? source : source.replace(/\[(?:\\[\s\S]|[^\[\]\\])*\]$/, "");
+  const href = definition.url.replace(/[\\<>&]/g, "\\$&");
+  const title =
+    definition.title == null ? "" : ' "' + definition.title.replace(/[\\"&]/g, "\\$&") + '"';
+  return label + "(<" + href + ">" + title + ")";
 }
 
 function aliasMarkdown(node: Node, source: string) {
@@ -76,12 +84,12 @@ export function assistantFileLinks(
   if (!/[[`]/.test(markdown) && !markdown.includes(":codex-file-citation"))
     return { body: markdown };
   const tree = parser.runSync(parser.parse(markdown), { value: markdown }) as Root;
-  const definitions = new Map<string, string>();
+  const definitions = new Map<string, Definition>();
   const destinations = new Set<string>();
   function index(node: Node) {
     if ("url" in node) destinations.add(node.url);
     if (node.type === "definition" && !definitions.has(node.identifier))
-      definitions.set(node.identifier, node.url);
+      definitions.set(node.identifier, node);
     if ("children" in node) node.children.forEach(index);
   }
   index(tree);
@@ -119,9 +127,15 @@ export function assistantFileLinks(
         const prefix = isLink && !isMarkdownFileLinkLabel(label, href) ? label + " " : undefined;
         const source = markdown.slice(start, end);
         const copy =
-          node.type === "link" && !(source.startsWith("[") && source.includes("]("))
-            ? `[${label.replace(/[\\[\]]/g, "\\$&")}](${href})`
-            : source;
+          node.type === "linkReference" || node.type === "imageReference"
+            ? copyReference(
+                source,
+                node.referenceType === "shortcut",
+                definitions.get(node.identifier)!,
+              )
+            : node.type === "link" && !(source.startsWith("[") && source.includes("]("))
+              ? `[${label.replace(/[\\[\]]/g, "\\$&")}](${href})`
+              : source;
         let id = "rune-file:" + start;
         while (destinations.has(id)) id += ":";
         links[id] = { href, copy, ...(prefix ? { prefix } : {}) };
