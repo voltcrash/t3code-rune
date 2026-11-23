@@ -459,13 +459,13 @@ export function watchWorkspace(
         return project && !project.archived ? (thread?.worktree ?? project.path) : undefined;
       };
       const rpc = activeRpc;
-      if (!session.canOperate || !rpc || checkout() !== root) return [];
+      if (!session.canOperate || !rpc || checkout() !== root) return null;
       skillInstance = instance;
       if (instance) {
-        if (!skillScope) return [];
+        if (!skillScope) return null;
         const provider = skillProvider(workspaceConfig);
         const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query, slash);
-        return activeRpc === rpc && checkout() === root ? skills : [];
+        return activeRpc === rpc && checkout() === root ? skills : null;
       }
       if (!session.canBrowse) return [];
       const { entries } = yield* rpc[WS_METHODS.projectsSearchEntries]({
