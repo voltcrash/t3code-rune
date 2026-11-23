@@ -47,13 +47,24 @@ effectIt.effect("keeps a retryable download and advances past an expired one", (
         [WS_METHODS.previewList]: () =>
           Effect.succeed({
             revision: 1,
-            sessions: [{ tabId: "a", runtime: "server", navStatus: { _tag: "Idle" } }],
+            sessions: [
+              {
+                tabId: "a",
+                runtime: "server",
+                navStatus: {
+                  _tag: "LoadFailed",
+                  url: "https://[::1]/report.csv?columns[]=name&sort=%2B&folder=a\\b#c\\d",
+                  download: { id: "direct", fileName: "report.csv" },
+                },
+              },
+            ],
           }),
       }),
     );
     let status = 503;
     const http = layerRemoteHttpClient(async () => new Response(null, { status }));
     let offered: string | undefined;
+    let openError: string | undefined;
     const panel = openBrowserPanel(
       {
         environmentId: EnvironmentId.make("browser"),
@@ -67,11 +78,19 @@ effectIt.effect("keeps a retryable download and advances past an expired one", (
       yield* Effect.abortSignal,
       (page) => {
         offered = page.download?.id;
+        openError = page.downloadOpenError;
       },
       () => {},
     );
     try {
       const events = yield* Effect.promise(() => attached.promise);
+      const open = vi.fn(async () => false);
+      yield* Effect.promise(() => panel.openDownload("a", "direct", open));
+      expect(open).toHaveBeenCalledWith("https://[::1]/report.csv?columns%5B%5D=name&sort=%2B&folder=a%5Cb#c%5Cd");
+      expect(openError).toBeTruthy();
+      open.mockResolvedValueOnce(true);
+      yield* Effect.promise(() => panel.openDownload("a", "direct", open));
+      expect(openError).toBeUndefined();
       for (const id of ["expired", "next"])
         events.onDownload?.({ id, fileName: id, sizeBytes: 1, url: "" });
       for (status of [503, 404]) {

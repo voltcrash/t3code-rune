@@ -66,6 +66,7 @@ pub(crate) struct Page {
     tabs: Vec<Tab>,
     device_change: Option<device::LockChange>,
     dialog: Option<dialog::Dialog>,
+    download_open_error: Option<String>,
     download: Option<download::File>,
     selected: Option<String>,
     can_write: bool,

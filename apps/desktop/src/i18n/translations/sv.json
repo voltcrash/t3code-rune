@@ -380,5 +380,6 @@
   "bbcd3776bcd3e2c5": "Laddade ned {fileName}",
   "da52805f1f7bae35": "Spara",
   "0161b531abf44cba": "Den här filen kan inte visas här",
-  "9c6c2c0feb32db39": "{fileName} från {host} laddades ned i stället."
+  "9c6c2c0feb32db39": "{fileName} från {host} laddades ned i stället.",
+  "b3036052b23a9f21": "Kunde inte öppna länken"
 }

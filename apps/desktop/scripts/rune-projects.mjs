@@ -2181,7 +2181,9 @@ try {
           );
           record.browser = { operation, panel };
         } else if (record.browser?.operation === operation) {
-          if (request.action === "hide") {
+          if (request.action === "openDownload") {
+            void record.browser.panel.openDownload(request.tab, request.id, openExternalUrl);
+          } else if (request.action === "hide") {
             record.browser.panel.stop();
             record.browser = undefined;
           } else {

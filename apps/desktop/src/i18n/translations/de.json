@@ -380,5 +380,6 @@
   "bbcd3776bcd3e2c5": "{fileName} heruntergeladen",
   "da52805f1f7bae35": "Speichern",
   "0161b531abf44cba": "Diese Datei kann hier nicht angezeigt werden",
-  "9c6c2c0feb32db39": "{fileName} von {host} wurde stattdessen heruntergeladen."
+  "9c6c2c0feb32db39": "{fileName} von {host} wurde stattdessen heruntergeladen.",
+  "b3036052b23a9f21": "Der Link konnte nicht geöffnet werden"
 }

@@ -380,5 +380,6 @@
   "bbcd3776bcd3e2c5": "Downloaded {fileName}",
   "da52805f1f7bae35": "Save",
   "0161b531abf44cba": "This file can’t be shown here",
-  "9c6c2c0feb32db39": "{fileName} from {host} was downloaded instead."
+  "9c6c2c0feb32db39": "{fileName} from {host} was downloaded instead.",
+  "b3036052b23a9f21": "Could not open the link"
 }

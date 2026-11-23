@@ -380,5 +380,6 @@
   "bbcd3776bcd3e2c5": "已下载 {fileName}",
   "da52805f1f7bae35": "保存",
   "0161b531abf44cba": "此文件无法在此显示",
-  "9c6c2c0feb32db39": "{fileName} （来自 {host}）已改为下载。"
+  "9c6c2c0feb32db39": "{fileName} （来自 {host}）已改为下载。",
+  "b3036052b23a9f21": "无法打开链接"
 }

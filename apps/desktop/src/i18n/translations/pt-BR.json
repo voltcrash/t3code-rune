@@ -380,5 +380,6 @@
   "bbcd3776bcd3e2c5": "{fileName} baixado",
   "da52805f1f7bae35": "Salvar",
   "0161b531abf44cba": "Este arquivo não pode ser mostrado aqui",
-  "9c6c2c0feb32db39": "{fileName} de {host} foi baixado."
+  "9c6c2c0feb32db39": "{fileName} de {host} foi baixado.",
+  "b3036052b23a9f21": "Não foi possível abrir o link"
 }

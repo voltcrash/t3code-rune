@@ -136,20 +136,16 @@ pub(super) fn file_page(
         .replace("{host}", host)
         .replace("{fileName}", &file.file_name);
     let mut actions = row().w_full().gap(8.).child(el().grow(1.));
-    if let Some(url) = url
-        && matches!(url.scheme(), "http" | "https")
-    {
-        let destination = external_url(&url);
+    if url.is_some_and(|url| matches!(url.scheme(), "http" | "https")) {
+        let (tab_id, id) = (tab.id.clone(), file.id.clone());
         actions = actions.child(
             button(
                 &labels.open_external,
                 label(&labels.open_external, 12., 500., theme.text),
                 true,
                 theme,
-                move |s, tx| {
-                    if let Err(error) = tx.open_url(&destination) {
-                        s.error = Some(error.to_string());
-                    }
+                move |s, _| {
+                    s.browser_request(json!({"action":"openDownload", "tab":tab_id, "id":id}));
                 },
             )
             .h(30.)
@@ -157,7 +153,7 @@ pub(super) fn file_page(
             .border(1., theme.card_border),
         );
     }
-    col()
+    let mut page = col()
         .key("browser-file-download")
         .w_full()
         .max_w(576.)
@@ -174,8 +170,11 @@ pub(super) fn file_page(
         .child(el().h(4.))
         .child(label(&labels.file_not_shown, 24., 600., theme.text).wrap())
         .child(label(&description, 14., 400., theme.text_secondary).wrap())
-        .child(el().grow(1.))
-        .child(actions.child(save(s, p, file, &labels.file_download, true, theme)))
+        .child(el().grow(1.));
+    if let Some(error) = &p.page.download_open_error {
+        page = page.child(label(error, 12., 400., theme.text).wrap().role("alert"));
+    }
+    page.child(actions.child(save(s, p, file, &labels.file_download, true, theme)))
 }
 
 static FILE_UNAVAILABLE: rune::Icon = rune::Icon {
@@ -183,36 +182,3 @@ static FILE_UNAVAILABLE: rune::Icon = rune::Icon {
     view: 64.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 12 L48 12 L48 52 L16 52 Z"/><path d="M22 22 L42 22 M22 30 L36 30 M22 38 L40 38 M52 8 L12 56" stroke-linecap="round"/></g>"#,
 };
-
-fn external_url(url: &url::Url) -> String {
-    use url::Position::BeforePath;
-    let mut destination = url[..BeforePath].to_owned();
-    for c in url[BeforePath..].chars() {
-        match c {
-            '[' => destination.push_str("%5B"),
-            ']' => destination.push_str("%5D"),
-            '^' => destination.push_str("%5E"),
-            '{' => destination.push_str("%7B"),
-            '|' => destination.push_str("%7C"),
-            '}' => destination.push_str("%7D"),
-            '`' => destination.push_str("%60"),
-            '\\' => destination.push_str("%5C"),
-            _ => destination.push(c),
-        }
-    }
-    destination
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn opens_downloads_with_query_brackets_and_an_ipv6_host() {
-        let url = url::Url::parse("https://[::1]/report.csv?columns[]=name&sort=%2B").unwrap();
-        assert_eq!(
-            external_url(&url),
-            "https://[::1]/report.csv?columns%5B%5D=name&sort=%2B"
-        );
-    }
-}

@@ -162,6 +162,7 @@ function tabView(tab: PreviewSessionSnapshot) {
 type Download = { id: string; fileName: string; sizeBytes?: number };
 
 type Page = {
+  downloadOpenError?: string;
   download: Pick<Download, "id" | "fileName"> | null;
   deviceChange?: "rotate" | { preset: number };
   tabs: ReturnType<typeof tabView>[];
@@ -202,6 +203,8 @@ export function openBrowserPanel(
   let control: PreviewStreamControl | null = null;
   const dialogs = new BrowserDialog();
   const downloads = new Map<string, Download[]>();
+  let failedOpen: string | undefined;
+  let openAttempt = 0;
   let viewport: readonly [number, number] = [0, 0];
   let busy = false;
   let error: string | null = null;
@@ -214,7 +217,11 @@ export function openBrowserPanel(
   function emit(deviceChange?: Page["deviceChange"]) {
     if (lifetime.aborted) return;
     const offered = selected && downloads.get(selected)?.[0];
+    const direct = failedOpen && tabs.find((tab) => tab.tabId === selected)?.navStatus;
     publish({
+      ...(direct && direct._tag === "LoadFailed" && direct.download?.id === failedOpen
+        ? { downloadOpenError: m(msg("Could not open the link")) }
+        : {}),
       download: offered ? { id: offered.id, fileName: offered.fileName } : null,
       ...(deviceChange === undefined ? {} : { deviceChange }),
       tabs: tabs.map(tabView),
@@ -261,7 +268,10 @@ export function openBrowserPanel(
   }
   async function select(id: string | null, refreshTicket = true) {
     detach();
-    if (selected !== id) selectionVersion++;
+    if (selected !== id) {
+      selectionVersion++;
+      failedOpen = undefined;
+    }
     selected = id;
     error = null;
     emit();
@@ -481,6 +491,29 @@ export function openBrowserPanel(
   }
   start();
   return {
+    async openDownload(tabId: string, id: string, open: (url: string) => Promise<boolean>) {
+      if (lifetime.aborted || selected !== tabId) return;
+      const nav = tabs.find((tab) => tab.tabId === tabId)?.navStatus;
+      if (nav?._tag !== "LoadFailed" || nav.download?.id !== id) return;
+      const version = selectionVersion;
+      const attempt = ++openAttempt;
+      const url = URL.parse(nav.url);
+      let opened = false;
+      if (
+        url &&
+        ["https:", "http:"].includes(url.protocol) &&
+        !/%(?:00|(?![\da-f]{2}))/i.test(url.href)
+      ) {
+        const pathStart = url.href.indexOf("/", url.protocol.length + 2);
+        const pathAndQuery = url.href.slice(pathStart).replace(/[[\]^`{|}]/g, encodeURIComponent);
+        const destination = url.href.slice(0, pathStart) + pathAndQuery;
+        if (destination.length <= 8192) opened = await open(destination).catch(() => false);
+      }
+      if (!lifetime.aborted && selectionVersion === version && openAttempt === attempt) {
+        failedOpen = opened ? undefined : id;
+        emit();
+      }
+    },
     download(tabId: string, id: string) {
       if (lifetime.aborted) return;
       const nav = tabs.find((tab) => tab.tabId === tabId)?.navStatus;
