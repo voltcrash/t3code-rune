@@ -232,7 +232,16 @@ impl Desktop {
         if pane.watch != Some(watch) || search.requested != Some((watch, operation)) {
             return;
         }
-        if result.as_ref().is_none_or(|p| p.complete != Some(false)) {
+        let partial = result.as_ref().is_some_and(|p| p.complete == Some(false));
+        if partial
+            && search
+                .result
+                .as_ref()
+                .is_some_and(|p| p.complete != Some(false))
+        {
+            return;
+        }
+        if !partial {
             search.requested = None;
         }
         search.failed = result.is_none();
@@ -515,6 +524,29 @@ mod tests {
         });
         app.step_find(false, &mut Tx::default());
         app.receive_thread_find(8, 23, Some(page()));
+        let search = app
+            .workspace
+            .conversation
+            .as_mut()
+            .unwrap()
+            .find
+            .as_mut()
+            .unwrap();
+        search.requested = Some((8, 24));
+        let partial = serde_json::from_value(serde_json::json!({
+            "complete":false,"activeIndex":0,"totalMatches":1,"match":{"entryId":"row","occurrence":1}
+        })).unwrap();
+        app.receive_thread_find(8, 24, Some(partial));
+        assert!(
+            app.workspace
+                .conversation
+                .as_ref()
+                .unwrap()
+                .find
+                .as_ref()
+                .unwrap()
+                .can_step()
+        );
         assert_eq!(
             app.workspace
                 .conversation

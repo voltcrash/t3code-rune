@@ -89,6 +89,47 @@ fn marked_occurrences(
     }
 }
 
+// The server renders user-authored soft breaks as line breaks. Keep the byte map to the raw bubble.
+fn prompt_occurrences(
+    src: &str,
+    needle: &str,
+    active: Option<usize>,
+    mut mark: impl FnMut(Vec<Range<usize>>, bool),
+) {
+    use pulldown_cmark::{Event, Options, Parser};
+    if !needle.contains(' ') || !src.contains(['\r', '\n']) {
+        return marked_occurrences(src, needle, 0, active, mark);
+    }
+    let options =
+        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    let mut expanded = String::new();
+    let mut inserted = Vec::new();
+    let mut cursor = 0;
+    for (event, range) in Parser::new_ext(src, options).into_offset_iter() {
+        if event != Event::SoftBreak {
+            continue;
+        }
+        if let Some(offset) = src[range.clone()].find(['\r', '\n']) {
+            let at = range.start + offset;
+            expanded.push_str(&src[cursor..at]);
+            inserted.push(expanded.len());
+            expanded.push('\\');
+            cursor = at;
+        }
+    }
+    if inserted.is_empty() {
+        return marked_occurrences(src, needle, 0, active, mark);
+    }
+    expanded.push_str(&src[cursor..]);
+    let original = |offset| offset - inserted.partition_point(|&at| at < offset);
+    marked_occurrences(&expanded, needle, 0, active, |mut ranges, current| {
+        for range in &mut ranges {
+            *range = original(range.start)..original(range.end);
+        }
+        mark(ranges, current);
+    });
+}
+
 fn text_mark(range: Range<usize>, current: bool, first: bool) -> rune::TextHighlight {
     if current {
         let mark = rune::TextHighlight::new(range, rune::oklch(0.78, 0.15, 80.).alpha(0.65));
@@ -119,7 +160,7 @@ pub(in super::super) fn plain(s: &Desktop, row: &MessageRow, source: &str, eleme
             }
         }
     } else {
-        marked_occurrences(source, &needle, 0, active, |ranges, current| {
+        prompt_occurrences(source, &needle, active, |ranges, current| {
             for (i, range) in ranges.into_iter().enumerate() {
                 marks.push(text_mark(range, current, i == 0));
             }
@@ -159,18 +200,27 @@ mod tests {
     fn a_markdown_prompt_highlights_visible_text_in_the_raw_source() {
         let source = "See [reference](https://example.com/needle), then needle. Please call **the** function.";
         let mut matches = Vec::new();
-        marked_occurrences(source, "needle", 0, Some(0), |ranges, current| {
+        prompt_occurrences(source, "needle", Some(0), |ranges, current| {
             matches.extend(ranges.into_iter().map(|range| (range, current)));
         });
         let start = source.rfind("needle").unwrap();
         assert_eq!(matches, [(start..start + 6, true)]);
         let mut phrase = String::new();
-        marked_occurrences(source, "call the function", 0, None, |ranges, _| {
+        prompt_occurrences(source, "call the function", None, |ranges, _| {
             for range in ranges {
                 phrase.push_str(&source[range]);
             }
         });
         assert_eq!(phrase, "call the function");
+        for source in ["needle\nneedle\n\nneedle needle", "needle\nneedle needle"] {
+            let mut hits = Vec::new();
+            prompt_occurrences(source, "needle needle", Some(0), |ranges, _| {
+                hits.extend(ranges)
+            });
+            let last = source.rfind("needle needle").unwrap();
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0], last..source.len());
+        }
     }
 
     #[test]
