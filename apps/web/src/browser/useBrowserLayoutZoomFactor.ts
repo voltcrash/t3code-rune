@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { resolveBrowserLayoutZoomFactor } from "./browserViewportLayout";
+import { resolveBrowserLayoutZoomFactor } from "@t3tools/client-runtime/preview/viewport-layout";
 
 // App zoom changes the CSS viewport, so resize also signals zoom changes.
 const subscribeToWindowZoom = (onChange: () => void) => {

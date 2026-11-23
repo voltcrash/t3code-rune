@@ -10,6 +10,8 @@ import { resolveDeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubA
 import {
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
+  FILL_PREVIEW_VIEWPORT,
+  type PreviewViewportSetting,
   PREVIEW_ZOOM_LEVELS,
   type PreviewAdjustInput,
   type PreviewSessionSnapshot,
@@ -22,6 +24,7 @@ import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
+import { browserDeviceLabels, deviceViewport, type DeviceChange } from "./browserViewport.ts";
 import { BrowserDialog } from "./browserDialog.ts";
 import { openEnvironmentRpc, preparedConnection } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
@@ -45,6 +48,7 @@ export function browserLabels() {
     accept: m(msg("Accept")),
     recheckDialog: m(msg("Check pending dialog")),
     takeToRespond: m(msg("Take control to respond.")),
+    device: browserDeviceLabels(),
     menu: {
       title: m(msg("Preview menu")),
       reload: m(msg("Hard reload")),
@@ -84,6 +88,7 @@ type BrowserRequest =
         | "cookies"
         | "cache";
     }
+  | { action: "viewport"; tab: string; change: DeviceChange }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
 
@@ -123,6 +128,7 @@ function tabView(tab: PreviewSessionSnapshot) {
     url: nav._tag === "Idle" ? "" : nav.url,
     title: nav._tag === "Idle" ? m(msg("New tab")) : nav.title || nav.url,
     zoom: Math.round(100 * (tab.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR)),
+    device: tab.viewport && tab.viewport._tag !== "fill" ? tab.viewport : null,
     scheme: tab.colorScheme ?? DEFAULT_PREVIEW_APPEARANCE,
     can_zoom_in: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS.at(-1),
     can_zoom_out: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS[0],
@@ -155,6 +161,7 @@ export function openBrowserPanel(
   publish: (page: Page) => void,
   paint: (tab: string, sequence: number, jpeg: ArrayBuffer) => void,
   address: (input: string) => string = resolveAddressBarInput,
+  initialViewport: () => PreviewViewportSetting = () => FILL_PREVIEW_VIEWPORT,
 ) {
   const threadId = ThreadId.make(thread);
   const stopped = new AbortController();
@@ -522,7 +529,29 @@ export function openBrowserPanel(
       error = null;
       emit();
       try {
-        if (request.action === "close") {
+        if (request.action === "viewport") {
+          const tab = tabs.find((t) => t.tabId === request.tab);
+          if (!tab) return;
+          const current = tab.viewport ?? FILL_PREVIEW_VIEWPORT;
+          const viewport = deviceViewport(
+            request.change,
+            current,
+            initialViewport(),
+            tab.zoomFactor ?? 1,
+          );
+          if (!viewport || viewport === current) return;
+          const before = revision;
+          const updated = await Effect.runPromise(
+            rpc[WS_METHODS.previewResize]({ threadId, tabId: tab.tabId, viewport }),
+            { signal: lifetime },
+          );
+          if (lifetime.aborted || service !== rpc) return;
+          if (revision === before) {
+            tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
+            emit();
+          }
+          await refresh();
+        } else if (request.action === "close") {
           await Effect.runPromise(rpc[WS_METHODS.previewClose]({ threadId, tabId: request.tab }), {
             signal: lifetime,
           });

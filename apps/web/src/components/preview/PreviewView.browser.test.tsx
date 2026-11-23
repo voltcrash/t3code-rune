@@ -183,7 +183,7 @@ vi.mock(import("~/browser/ServerBrowserSurface"), async (original) => ({
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { commitBrowserViewportChange } from "~/browser/browserViewportActions";
-import { resolveResponsiveBrowserViewportSize } from "~/browser/browserViewportLayout";
+import { resolveResponsiveBrowserViewportSize } from "@t3tools/client-runtime/preview/viewport-layout";
 import { useBrowserPointerStore } from "~/browser/browserPointerStore";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";

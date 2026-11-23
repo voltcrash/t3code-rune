@@ -17,7 +17,7 @@ import {
   resolveBrowserDeviceViewportLayout,
   resolveBrowserViewportLayout,
   type BrowserViewportResizeDirection,
-} from "./browserViewportLayout";
+} from "@t3tools/client-runtime/preview/viewport-layout";
 
 interface ViewportDrag extends PreviewViewportSize {
   readonly sourceKey: string;

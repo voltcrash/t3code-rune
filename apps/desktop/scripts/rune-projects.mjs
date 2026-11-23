@@ -2153,6 +2153,7 @@ try {
                 data: Buffer.from(jpeg).toString("base64"),
               }),
             (input) => resolveAddressBarInput(input, resolveSearchUrlTemplate(clientSettings)),
+            () => clientSettings.browserDefaultViewport,
           );
           record.browser = { operation, panel };
         } else if (record.browser?.operation === operation) {

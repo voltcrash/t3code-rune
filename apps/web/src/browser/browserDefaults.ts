@@ -14,7 +14,7 @@ import {
   useClientSettings,
 } from "~/hooks/useSettings";
 
-import { resolveResponsiveBrowserViewportSize } from "./browserViewportLayout";
+import { resolveResponsiveBrowserViewportSize } from "@t3tools/client-runtime/preview/viewport-layout";
 
 export interface BrowserDefaults {
   readonly viewport: PreviewViewportSetting;
