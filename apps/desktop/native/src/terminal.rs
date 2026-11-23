@@ -1,5 +1,5 @@
 use crate::{Desktop, Request};
-use rune::{Color, El, Family, Icon, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text, tok};
+use rune::{Color, El, Family, Icon, Key, KeyEvent, TextStyle, Tx, col, el, row, text, tok};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use uuid::Uuid;
@@ -410,19 +410,21 @@ fn input(s: &mut Desktop, e: &KeyEvent, tx: &mut Tx) -> bool {
     });
     true
 }
-pub(crate) fn button(theme: &tok::Theme) -> El {
-    el().key("toggle-terminal")
-        .label("Toggle terminal drawer")
-        .help("Toggle terminal drawer")
-        .role("button")
-        .focusable(true)
-        .no_window_drag()
-        .size(28., 28.)
-        .radius(6.)
-        .center()
-        .hover(theme.text.alpha(0.08))
-        .child(icon(&ICON, 16.).color(theme.text_secondary))
-        .on_press_tx(Desktop::toggle_terminal)
+const PANEL_BOTTOM: Icon = Icon {
+    name: "panel-bottom",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></g>"#,
+};
+
+pub(crate) fn button(open: bool, theme: &tok::Theme) -> El {
+    crate::workspace::panel_control(
+        "toggle-terminal",
+        "Toggle terminal drawer",
+        &PANEL_BOTTOM,
+        open,
+        theme,
+    )
+    .on_press_tx(Desktop::toggle_terminal)
 }
 pub(crate) fn view(s: &Desktop, theme: &tok::Theme, dark: bool, height: f32) -> Option<El> {
     let panel = s.terminal.as_ref()?;
