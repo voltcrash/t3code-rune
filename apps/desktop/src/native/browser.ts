@@ -139,6 +139,7 @@ function tabView(tab: PreviewSessionSnapshot) {
 }
 
 type Page = {
+  deviceChange?: "rotate" | { preset: number };
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
   dialog: BrowserDialog["current"];
@@ -184,9 +185,10 @@ export function openBrowserPanel(
   let waiting: ArrayBuffer | null = null;
   let revision = -1;
 
-  function emit() {
+  function emit(deviceChange?: Page["deviceChange"]) {
     if (lifetime.aborted) return;
     publish({
+      ...(deviceChange === undefined ? {} : { deviceChange }),
       tabs: tabs.map(tabView),
       selected,
       dialog: dialogs.current,
@@ -541,13 +543,24 @@ export function openBrowserPanel(
           );
           if (!viewport || viewport === current) return;
           const before = revision;
+          const selection = attaching?.signal;
           const updated = await Effect.runPromise(
             rpc[WS_METHODS.previewResize]({ threadId, tabId: tab.tabId, viewport }),
             { signal: lifetime },
           );
           if (lifetime.aborted || service !== rpc) return;
-          if (revision === before) {
+          if (revision === before)
             tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
+          const device = updated.viewport;
+          if (selected === tab.tabId && !selection?.aborted && device && device._tag !== "fill") {
+            emit(
+              request.change.kind === "rotate"
+                ? "rotate"
+                : request.change.kind === "preset"
+                  ? { preset: device.width / device.height }
+                  : undefined,
+            );
+          } else {
             emit();
           }
           await refresh();

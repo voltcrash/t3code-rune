@@ -87,3 +87,56 @@ it.each(["switch away and back", "close the tab", "revoke write access"])(
     }
   },
 );
+
+it("confirms a rotated viewport even when the follow-up tab list fails", async () => {
+  const ready = Promise.withResolvers<void>();
+  const tab = {
+    tabId: "a",
+    runtime: "server",
+    navStatus: { _tag: "Idle" },
+    viewport: { _tag: "freeform", width: 600, height: 400 },
+  };
+  const resized = { ...tab, viewport: { _tag: "freeform", width: 400, height: 600 } };
+  const list = vi
+    .fn()
+    .mockReturnValue(Effect.fail(new Error("offline")))
+    .mockReturnValueOnce(Effect.succeed({ revision: 1, sessions: [tab] }));
+  openRpc.mockReturnValue(
+    Effect.succeed({
+      [WS_METHODS.subscribePreviewEvents]: () => Stream.never,
+      [WS_METHODS.previewList]: list,
+      [WS_METHODS.previewResize]: () => Effect.succeed(resized),
+    }),
+  );
+  const pages: unknown[] = [];
+  const panel = openBrowserPanel(
+    {
+      environmentId: EnvironmentId.make("browser"),
+      httpBaseUrl: "https://example.test",
+      http: layerRemoteHttpClient(globalThis.fetch),
+      label: "Browser",
+      token: "fixture",
+      browserWritable: true,
+    },
+    "thread",
+    new AbortController().signal,
+    (page) => {
+      pages.push(page);
+      if (page.selected === "a") ready.resolve();
+    },
+    () => {},
+  );
+  try {
+    await ready.promise;
+    await panel.request({ action: "viewport", tab: "a", change: { kind: "rotate" } });
+    expect(pages).toContainEqual(
+      expect.objectContaining({ deviceChange: "rotate", selected: "a" }),
+    );
+    expect(pages.at(-1)).toMatchObject({
+      error: expect.any(String),
+      tabs: [{ device: resized.viewport }],
+    });
+  } finally {
+    panel.stop();
+  }
+});

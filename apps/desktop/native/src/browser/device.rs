@@ -62,9 +62,11 @@ impl Axis {
     }
 }
 
-enum LockChange {
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum LockChange {
     Rotate,
-    Preset,
+    Preset(f64),
 }
 
 #[derive(Default)]
@@ -73,7 +75,6 @@ pub(super) struct Toolbar {
     height: TextEdit,
     edited: Option<Axis>,
     aspect_ratio: Option<f64>,
-    lock_change: Option<LockChange>,
     pub picker: bool,
 }
 
@@ -83,20 +84,17 @@ impl Toolbar {
         self.picker = false;
         if new_tab || viewport.is_none() {
             self.aspect_ratio = None;
-            self.lock_change = None;
         }
         if let Some(size) = viewport {
             self.width.replace_text(size.width.to_string());
             self.height.replace_text(size.height.to_string());
         }
     }
-    pub fn finish(&mut self, size: Option<&Viewport>, success: bool) {
-        let action = self.lock_change.take();
-        if success && let (Some(ratio), Some(size)) = (self.aspect_ratio, size) {
-            self.aspect_ratio = Some(match action {
-                Some(LockChange::Rotate) => 1. / ratio,
-                Some(LockChange::Preset) => f64::from(size.width) / f64::from(size.height),
-                None => return,
+    pub fn confirm(&mut self, change: LockChange) {
+        if let Some(ratio) = self.aspect_ratio {
+            self.aspect_ratio = Some(match change {
+                LockChange::Rotate => 1. / ratio,
+                LockChange::Preset(ratio) => ratio,
             });
         }
     }
@@ -111,24 +109,31 @@ impl Toolbar {
         if !(limits.min..=limits.max).contains(&value) {
             return;
         }
-        let (other, factor) = match axis {
-            Axis::Width => (&mut self.height, 1. / ratio),
-            Axis::Height => (&mut self.width, ratio),
+        let to_primary = |value: f64| match axis {
+            Axis::Width => value * ratio,
+            Axis::Height => value / ratio,
         };
-        let min_axis = (f64::from(limits.min) / factor)
-            .ceil()
-            .max(f64::from(limits.min)) as u32;
-        let max_axis = (f64::from(limits.area) / factor)
-            .sqrt()
-            .min(f64::from(limits.max) / factor)
-            .min(f64::from(limits.max))
+        let to_companion = |value: u32| match axis {
+            Axis::Width => (f64::from(value) / ratio).round() as u32,
+            Axis::Height => (f64::from(value) * ratio).round() as u32,
+        };
+        let min = f64::from(limits.min);
+        let max = f64::from(limits.max);
+        let minimum = min.max(to_primary(min)).ceil() as u32;
+        let maximum = max
+            .min(to_primary(max))
+            .min(to_primary(f64::from(limits.area)).sqrt())
             .floor() as u32;
-        let mut primary = value.max(min_axis).min(max_axis);
-        let mut next = (f64::from(primary) * factor).round() as u32;
-        while primary * next > limits.area && primary > min_axis {
+        let mut primary = value.max(minimum).min(maximum);
+        let mut next = to_companion(primary);
+        while primary * next > limits.area && primary > minimum {
             primary -= 1;
-            next = (f64::from(primary) * factor).round() as u32;
+            next = to_companion(primary);
         }
+        let other = match axis {
+            Axis::Width => &mut self.height,
+            Axis::Height => &mut self.width,
+        };
         other.replace_text(next.to_string());
     }
     fn edit_request(&self) -> Option<Value> {
@@ -155,11 +160,6 @@ impl Desktop {
         {
             change["edit"] = edit;
         }
-        panel.device.lock_change = match change["kind"].as_str() {
-            Some("rotate") => Some(LockChange::Rotate),
-            Some("preset") => Some(LockChange::Preset),
-            _ => None,
-        };
         panel.device.sync(tab.device.as_ref(), false);
         let id = tab.id.clone();
         self.browser_request(json!({"action":"viewport","tab":id,"change":change}));
@@ -378,4 +378,27 @@ pub(super) fn view(
             })
             .key("browser-device-close"),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locked_width_preview_matches_the_committed_rounding() {
+        let mut toolbar = Toolbar {
+            width: TextEdit::new("600"),
+            aspect_ratio: Some(240. / 263.),
+            ..Default::default()
+        };
+        toolbar.update(
+            Axis::Width,
+            &Limits {
+                min: 240,
+                max: 4096,
+                area: 8_000_000,
+            },
+        );
+        assert_eq!(toolbar.height.text, "658");
+    }
 }

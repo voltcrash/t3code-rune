@@ -55,6 +55,7 @@ pub(crate) struct Tab {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Page {
     tabs: Vec<Tab>,
+    device_change: Option<device::LockChange>,
     dialog: Option<dialog::Dialog>,
     selected: Option<String>,
     can_write: bool,
@@ -156,7 +157,7 @@ impl Desktop {
             tx.focus_when_shown("browser-address", false);
         }
     }
-    pub(crate) fn receive_browser(&mut self, watch: u64, operation: u64, page: Page) {
+    pub(crate) fn receive_browser(&mut self, watch: u64, operation: u64, mut page: Page) {
         if let Some(p) = &mut self.workspace.browser.panel
             && (p.watch, p.operation) == (watch, operation)
         {
@@ -195,8 +196,8 @@ impl Desktop {
             if new_tab || p.page.tab().and_then(|t| t.device.as_ref()) != viewport {
                 p.device.sync(viewport, new_tab);
             }
-            if p.page.busy && !page.busy {
-                p.device.finish(viewport, page.error.is_none());
+            if let Some(change) = page.device_change.take() {
+                p.device.confirm(change);
             }
             p.page = page;
             self.resize_browser();
