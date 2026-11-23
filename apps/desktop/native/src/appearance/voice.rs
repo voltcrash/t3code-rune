@@ -16,7 +16,7 @@ pub(crate) struct Labels {
     pub(super) title: String,
     microphone: Box<microphone_test::Labels>,
     pub(crate) dictation: crate::dictation::Labels,
-    models: String,
+    pub(super) models: String,
     search: String,
     empty: String,
     download: String,
@@ -27,6 +27,12 @@ pub(crate) struct Labels {
     refresh: String,
     loading: String,
     disconnected: String,
+}
+
+impl Labels {
+    pub(super) fn microphone_title(&self) -> &str {
+        &self.microphone.title
+    }
 }
 
 #[derive(Deserialize)]

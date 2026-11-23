@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[derive(Deserialize)]
 pub(super) struct Labels {
-    title: String,
+    pub(super) title: String,
     description: String,
     record: String,
     again: String,

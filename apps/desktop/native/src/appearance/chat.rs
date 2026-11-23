@@ -23,14 +23,18 @@ pub(crate) struct SettingsLabels {
     pub(crate) voice: super::voice::Labels,
     composer: String,
     advanced: String,
-    slash_skills: String,
+    pub(super) slash_skills: String,
     slash_description: String,
     slash_reset: String,
     screen_reader: String,
-    window_title: String,
+    pub(super) window_title: String,
     title_description: String,
     title_reset: String,
     pub(super) close: String,
+    pub(super) search: String,
+    pub(super) search_label: String,
+    pub(super) no_results: String,
+    pub(super) clear_search: String,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -64,25 +68,58 @@ impl SettingsPage {
                     .map_or("Settings", |l| l.settings.as_str()),
             )
             .w_full()
-            .gap(4.)
-            .child(Self::Appearance.tab(s, theme));
-        if s.settings_labels.is_some() {
-            tabs.child(Self::Chat.tab(s, theme))
-                .child(Self::Voice.tab(s, theme))
-                .child(Self::Archive.tab(s, theme))
-        } else {
-            tabs
+            .gap(if compact { 4. } else { 16. });
+        if s.settings_labels.is_none() {
+            return tabs.child(Self::Appearance.tab(s, theme));
+        }
+        // The web nav's groups; these two have hidden headings.
+        let group = |pages: &[Self]| {
+            let layout = if compact { row() } else { col() };
+            layout
+                .gap(4.)
+                .children(pages.iter().map(|page| page.tab(s, theme)))
+        };
+        tabs.child(group(&[Self::Appearance, Self::Chat, Self::Voice]))
+            .child(group(&[Self::Archive]))
+    }
+
+    pub(super) fn key(self) -> &'static str {
+        match self {
+            Self::Appearance => "settings-appearance",
+            Self::Chat => "settings-chat",
+            Self::Voice => "settings-voice",
+            Self::Archive => "settings-archive",
+        }
+    }
+
+    pub(super) fn select(self, s: &mut Desktop) {
+        if s.settings_page != self {
+            s.font_families.close();
+            s.chat_width_menu = false;
+            if self == Self::Voice || s.settings_page == Self::Voice {
+                s.show_voice_models(self == Self::Voice);
+            }
+            s.settings_page = self;
+            if self == Self::Archive {
+                s.load_archived();
+            }
         }
     }
 
     fn tab(self, s: &Desktop, theme: &tok::Theme) -> El {
         let active = self == s.settings_page;
         let name = self.title(s.settings_labels.as_ref());
-        let (key, icon) = match self {
-            Self::Appearance => ("settings-appearance", &PALETTE),
-            Self::Chat => ("settings-chat", &CHAT),
-            Self::Voice => ("settings-voice", &super::voice::MIC),
-            Self::Archive => ("settings-archive", &super::archived::ARCHIVE),
+        let key = self.key();
+        let icon = match self {
+            Self::Appearance => &PALETTE,
+            Self::Chat => &CHAT,
+            Self::Voice => &super::voice::MIC,
+            Self::Archive => &super::archived::ARCHIVE,
+        };
+        let color = if active {
+            theme.text
+        } else {
+            theme.text_secondary.alpha(0.8)
         };
         let tab = row()
             .key(key)
@@ -94,30 +131,16 @@ impl SettingsPage {
             .h(32.)
             .px(10.)
             .gap(8.)
-            .child(rune::icon(icon, 16.).color(if active {
-                theme.text
-            } else {
-                theme.text_secondary
-            }))
-            .radius(6.)
-            .hover(theme.separator)
-            .child(label(name, 14., if active { 500. } else { 400. }, theme.text).truncate())
+            .child(rune::icon(icon, 16.).color(color))
+            .radius(8.)
+            .hover(theme.text.alpha(0.03))
+            .child(label(name, 14., 500., color).truncate())
             .on_press_tx(move |s: &mut Desktop, tx| {
-                if s.settings_page != self {
-                    s.font_families.close();
-                    s.chat_width_menu = false;
-                    if self == Self::Voice || s.settings_page == Self::Voice {
-                        s.show_voice_models(self == Self::Voice);
-                    }
-                    s.settings_page = self;
-                    if self == Self::Archive {
-                        s.load_archived();
-                    }
-                }
+                self.select(s);
                 tx.focus(key, true);
             });
         if active {
-            tab.fill(theme.separator)
+            tab.fill(theme.text.alpha(0.03))
         } else {
             tab
         }
@@ -253,8 +276,8 @@ pub(super) fn settings(
     let section = |name: &str, child: El| {
         col()
             .w_full()
-            .gap(8.)
-            .child(label(name, 16., 600., theme.text).pl(12.))
+            .gap(10.)
+            .child(label(name, 16., 600., theme.text).pl(16.))
             .child(child)
     };
     let title = ChatSwitch::WindowTitle
@@ -263,7 +286,7 @@ pub(super) fn settings(
         .border(1., theme.separator);
     col()
         .w_full()
-        .gap(24.)
+        .gap(32.)
         .child(section(&labels.composer, group))
         .child(section(&labels.screen_reader, title))
 }
