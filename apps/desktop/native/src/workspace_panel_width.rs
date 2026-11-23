@@ -110,7 +110,7 @@ pub(super) fn rail(s: &Desktop, shown: f32, max: f32, edge: f32) -> Option<El> {
             .w(9.)
             .h_full()
             .on_key(move |s: &mut Desktop, ev, _| {
-                if ev.mods.ctrl || ev.mods.alt || ev.mods.cmd {
+                if ev.mods != rune::Mods::default() {
                     return false;
                 }
                 let delta = match ev.key {
