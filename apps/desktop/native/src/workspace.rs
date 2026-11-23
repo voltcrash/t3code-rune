@@ -281,6 +281,7 @@ pub(super) struct Workspace {
     pub(super) refresh_after_edit: Option<u64>,
     pub(crate) details: thread_details::Details,
     actions: thread_actions::Actions,
+    pub(crate) issues: crate::issues::Issues,
     pub(crate) usage: crate::usage::Panel,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
@@ -358,6 +359,7 @@ impl Workspace {
             details: Default::default(),
             actions: Default::default(),
             usage: Default::default(),
+            issues: Default::default(),
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
@@ -879,11 +881,15 @@ impl Desktop {
     }
 
     pub(super) fn show_projects(&mut self) {
+        self.open_index_page(Page::Home);
+    }
+
+    pub(super) fn open_index_page(&mut self, page: Page) {
         self.close_sidebar_drawer();
         self.leave_landing();
         self.leave_visible_thread();
         self.close_conversation_inspectors();
-        self.history.visit(Page::Home);
+        self.history.visit(page);
         self.new_threads.active = None;
         self.workspace.show_projects = true;
     }
@@ -1438,7 +1444,13 @@ fn sidebar(
         ));
     }
     let footer_action = |caption, glyph: &'static rune::Icon, run: fn(&mut Desktop)| {
-        if width >= 232. {
+        if width
+            >= (if s.workspace.issues.labels.is_some() {
+                292.
+            } else {
+                232.
+            })
+        {
             return action(caption, theme, !s.pending, run);
         }
         let button = el()
@@ -1457,13 +1469,15 @@ fn sidebar(
             button.hover(theme.separator).focusable(true).on_press(run)
         }
     };
-    let content = sidebar.child(
-        row()
-            .w_full()
-            .h(36.)
-            .pt(4.)
-            .center_y()
+    let mut footer = row().w_full().h(36.).pt(4.).center_y();
+    if s.history.on_issues()
+        && let Some(labels) = &s.workspace.issues.labels
+    {
+        footer = footer.child(action(&labels.back, theme, !s.pending, |s| s.go(false)).grow(1.));
+    } else {
+        footer = footer
             .child(crate::appearance::trigger(theme))
+            .children(crate::issues::trigger(s, theme))
             .children(crate::usage::trigger(s, theme))
             .child(footer_action(
                 "Projects",
@@ -1473,9 +1487,9 @@ fn sidebar(
             .child(spacer())
             .child(footer_action("Disconnect", &DISCONNECT_ICON, |s| {
                 s.send(Request::Disconnect)
-            }))
-            .children(crate::updates::sidebar(s, theme)),
-    );
+            }));
+    }
+    let content = sidebar.child(footer.children(crate::updates::sidebar(s, theme)));
     col()
         .w(width)
         .h_full()
@@ -2014,6 +2028,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .shrink()
                 .min_w(if show_project { 48. } else { 0. }),
         );
+    } else if s.history.on_issues()
+        && let Some(labels) = &s.workspace.issues.labels
+    {
+        breadcrumbs = breadcrumbs.child(label(&labels.title, 14., 500., theme.text).truncate());
     } else if !empty && !landing {
         breadcrumbs =
             breadcrumbs.child(label("Projects", 14., 500., theme.text).truncate().shrink());
@@ -2111,7 +2129,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .flex_wrap()
         .center_y()
         .child(header);
-    if !controls.is_empty() {
+    if !controls.is_empty() && !s.history.on_issues() {
         let panels = row()
             .key("workspace-panel-buttons")
             .center_y()
@@ -2126,7 +2144,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             panels.w_full().flex_wrap().px(12.).py(4.)
         });
     }
-    if !actions.is_empty() {
+    if !actions.is_empty() && !s.history.on_issues() {
         let actions = row()
             .key("workspace-header-actions")
             .center_y()
@@ -2151,46 +2169,46 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .px(16.0),
         );
     }
-    main = main.child(
-        if let Some(id) = composing
-            && let Some(project) = s.workspace.project(id)
-        {
-            super::new_thread::view(
-                s,
-                project,
-                theme,
-                cx,
-                layout.lane,
-                &mut overlays,
-                &mut draft_preview,
-            )
-        } else if !s.workspace.show_projects
-            && let Some(pane) = &s.workspace.conversation
-        {
-            timeline(s, pane, theme, dark, layout.lane, &mut overlays)
-        } else if matches!(s.landing, Landing::Failed(_)) {
-            col()
-                .grow(1.)
-                .center()
-                .gap(10.)
-                .child(label("Couldn’t start a new thread", 18., 500., theme.text))
-                .child(label(
-                    "The project is still available. Try opening the draft again.",
-                    14.,
-                    400.,
-                    theme.text_secondary,
-                ))
-                .child(action("Try again", theme, !s.pending, |s| {
-                    s.send(Request::Refresh)
-                }))
-        } else if landing {
-            spacer()
-        } else if empty {
-            empty_home(s, theme, narrow)
-        } else {
-            projects_view(s, theme, dark)
-        },
-    );
+    main = main.child(if s.history.on_issues() {
+        crate::issues::view(s, theme, dark, measured_width >= 528., &mut overlays)
+    } else if let Some(id) = composing
+        && let Some(project) = s.workspace.project(id)
+    {
+        super::new_thread::view(
+            s,
+            project,
+            theme,
+            cx,
+            layout.lane,
+            &mut overlays,
+            &mut draft_preview,
+        )
+    } else if !s.workspace.show_projects
+        && let Some(pane) = &s.workspace.conversation
+    {
+        timeline(s, pane, theme, dark, layout.lane, &mut overlays)
+    } else if matches!(s.landing, Landing::Failed(_)) {
+        col()
+            .grow(1.)
+            .center()
+            .gap(10.)
+            .child(label("Couldn’t start a new thread", 18., 500., theme.text))
+            .child(label(
+                "The project is still available. Try opening the draft again.",
+                14.,
+                400.,
+                theme.text_secondary,
+            ))
+            .child(action("Try again", theme, !s.pending, |s| {
+                s.send(Request::Refresh)
+            }))
+    } else if landing {
+        spacer()
+    } else if empty {
+        empty_home(s, theme, narrow)
+    } else {
+        projects_view(s, theme, dark)
+    });
     if composing.is_none()
         && !s.workspace.show_projects
         && let Some(thread) = thread

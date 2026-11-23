@@ -5,6 +5,7 @@ use rune::{El, Icon, TextStyle, el, icon, row, text, tok};
 pub(super) enum Page {
     #[default]
     Home,
+    Issues,
     Thread(String),
     NewThread(String),
 }
@@ -58,6 +59,10 @@ impl History {
         self.forward.clear();
     }
 
+    pub(super) fn on_issues(&self) -> bool {
+        self.current == Page::Issues
+    }
+
     pub(super) fn on_thread(&self, id: &str) -> bool {
         matches!(&self.current, Page::Thread(current) if current == id)
     }
@@ -89,6 +94,7 @@ impl History {
     pub fn retain(&mut self, ws: &Workspace, drafts: &NewThreads) {
         let available = |page: &Page| match page {
             Page::Home => true,
+            Page::Issues => ws.issues.labels.is_some(),
             Page::Thread(id) => ws.has_thread(id),
             Page::NewThread(id) => drafts.has_draft(id),
         };
@@ -128,6 +134,7 @@ impl Desktop {
         self.history.retain(&self.workspace, &self.new_threads);
         match self.history.pop(forward) {
             Some(Page::Home) => self.show_projects(),
+            Some(Page::Issues) => self.open_issues(),
             Some(Page::Thread(id)) => self.open_thread(&id),
             Some(Page::NewThread(project)) => {
                 self.close_sidebar_drawer();

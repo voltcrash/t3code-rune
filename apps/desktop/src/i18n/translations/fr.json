@@ -264,5 +264,20 @@
   "43692a5af811085a": "Échec de la transcription vocale. Vérifiez la destination dans Paramètres → Voix.",
   "b6e6c93abb35a98e": "Aucune parole détectée.",
   "a20b495b9e6f82b9": "Démarrage…",
-  "acca565dc877084e": "Réessayer de désactiver la dictée"
+  "acca565dc877084e": "Réessayer de désactiver la dictée",
+  "8e9626aa27cb188a": "Tickets",
+  "86798f07ba2d7f4d": "Rechercher des tickets",
+  "6a717189b43e9f0e": "Ouvert",
+  "f8700aef3eb2cf71": "Fermé",
+  "c9735ce17719123b": "Tous",
+  "006fab820cc5a2f1": "Charger plus",
+  "d827f64a6d0b4706": "Aucun ticket avec ces filtres.",
+  "614811ba85f590a5": "Impossible de charger les tickets.",
+  "d53156b9bd1ef459": "Filtres",
+  "937020f29c4f0a65": "Trier",
+  "844f6c8d82ecce5d": "Mises à jour récemment",
+  "f77af0fd4c6acea1": "Plus récents",
+  "d894f6cb29f7a3ea": "Retour",
+  "9f341a45df358710": "Aucun gestionnaire de tickets à lire",
+  "616b3cd868f3d2af": "Ajoutez un projet dont le remote est sur un gestionnaire de tickets pris en charge."
 }

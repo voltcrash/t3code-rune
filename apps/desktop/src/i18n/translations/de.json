@@ -264,5 +264,20 @@
   "43692a5af811085a": "Sprachtranskription fehlgeschlagen. Prüfe das Ziel unter Einstellungen → Spracheingabe.",
   "b6e6c93abb35a98e": "Es wurde keine Sprache erkannt.",
   "a20b495b9e6f82b9": "Wird gestartet…",
-  "acca565dc877084e": "Diktat erneut deaktivieren"
+  "acca565dc877084e": "Diktat erneut deaktivieren",
+  "8e9626aa27cb188a": "Issues",
+  "86798f07ba2d7f4d": "Issues durchsuchen",
+  "6a717189b43e9f0e": "Offen",
+  "f8700aef3eb2cf71": "Geschlossen",
+  "c9735ce17719123b": "Alle",
+  "006fab820cc5a2f1": "Mehr laden",
+  "d827f64a6d0b4706": "Keine Issues mit diesen Filtern.",
+  "614811ba85f590a5": "Issues konnten nicht geladen werden.",
+  "d53156b9bd1ef459": "Filter",
+  "937020f29c4f0a65": "Sortieren",
+  "844f6c8d82ecce5d": "Kürzlich aktualisiert",
+  "f77af0fd4c6acea1": "Neueste",
+  "d894f6cb29f7a3ea": "Zurück",
+  "9f341a45df358710": "Keine Tracker zum Lesen",
+  "616b3cd868f3d2af": "Füge ein Projekt hinzu, dessen Remote bei einem unterstützten Tracker liegt."
 }

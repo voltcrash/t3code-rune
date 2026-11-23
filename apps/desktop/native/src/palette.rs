@@ -15,6 +15,7 @@ enum Action {
     Scratch,
     AddProject,
     Projects,
+    Issues,
     Back,
     Forward,
     ToggleSidebar,
@@ -44,6 +45,7 @@ impl Action {
             Self::Scratch => "scratch".into(),
             Self::AddProject => "add-project".into(),
             Self::Projects => "projects".into(),
+            Self::Issues => "issues".into(),
             Self::CheckUpdates => "check-updates".into(),
             Self::Settings => "settings".into(),
             Self::Usage => "usage".into(),
@@ -67,6 +69,14 @@ impl Action {
             Self::Scratch => "New thread without a project",
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
+            Self::Issues => {
+                return ws
+                    .issues
+                    .labels
+                    .as_ref()
+                    .map_or("Issues", |l| l.title.as_str())
+                    .into();
+            }
             Self::CheckUpdates => "Check for Updates…",
             Self::Settings => "Settings",
             Self::Usage => return ws.usage.title().into(),
@@ -139,6 +149,7 @@ impl Action {
             Self::OpenEditor => &super::thread_details::editor::OPEN,
             Self::Settings => &crate::appearance::GEAR,
             Self::Usage => &crate::usage::CHART,
+            Self::Issues => &crate::issues::ICON,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
@@ -276,6 +287,9 @@ impl Palette {
                     command(Action::Forward);
                 }
                 command(Action::Projects);
+                if ws.issues.labels.is_some() {
+                    command(Action::Issues);
+                }
                 command(Action::Settings);
                 if ws.usage.labels.is_some() {
                     command(Action::Usage);
@@ -593,6 +607,7 @@ impl Desktop {
                 add_project(self, tx);
             }
             Action::Projects => self.show_projects(),
+            Action::Issues => self.open_issues(),
             Action::Settings => self.open_settings(tx),
             Action::Usage => self.open_usage(),
             Action::CheckUpdates => self.check_updates(tx),

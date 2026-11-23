@@ -264,5 +264,20 @@
   "43692a5af811085a": "Rösttranskriberingen misslyckades. Kontrollera målet i Inställningar → Röst.",
   "b6e6c93abb35a98e": "Inget tal upptäcktes.",
   "a20b495b9e6f82b9": "Startar…",
-  "acca565dc877084e": "Försök stänga av diktering igen"
+  "acca565dc877084e": "Försök stänga av diktering igen",
+  "8e9626aa27cb188a": "Ärenden",
+  "86798f07ba2d7f4d": "Sök ärenden",
+  "6a717189b43e9f0e": "Öppet",
+  "f8700aef3eb2cf71": "Stängt",
+  "c9735ce17719123b": "Alla",
+  "006fab820cc5a2f1": "Läs in fler",
+  "d827f64a6d0b4706": "Inga ärenden med de här filtren.",
+  "614811ba85f590a5": "Det gick inte att läsa in ärendena.",
+  "d53156b9bd1ef459": "Filter",
+  "937020f29c4f0a65": "Sortera",
+  "844f6c8d82ecce5d": "Nyligen uppdaterade",
+  "f77af0fd4c6acea1": "Nyaste",
+  "d894f6cb29f7a3ea": "Tillbaka",
+  "9f341a45df358710": "Inga ärendehanterare att läsa",
+  "616b3cd868f3d2af": "Lägg till ett projekt vars fjärr finns i en ärendehanterare som stöds."
 }
