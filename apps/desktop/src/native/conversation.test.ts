@@ -96,7 +96,7 @@ it("keeps the previous final reply copyable when the next run receives its promp
   );
   expect(linked.file_links?.["rune-file:4"]).toEqual({
     href: "src/main.rs#L12",
-    copy: "[main.rs](src/main.rs#L12)",
+    copy: "[main.rs](<src/main.rs#L12>)",
   });
   expect(linked.copy_body).toBe(
     "See [main.rs](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",

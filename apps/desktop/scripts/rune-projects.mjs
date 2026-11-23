@@ -84,6 +84,7 @@ import {
   readWorkspace,
   writePlanToWorkspace,
   readWorkspaceFiles,
+  resolveWorkspaceMarkdownLink,
   workspaceMarkdownLink,
 } from "../src/native/projects.ts";
 
@@ -645,7 +646,20 @@ async function workspaceFiles(request, reply) {
   if (request.action === "resolve") {
     const link =
       record && record.id === request.watch && record.owner === session && session.canBrowse
-        ? workspaceMarkdownLink(request.href, request.root)
+        ? await Effect.runPromise(
+            resolveWorkspaceMarkdownLink(
+              record.owner,
+              request.href,
+              request.root,
+              workspaceFeed?.activeRpc(),
+            ).pipe(
+              Effect.scoped,
+              Effect.timeout("12 seconds"),
+              Effect.provide(record.owner.http),
+              Effect.orElseSucceed(() => workspaceMarkdownLink(request.href, request.root)),
+            ),
+            { signal: record.controller.signal },
+          ).catch(() => null)
         : null;
     reply({ type: "workspacefilelink", operation: request.operation, link });
     return;

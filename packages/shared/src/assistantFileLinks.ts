@@ -124,7 +124,10 @@ export function assistantFileLinks(
           cwd,
         );
         const label = plainLabel(node);
-        const prefix = isLink && !isMarkdownFileLinkLabel(label, href) ? label + " " : undefined;
+        const prefix =
+          isLink && !isMarkdownFileLinkLabel(label, href)
+            ? label.replace(/\r\n?|\n/g, " ") + " "
+            : undefined;
         const source = markdown.slice(start, end);
         const copy =
           node.type === "linkReference" || node.type === "imageReference"
@@ -133,8 +136,8 @@ export function assistantFileLinks(
                 node.referenceType === "shortcut",
                 definitions.get(node.identifier)!,
               )
-            : node.type === "link" && !(source.startsWith("[") && source.includes("]("))
-              ? `[${label.replace(/[\\[\]]/g, "\\$&")}](${href})`
+            : node.data && "codexFileCitationMarkdown" in node.data
+              ? String(node.data.codexFileCitationMarkdown)
               : source;
         let id = "rune-file:" + start;
         while (destinations.has(id)) id += ":";
