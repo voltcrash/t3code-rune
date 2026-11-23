@@ -168,6 +168,25 @@ impl Toolbar {
         };
         other.replace_text(next.to_string());
     }
+    pub(super) fn take_size(&mut self, limits: &Limits) -> Option<[u32; 2]> {
+        let axis = self.edited.take()?;
+        let size = [
+            self.width.text.parse::<u32>().ok()?,
+            self.height.text.parse::<u32>().ok()?,
+        ];
+        if !size.iter().all(|v| (limits.min..=limits.max).contains(v)) {
+            return None;
+        }
+        if self.aspect_ratio.is_none() && size[0] * size[1] > limits.area {
+            return None;
+        }
+        Some(limits.size(
+            size.map(f64::from),
+            self.aspect_ratio,
+            matches!(axis, Axis::Width),
+        ))
+    }
+
     fn edit_request(&self) -> Option<Value> {
         Some(json!({
             "width": self.width.text.parse::<u32>().ok()?,

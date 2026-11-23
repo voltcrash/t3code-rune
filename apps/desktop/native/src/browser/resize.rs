@@ -48,6 +48,7 @@ enum Mode {
 pub(super) struct Resize {
     edge: usize,
     mode: Mode,
+    source: [u32; 2],
     start: [u32; 2],
     next: [u32; 2],
     layout: Layout,
@@ -58,13 +59,21 @@ impl Resize {
         matches!(self.mode, Mode::Sent)
     }
 
-    fn new(p: &Panel, edge: usize, mode: Mode, window_zoom: f64) -> Option<Self> {
+    fn new(
+        p: &Panel,
+        edge: usize,
+        mode: Mode,
+        window_zoom: f64,
+        visible: Option<[u32; 2]>,
+    ) -> Option<Self> {
         let tab = p.page.tab()?;
         let size = tab.device.as_ref()?;
-        let start = [size.width, size.height];
+        let source = [size.width, size.height];
+        let start = visible.unwrap_or(source);
         Some(Self {
             edge,
             mode,
+            source,
             start,
             next: start,
             layout: layout(p.size, start, f64::from(tab.zoom) / 100. / window_zoom),
@@ -124,13 +133,18 @@ impl Panel {
 
 impl Desktop {
     fn begin_browser_drag(&mut self, edge: usize, tx: &mut Tx) {
-        let Some(p) = &mut self.workspace.browser.panel else {
+        let browser = &mut self.workspace.browser;
+        let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels) else {
             return;
         };
-        if !p.page.can_write || p.page.busy {
+        if !p.page.can_write || p.page.busy || p.resize.is_some_and(Resize::sent) {
             return;
         }
-        p.display_resize(Resize::new(p, edge, Mode::Drag, self.zoom.factor));
+        let visible = p
+            .device
+            .take_size(&labels.device.limits)
+            .or_else(|| p.resize.map(|r| r.next));
+        p.display_resize(Resize::new(p, edge, Mode::Drag, self.zoom.factor, visible));
         tx.focus(HANDLES[edge].0, false);
     }
 
@@ -140,7 +154,7 @@ impl Desktop {
             return false;
         };
         if ev.key == Key::Escape && p.resize.is_some_and(|r| !matches!(r.mode, Mode::Sent)) {
-            p.display_resize(None);
+            self.cancel_browser_resize();
             tx.instant();
             return true;
         }
@@ -161,7 +175,7 @@ impl Desktop {
         let mode = Mode::Keys(Instant::now() + KEYS_DELAY);
         let Some(mut resize) = p
             .resize
-            .or_else(|| Resize::new(p, edge, mode, self.zoom.factor))
+            .or_else(|| Resize::new(p, edge, mode, self.zoom.factor, None))
         else {
             return false;
         };
@@ -193,10 +207,25 @@ impl Desktop {
                 true
             }
             Mode::Drag if tx.focused() != Some(HANDLES[r.edge].0) => {
-                p.display_resize(None);
+                self.cancel_browser_resize();
                 true
             }
             _ => false,
+        }
+    }
+
+    fn cancel_browser_resize(&mut self) {
+        let Some(p) = &mut self.workspace.browser.panel else {
+            return;
+        };
+        if let Some(r) = &mut p.resize
+            && matches!(r.mode, Mode::Drag)
+            && r.start != r.source
+        {
+            r.next = r.start;
+            self.commit_browser_resize();
+        } else {
+            p.display_resize(None);
         }
     }
 
@@ -208,10 +237,10 @@ impl Desktop {
         p.display_resize(None);
         let Some(tab) = p.page.tab() else { return };
         let Some(source) = &tab.device else { return };
-        if r.next == r.start
+        if r.next == r.source
             || !p.page.can_write
             || p.page.busy
-            || [source.width, source.height] != r.start
+            || [source.width, source.height] != r.source
         {
             return;
         }
@@ -298,7 +327,7 @@ pub(super) fn canvas(
                 .child(stroke(1., 24.))
                 .child(stroke(1., 24.))
         };
-        let mut handle = el()
+        let handle = el()
             .key(key)
             .role("button")
             .label(&labels.handles[edge])
@@ -307,45 +336,41 @@ pub(super) fn canvas(
             .size(w, h)
             .center()
             .child(grip);
-        if !p.page.busy || p.resize.is_some_and(|r| matches!(r.mode, Mode::Sent)) {
-            handle = handle
-                .focusable(true)
-                .cursor(if corner {
-                    Cursor::Crosshair
-                } else if x == 0 {
-                    Cursor::ResizeRow
-                } else {
-                    Cursor::ResizeColumn
-                })
-                .hover(theme.hover)
-                .on_key(move |s: &mut Desktop, ev, tx| s.browser_resize_key(edge, ev, tx))
-                .on_drag(move |s: &mut Desktop, d, tx| {
-                    if d.phase == Phase::Down {
-                        s.begin_browser_drag(edge, tx);
-                        return;
-                    }
-                    let browser = &mut s.workspace.browser;
-                    let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels) else {
-                        return;
-                    };
-                    let Some(mut r) = p.resize else { return };
-                    if !matches!(r.mode, Mode::Drag) || r.edge != edge {
-                        return;
-                    }
-                    if d.cancelled() || tx.focused() != Some(key) {
-                        p.display_resize(None);
-                        return;
-                    }
-                    r.drag([d.dx, d.dy], &labels.device.limits, p.device.aspect_ratio);
-                    p.display_resize(Some(r));
-                    tx.instant();
-                    if d.phase == Phase::Up {
-                        s.commit_browser_resize();
-                    }
-                });
-        } else {
-            handle = handle.disabled(true);
-        }
+        let handle = handle
+            .focusable(true)
+            .cursor(if corner {
+                Cursor::Crosshair
+            } else if x == 0 {
+                Cursor::ResizeRow
+            } else {
+                Cursor::ResizeColumn
+            })
+            .hover(theme.hover)
+            .on_key(move |s: &mut Desktop, ev, tx| s.browser_resize_key(edge, ev, tx))
+            .on_drag(move |s: &mut Desktop, d, tx| {
+                if d.phase == Phase::Down {
+                    s.begin_browser_drag(edge, tx);
+                    return;
+                }
+                let browser = &mut s.workspace.browser;
+                let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels) else {
+                    return;
+                };
+                let Some(mut r) = p.resize else { return };
+                if !matches!(r.mode, Mode::Drag) || r.edge != edge {
+                    return;
+                }
+                if d.cancelled() || tx.focused() != Some(key) {
+                    s.cancel_browser_resize();
+                    return;
+                }
+                r.drag([d.dx, d.dy], &labels.device.limits, p.device.aspect_ratio);
+                p.display_resize(Some(r));
+                tx.instant();
+                if d.phase == Phase::Up {
+                    s.commit_browser_resize();
+                }
+            });
         area = area.child(handle);
     }
     area
