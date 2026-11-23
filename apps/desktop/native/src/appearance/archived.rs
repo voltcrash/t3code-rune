@@ -40,7 +40,7 @@ pub(crate) struct Archived {
     groups: Option<Vec<Group>>,
     error: Option<String>,
     pending: HashSet<String>,
-    deleting: Option<Thread>,
+    pub(super) deleting: Option<Thread>,
 }
 
 impl Desktop {
@@ -64,10 +64,14 @@ impl Desktop {
     }
 
     /// An edit's reply lands here; a pending row then reloads to show where the thread went.
-    pub(crate) fn archived_edit_finished(&mut self) {
-        if !self.archived.pending.is_empty() {
-            self.load_archived();
+    /// Returns whether the page owned the edit, so its error shows on the page, not behind it.
+    pub(crate) fn archived_edit_finished(&mut self, error: &Option<String>) -> bool {
+        if self.archived.pending.is_empty() {
+            return false;
         }
+        self.load_archived();
+        self.settings_error = error.clone();
+        true
     }
 
     fn unarchive(&mut self, id: String) {
@@ -141,10 +145,9 @@ fn age(at: i64, labels: &Labels) -> String {
     if elapsed < 60 {
         return labels.just_now.clone();
     }
-    format!(
-        "{} {}",
-        crate::workspace::sidebar_status::relative_age(elapsed),
-        labels.ago
+    labels.ago.replace(
+        "{age}",
+        &crate::workspace::sidebar_status::relative_age(elapsed),
     )
 }
 

@@ -198,7 +198,12 @@ impl Desktop {
     }
 
     fn archive_thread(&mut self, target: Target) {
-        if self.can_operate && self.workspace.feed == Some(target.watch) {
+        let archivable = self
+            .workspace
+            .by_thread
+            .get(&target.thread)
+            .is_some_and(|&i| self.workspace.threads[i].can_archive);
+        if self.can_operate && archivable && self.workspace.feed == Some(target.watch) {
             self.write_request(
                 None,
                 Request::ArchiveThread {
@@ -749,7 +754,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
     menu = menu.item(
         MenuItem::new(&labels.archive)
             .icon(&ARCHIVE)
-            .disabled(locked || thread.status.timed())
+            .disabled(locked || !thread.can_archive)
             .on_select(move |s: &mut Desktop| s.request_archive(&id, origin)),
     );
     let id = thread.id.clone();

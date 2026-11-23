@@ -417,7 +417,7 @@
   "9e4e731164d1d283": "{title} aus dem Archiv holen",
   "ea24f015d73520fd": "Löschen",
   "d6b75f6c2f576a2c": "{title} löschen",
-  "9ad1400c5097a705": "her",
   "30589efe06e4d26f": "gerade eben",
-  "2a364723e6e2978e": "Archiviert {archived} · Erstellt {created}"
+  "2a364723e6e2978e": "Archiviert {archived} · Erstellt {created}",
+  "e2678700a48ee5a5": "vor {age}"
 }

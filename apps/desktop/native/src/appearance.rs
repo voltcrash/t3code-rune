@@ -98,6 +98,7 @@ impl Desktop {
             self.show_voice_models(false);
         }
         self.settings_open = false;
+        self.archived.deleting = None;
         tx.focus("settings-trigger", true);
     }
 

@@ -41,7 +41,7 @@ export function archivedPageLabels() {
         created: "{created}",
       }),
     ),
-    ago: m(msg("ago", { $context: "follows an elapsed time such as 5m" })),
+    ago: m(msg("{age} ago", { age: "{age}" })),
     just_now: m(msg("just now")),
   };
 }

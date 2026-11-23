@@ -49,7 +49,7 @@ fn working_duration(seconds: i64) -> String {
 }
 
 impl RowStatus {
-    pub(crate) fn timed(self) -> bool {
+    fn timed(self) -> bool {
         matches!(
             self,
             Self::Working | Self::Goal | Self::Preparing | Self::Waiting

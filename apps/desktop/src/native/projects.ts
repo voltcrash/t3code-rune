@@ -16,6 +16,7 @@ import {
 import {
   presentThreadShell,
   resolveThreadProviderStack,
+  threadRuntimeCanArchive,
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
 import { threadRaisedHandWhileSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -239,6 +240,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     branch: thread.branch,
     ...(thread.worktreePath ? { worktree: thread.worktreePath } : {}),
     status,
+    can_archive: threadRuntimeCanArchive(shell.runtime),
     ...(titleStatus && { title_status: m(THREAD_STATUS_TEXT[titleStatus]) }),
     status_at: timestamp ? Date.parse(timestamp) : null,
     recedes: shouldRecedeSidebarThread({

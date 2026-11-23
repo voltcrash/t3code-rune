@@ -1401,7 +1401,11 @@ impl Desktop {
             return;
         }
         if let Reply::ThreadEdited { watch, error } = message.reply {
-            self.archived_edit_finished();
+            let error = if self.archived_edit_finished(&error) {
+                None
+            } else {
+                error
+            };
             if self.workspace.feed == Some(watch) {
                 if let Some(message) = error {
                     self.error = Some(message);

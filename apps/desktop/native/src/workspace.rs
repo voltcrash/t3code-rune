@@ -76,6 +76,8 @@ pub(super) struct Thread {
     branch: Option<String>,
     worktree: Option<String>,
     status: sidebar_status::RowStatus,
+    #[serde(default = "can_archive")]
+    can_archive: bool,
     title_status: Option<String>,
     status_at: Option<i64>,
     #[serde(default)]
@@ -93,6 +95,10 @@ pub(super) struct Thread {
     #[serde(default)]
     pinned: bool,
     snoozed_until: Option<i64>,
+}
+
+fn can_archive() -> bool {
+    true
 }
 
 impl Thread {
@@ -2557,6 +2563,7 @@ mod tests {
             branch: None,
             worktree: None,
             status: sidebar_status::RowStatus::Ready,
+            can_archive: true,
             title_status: None,
             status_at: None,
             recedes: false,
