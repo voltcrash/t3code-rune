@@ -119,7 +119,7 @@ export function assistantFileLinks(
         const prefix = isLink && !isMarkdownFileLinkLabel(label, href) ? label + " " : undefined;
         const source = markdown.slice(start, end);
         const copy =
-          isLink && !(source.startsWith("[") && source.includes("]("))
+          node.type === "link" && !(source.startsWith("[") && source.includes("]("))
             ? `[${label.replace(/[\\[\]]/g, "\\$&")}](${href})`
             : source;
         let id = "rune-file:" + start;
@@ -127,7 +127,8 @@ export function assistantFileLinks(
         links[id] = { href, copy, ...(prefix ? { prefix } : {}) };
         parts.push(markdown.slice(cursor, start));
         if (prefix && "children" in node) {
-          parts.push(node.children.map((child) => aliasMarkdown(child, markdown)).join("") + " ");
+          const alias = node.children.map((child) => aliasMarkdown(child, markdown)).join("");
+          parts.push(alias.replace(/^[ \t]/, (c) => (c === " " ? "&#32;" : "&#9;")) + " ");
         }
         parts.push(
           codexFileCitationMarkdown({

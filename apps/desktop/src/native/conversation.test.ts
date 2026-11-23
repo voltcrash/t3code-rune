@@ -122,6 +122,14 @@ it("keeps the previous final reply copyable when the next run receives its promp
   }
   message(1, "assistant", "[# Read **this**](docs/main.rs)");
   expect(state.rows.at(-1)?.body).toBe("\\# Read **this** [main.rs](<rune-file:0>)");
+  const reference = "[    Read docs][draft]";
+  message(1, "assistant", reference + "\n\n[draft]: <docs/my file.rs>");
+  const referenced = state.rows.at(-1)!;
+  expect(referenced.body.split("\n\n")[0]).toBe("&#32;   Read docs [my file.rs](<rune-file:0>)");
+  expect(referenced.file_links?.["rune-file:0"]).toMatchObject({
+    href: "docs/my file.rs",
+    copy: reference,
+  });
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");
