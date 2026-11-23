@@ -13,7 +13,7 @@ import { m } from "../src/i18n/catalog.ts";
 import { speechConnection } from "../src/native/voiceModels.ts";
 
 const preference = "desktop-dictation-grant";
-let revokedGrant;
+let pendingRevocation;
 
 async function readRecording(output, onStarted, onProgress) {
   let header = Buffer.alloc(0);
@@ -91,13 +91,18 @@ export function workspaceDictation({
   const connection = speechConnection(owner);
   let active;
   let completed;
+  function retryRevoke() {
+    return (
+      pendingRevocation?.origin === origin && pendingRevocation.environment === owner.environmentId
+    );
+  }
   function grant() {
+    if (retryRevoke()) return null;
     try {
       const value = JSON.parse(read(preference) ?? "null");
       return value?.origin === origin &&
         value.environment === owner.environmentId &&
-        typeof value.id === "string" &&
-        value.id !== revokedGrant
+        typeof value.id === "string"
         ? value.id
         : null;
     } catch {
@@ -108,14 +113,15 @@ export function workspaceDictation({
     return {
       available,
       enabled: available && !!grant(),
+      retry_revoke: retryRevoke(),
       destination: local ? owner.label : origin,
     };
   }
   function select(enabled) {
-    if (signal.aborted || (enabled && !available)) return;
+    if (signal.aborted || (enabled && (!available || retryRevoke()))) return;
     active?.controller.abort();
     completed = undefined;
-    if (!enabled) revokedGrant = grant() ?? revokedGrant;
+    if (!enabled) pendingRevocation = { origin, environment: owner.environmentId };
     try {
       save(
         preference,
@@ -127,7 +133,7 @@ export function workspaceDictation({
             })
           : null,
       );
-      revokedGrant = undefined;
+      pendingRevocation = undefined;
       report({ type: "dictationchoice", choice: choice() });
     } catch {
       report({

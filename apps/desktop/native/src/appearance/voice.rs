@@ -217,17 +217,23 @@ pub(super) fn view(s: &Desktop, labels: &Labels, narrow: bool, theme: &tok::Them
     ));
     if let Some(watch) = s.workspace.feed {
         let choice = &s.dictation.choice;
-        let name = if choice.enabled {
+        let name = if choice.retry_revoke {
+            &labels.dictation.retry_revoke
+        } else if choice.enabled {
             &choice.destination
         } else {
             &labels.dictation.off
         };
-        let next = !choice.enabled;
+        let next = !choice.enabled && !choice.retry_revoke;
         let description = format!("{} · {}", labels.dictation.destination, choice.destination);
-        let allowed = choice.available || choice.enabled;
-        let mut control = button("dictation-choice", name, &description, allowed, theme)
-            .role("switch")
-            .checked(choice.enabled);
+        let allowed = choice.available || choice.enabled || choice.retry_revoke;
+        let mut control = if choice.retry_revoke {
+            button("dictation-choice", name, name, allowed, theme)
+        } else {
+            button("dictation-choice", name, &description, allowed, theme)
+                .role("switch")
+                .checked(choice.enabled)
+        };
         if allowed {
             control = control.on_press(move |s: &mut Desktop| {
                 if s.workspace.feed == Some(watch) {

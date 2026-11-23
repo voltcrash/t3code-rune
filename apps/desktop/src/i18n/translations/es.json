@@ -263,5 +263,6 @@
   "499fb0b7d2e2bb5f": "No se pudo iniciar el micrófono.",
   "43692a5af811085a": "Falló la transcripción de voz. Revisa el destino en Ajustes → Voz.",
   "b6e6c93abb35a98e": "No se detectó voz.",
-  "a20b495b9e6f82b9": "Iniciando…"
+  "a20b495b9e6f82b9": "Iniciando…",
+  "acca565dc877084e": "Volver a intentar desactivar el dictado"
 }

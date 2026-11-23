@@ -5,12 +5,13 @@ import { workspaceDictation } from "./rune-dictation.mjs";
 
 it("sends a take only to the environment and origin granted when recording started", async () => {
   let preference;
+  let refuseDeletion = false;
   const started = Promise.withResolvers();
   const pcm = Promise.withResolvers();
   const posted = [];
   const report = vi.fn();
-  const workspace = (environmentId, httpBaseUrl) =>
-    workspaceDictation({
+  const workspace = (environmentId, httpBaseUrl, create = workspaceDictation) =>
+    create({
       owner: {
         environmentId,
         httpBaseUrl,
@@ -42,6 +43,7 @@ it("sends a take only to the environment and origin granted when recording start
       report,
       read: () => preference,
       save: (_, value) => {
+        if (value === null && refuseDeletion) throw new Error("Read-only preferences");
         preference = value;
       },
       settings: () => DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
@@ -79,4 +81,21 @@ it("sends a take only to the environment and origin granted when recording start
   replacement.insert(2, { text: "🧪 " + draft.text, selection: { start: 0, end: 0 } });
   expect(report.mock.lastCall[0].edit).toEqual({ start: 11, end: 11, text: " spoken" });
   replacement.finish(2, true);
+
+  refuseDeletion = true;
+  replacement.select(false);
+  expect(replacement.choice()).toMatchObject({ enabled: false, retry_revoke: true });
+  const reconnected = workspace("one", origin);
+  reconnected.select(true);
+  await reconnected.start(3, draft);
+  expect(reconnected.choice()).toMatchObject({ enabled: false, retry_revoke: true });
+  expect(posted).toHaveLength(1);
+
+  vi.resetModules();
+  const fresh = (await import("./rune-dictation.mjs")).workspaceDictation;
+  expect(workspace("one", origin, fresh).choice().enabled).toBe(true);
+  refuseDeletion = false;
+  reconnected.select(false);
+  expect(reconnected.choice()).toMatchObject({ enabled: false, retry_revoke: false });
+  expect(workspace("one", origin, fresh).choice().enabled).toBe(false);
 });

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Choice {
     pub available: bool,
     pub enabled: bool,
+    pub retry_revoke: bool,
     pub destination: String,
 }
 
@@ -14,6 +15,7 @@ pub(crate) struct Choice {
 pub(crate) struct Labels {
     pub destination: String,
     pub off: String,
+    pub retry_revoke: String,
     pub start: String,
     pub finish: String,
     pub cancel: String,
@@ -349,7 +351,7 @@ impl Desktop {
             .h(32.)
             .px(2.)
             .border(1., theme.card_border)
-            .fill(theme.separator.alpha(0.48))
+            .fill(theme.text.alpha(0.045))
             .child(
                 button("dictation-cancel", &labels.cancel, &glyphs::CLOSE)
                     .on_press(|s: &mut Desktop| s.cancel_dictation()),

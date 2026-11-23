@@ -807,6 +807,7 @@ function publishClientSettings(error) {
         title: m(msg("Voice")),
         dictation: {
           destination: m(msg("Transcribe with")),
+          retry_revoke: m(msg("Retry turning off dictation")),
           off: m(msg("Off")),
           start: m(msg("Start voice input")),
           cancel: m(msg("Cancel voice input")),
