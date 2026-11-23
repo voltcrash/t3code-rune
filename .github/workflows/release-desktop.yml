@@ -302,16 +302,19 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y nsis zip
+          sudo apt-get install -y nsis zip libclang-dev
           if [[ "${{ inputs.arch }}" == x64 ]]; then
             sudo apt-get install -y gcc-mingw-w64-x86-64
+            echo "BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_gnu=--target=x86_64-w64-windows-gnu --sysroot=/usr/x86_64-w64-mingw32" >> "$GITHUB_ENV"
             echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc" >> "$GITHUB_ENV"
           else
             archive=llvm-mingw-20261117-ucrt-ubuntu-22.04-x86_64.tar.xz
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/$archive"
             echo "e7a15a49a2ea95e9f3d8a9d0cfabe5052a4b10fb4777cc54de5a8c27b64bb701  $RUNNER_TEMP/$archive" | sha256sum -c -
             tar -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
-            echo "$RUNNER_TEMP/${archive%.tar.xz}/bin" >> "$GITHUB_PATH"
+            toolchain="$RUNNER_TEMP/${archive%.tar.xz}"
+            echo "$toolchain/bin" >> "$GITHUB_PATH"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_pc_windows_gnullvm=--target=aarch64-w64-windows-gnu --sysroot=$toolchain/aarch64-w64-mingw32" >> "$GITHUB_ENV"
           fi
 
       - name: Install cargo-xwin
@@ -560,7 +563,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev libxkbcommon-dev cmake libpulse-dev pkg-config dpkg-dev patchelf file squashfs-tools
+          sudo apt-get install -y libsecret-1-dev libxkbcommon-dev libclang-dev pkg-config dpkg-dev patchelf file squashfs-tools
           dir="$RUNNER_TEMP/rune-appimagetool"
           mkdir -p "$dir/bin"
           cd "$dir"

@@ -1,7 +1,5 @@
-use cubeb::{
-    ChannelLayout, Context, MonoFrame, SampleFormat, State, StreamBuilder, StreamParamsBuilder,
-};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use miniaudio::{Backend, Context, Device, DeviceConfig, DeviceType, Error, Format};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -32,13 +30,33 @@ enum Signal {
     Stop,
     Cancel,
     Drained,
-    Error,
+    DeviceStopped,
 }
 
 #[derive(Default)]
 struct Progress {
+    cancelled: AtomicBool,
     frames: AtomicUsize,
     level: AtomicUsize,
+}
+
+impl Progress {
+    fn capture(&self, buffer: &Mutex<Vec<f32>>, input: &[f32]) -> bool {
+        if self.cancelled.load(Ordering::Acquire) {
+            return false;
+        }
+        let mut data = buffer.lock().unwrap_or_else(|e| e.into_inner());
+        if data.len() == LIMIT {
+            return false;
+        }
+        let input = &input[..input.len().min(LIMIT - data.len())];
+        data.extend_from_slice(input);
+        let peak = input.iter().fold(0.0_f32, |peak, v| peak.max(v.abs()));
+        self.level
+            .store((peak.min(1.) * 100.).round() as usize, Ordering::Relaxed);
+        self.frames.store(data.len(), Ordering::Relaxed);
+        data.len() == LIMIT
+    }
 }
 
 pub(crate) struct Job {
@@ -49,6 +67,7 @@ pub(crate) struct Job {
 
 impl Drop for Job {
     fn drop(&mut self) {
+        self.progress.cancelled.store(true, Ordering::Release);
         let _ = self.stop.send(Signal::Cancel);
     }
 }
@@ -97,96 +116,99 @@ fn run(
     signal: mpsc::Sender<Signal>,
     commands: mpsc::Receiver<Signal>,
     events: &mpsc::Sender<Event>,
-) -> cubeb::Result<Option<Event>> {
-    let ctx = Context::init(Some(c"T3 Code"), None)?;
-    let params = StreamParamsBuilder::new()
-        .format(SampleFormat::Float32NE)
-        .rate(RATE as u32)
-        .channels(1)
-        .layout(ChannelLayout::MONO)
-        .take();
-    let mut stream = StreamBuilder::<MonoFrame<f32>>::new();
-    stream
-        .name("T3 Code microphone test")
-        .latency(ctx.min_latency(&params).unwrap_or(512).max(256))
-        .state_callback(move |state| {
-            let reason = match state {
-                State::Error => Signal::Error,
-                State::Drained => Signal::Drained,
-                _ => return,
-            };
-            let _ = signal.send(reason);
-        });
-    let counter = progress.clone();
-    let capture = match &activity {
+) -> Result<Option<Event>, Error> {
+    #[cfg(target_os = "linux")]
+    let backends = [Backend::PulseAudio, Backend::Alsa, Backend::Jack];
+    #[cfg(target_os = "macos")]
+    let backends = [Backend::CoreAudio];
+    #[cfg(windows)]
+    let backends = [Backend::Wasapi, Backend::DSound, Backend::WinMM];
+
+    if progress.cancelled.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let context = Context::new(&backends, None)?;
+    if progress.cancelled.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let state = progress.clone();
+    let stopped = signal.clone();
+    let (mut config, capture) = match activity {
         Activity::Record => {
             let samples = Arc::new(Mutex::new(Vec::with_capacity(LIMIT)));
             let buffer = samples.clone();
-            stream
-                .default_input(&params)
-                .data_callback(move |input, _| {
-                    let Ok(mut dest) = buffer.try_lock() else {
-                        return -1;
-                    };
-                    let count = input.len().min(LIMIT - dest.len());
-                    let mut peak = 0.0_f32;
-                    for frame in &input[..count] {
-                        dest.push(frame.m);
-                        peak = peak.max(frame.m.abs());
-                    }
-                    counter.frames.store(dest.len(), Ordering::Relaxed);
-                    counter
-                        .level
-                        .store((peak.min(1.) * 100.).round() as usize, Ordering::Relaxed);
-                    count as isize
-                });
-            Some(samples)
+            let mut config = DeviceConfig::new(DeviceType::Capture);
+            config.set_sample_rate(RATE as u32);
+            config.capture_mut().set_format(Format::F32);
+            config.capture_mut().set_channels(1);
+            config.set_data_callback(move |_, _, input| {
+                if state.capture(&buffer, input.as_samples::<f32>()) {
+                    let _ = signal.send(Signal::Drained);
+                }
+            });
+            (config, Some(samples))
         }
         Activity::Play(samples, offset) => {
-            let samples = samples.clone();
-            let mut pos = *offset;
-            stream
-                .default_output(&params)
-                .data_callback(move |_, output| {
-                    let count = output.len().min(samples.len() - pos);
-                    for (frame, sample) in
-                        output[..count].iter_mut().zip(&samples[pos..pos + count])
-                    {
-                        frame.m = *sample;
+            let mut cursor = offset.min(samples.len());
+            let mut silence = 0;
+            let mut config = DeviceConfig::new(DeviceType::Playback);
+            config.set_sample_rate(RATE as u32);
+            config.playback_mut().set_format(Format::F32);
+            config.playback_mut().set_channels(1);
+            config.set_period_size_in_milliseconds(10);
+            config.set_data_callback(move |_, output, _| {
+                let output = output.as_samples_mut::<f32>();
+                output.fill(0.);
+                if state.cancelled.load(Ordering::Acquire) {
+                    return;
+                }
+                let count = output.len().min(samples.len() - cursor);
+                output[..count].copy_from_slice(&samples[cursor..cursor + count]);
+                cursor += count;
+                state.frames.store(cursor, Ordering::Relaxed);
+                // Let queued hardware periods play the final samples before closing the device.
+                if cursor == samples.len() && silence < RATE / 10 {
+                    silence += output.len() - count;
+                    if silence >= RATE / 10 {
+                        let _ = signal.send(Signal::Drained);
                     }
-                    pos += count;
-                    counter.frames.store(pos, Ordering::Relaxed);
-                    count as isize
-                });
-            None
+                }
+            });
+            (config, None)
         }
     };
-    let stream = stream.init(&ctx)?;
-    if commands.try_recv().is_ok() {
+    if progress.cancelled.load(Ordering::Acquire) {
         return Ok(None);
     }
-    stream.start()?;
-    if events.send(Event::Started).is_err() {
+    config.set_stop_callback(move |_| {
+        let _ = stopped.send(Signal::DeviceStopped);
+    });
+    let device = Device::new(Some(context), &config)?;
+    if progress.cancelled.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    device.start()?;
+    if progress.cancelled.load(Ordering::Acquire) || events.send(Event::Started).is_err() {
         return Ok(None);
     }
     let timeout = Duration::from_secs(if capture.is_some() { 10 } else { 12 });
     let reason = commands.recv_timeout(timeout);
-    let played = match reason {
-        Ok(Signal::Cancel) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
-        Ok(Signal::Error) => {
-            return Ok(Some(Event::Failed(if capture.is_some() {
-                Failure::Input
-            } else {
-                Failure::Playback
-            })));
-        }
-        Ok(Signal::Drained) => 0,
-        Err(mpsc::RecvTimeoutError::Timeout) if capture.is_none() => {
-            return Ok(Some(Event::Failed(Failure::Playback)));
-        }
-        _ => stream.position().unwrap_or(0) as usize,
-    };
-    drop(stream);
+    drop(device);
+    if progress.cancelled.load(Ordering::Acquire)
+        || matches!(
+            reason,
+            Ok(Signal::Cancel) | Err(mpsc::RecvTimeoutError::Disconnected)
+        )
+    {
+        return Ok(None);
+    }
+    if matches!(reason, Ok(Signal::DeviceStopped)) {
+        return Ok(Some(Event::Failed(if capture.is_some() {
+            Failure::Input
+        } else {
+            Failure::Playback
+        })));
+    }
     if let Some(samples) = capture {
         let mut data = samples.lock().unwrap_or_else(|e| e.into_inner());
         return Ok(Some(if data.is_empty() {
@@ -195,14 +217,36 @@ fn run(
             Event::Recorded(std::mem::take(&mut *data).into())
         }));
     }
-    let Activity::Play(samples, offset) = activity else {
-        unreachable!()
-    };
-    Ok(Some(Event::Played(
-        if matches!(reason, Ok(Signal::Drained)) {
-            0
-        } else {
-            (offset + played).min(samples.len())
-        },
-    )))
+    Ok(Some(match reason {
+        Ok(Signal::Drained) => Event::Played(0),
+        Ok(Signal::Stop) => Event::Played(progress.frames.load(Ordering::Relaxed)),
+        _ => Event::Failed(Failure::Playback),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelling_during_startup_discards_late_input() {
+        let progress = Arc::new(Progress::default());
+        let (stop, commands) = mpsc::channel();
+        let (events, receive) = mpsc::channel();
+        let job = Job {
+            stop: stop.clone(),
+            events: receive,
+            progress: progress.clone(),
+        };
+        drop(job);
+
+        let buffer = Mutex::new(Vec::new());
+        assert!(!progress.capture(&buffer, &[0.5; 32]));
+        assert!(buffer.into_inner().unwrap().is_empty());
+        assert!(
+            run(Activity::Record, &progress, stop, commands, &events)
+                .unwrap()
+                .is_none()
+        );
+    }
 }

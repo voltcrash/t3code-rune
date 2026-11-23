@@ -20,7 +20,6 @@ depends=(
   'hicolor-icon-theme'
   'libcups'
   'libdrm'
-  'libpulse'
   'libgcc'
   'libstdc++'
   'libx11'
