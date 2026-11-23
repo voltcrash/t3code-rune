@@ -1934,23 +1934,26 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
-    let measured_width = cx.layout_size("thread-titlebar").map_or(0., |size| size[0]);
+    let [measured_width, toolbar_height] = cx
+        .layout_size("thread-titlebar")
+        .unwrap_or([0., bar.height]);
     let layout = thread_details::layout(
         s,
         measured_width,
-        viewport[1] - bar.height,
+        viewport[1] - toolbar_height,
         chat_lane_inset(viewport[0]),
         !panel_open || split_panel,
     );
     let kit = s.contrast.kit(dark);
     let mut header = row()
-        .key("thread-titlebar")
-        .w_full()
+        .key("workspace-breadcrumb-bar")
+        .w(0.)
+        .grow(1.)
+        .min_w(0.)
         .h(bar.height)
-        .window_drag()
         .center_y()
         .gap(8.0)
-        .px(16.0);
+        .pl(16.0);
     if drawer.is_some() || !s.sidebar_layout.open {
         let caption = "Show sidebar";
         header = header.pl(bar.leading + 12.).child(
@@ -1968,31 +1971,55 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .on_press(Desktop::toggle_sidebar),
         );
     }
+    let mut breadcrumbs = row()
+        .key("thread-breadcrumbs")
+        .grow(1.)
+        .min_w(0.)
+        .center_y()
+        .gap(8.);
+    let show_project = cx
+        .layout_size("thread-breadcrumbs")
+        .is_none_or(|[width, _]| width >= 112.);
     if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
-        header = header
-            .children(project.badge(s.workspace.feed, dark))
-            .child(label(&project.title, 13.0, 400.0, theme.text_secondary))
-            .child(label("/  New thread", 14.0, 500.0, theme.text));
+        if show_project {
+            breadcrumbs = breadcrumbs
+                .children(project.badge(s.workspace.feed, dark))
+                .child(
+                    label(&project.title, 13., 400., theme.text_secondary)
+                        .truncate_middle()
+                        .shrink(),
+                )
+                .child(label("/", 13., 400., theme.text_secondary));
+        }
+        breadcrumbs = breadcrumbs.child(
+            label("New thread", 14., 500., theme.text)
+                .truncate()
+                .shrink(),
+        );
     } else if !s.workspace.show_projects
         && let Some(thread) = thread
     {
-        if let Some(project) = s.workspace.project(&thread.project) {
-            header = header
+        if show_project && let Some(project) = s.workspace.project(&thread.project) {
+            breadcrumbs = breadcrumbs
                 .children(project.badge(s.workspace.feed, dark))
-                .child(label(&project.title, 13.0, 400.0, theme.text_secondary).truncate())
-                .child(label("/", 13.0, 400.0, theme.text_secondary));
+                .child(
+                    label(&project.title, 13., 400., theme.text_secondary)
+                        .truncate_middle()
+                        .shrink(),
+                )
+                .child(label("/", 13., 400., theme.text_secondary));
         }
-        header = header.child(thread_actions::header(
-            s,
-            thread,
-            theme,
-            &kit,
-            &mut overlays,
-        ));
+        breadcrumbs = breadcrumbs.child(
+            thread_actions::header(s, thread, theme, &kit, &mut overlays)
+                .shrink()
+                .min_w(if show_project { 48. } else { 0. }),
+        );
     } else if !empty && !landing {
-        header = header.child(label("Projects", 14.0, 500.0, theme.text));
+        breadcrumbs =
+            breadcrumbs.child(label("Projects", 14., 500., theme.text).truncate().shrink());
     }
-    header = header.child(spacer());
+    header = header.child(breadcrumbs);
+    let mut actions = Vec::new();
     if composing.is_none()
         && (s.workspace.show_projects || s.workspace.conversation.is_none())
         && s.project_path.is_none()
@@ -2000,7 +2027,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && !landing
         && s.can_operate
     {
-        header = header.child(action_with_tx(
+        actions.push(action_with_tx(
             "Add project",
             theme,
             !s.pending,
@@ -2019,10 +2046,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             LiveStatus::Paused => Some("Live updates paused. Refresh to reconnect."),
         };
         if let Some(status) = status {
-            header = header.child(label(status, 12.0, 400.0, theme.text_secondary));
+            actions.push(
+                label(status, 12.0, 400.0, theme.text_secondary)
+                    .wrap()
+                    .shrink(),
+            );
         }
     }
-    let mut controls = row().gap(4.).center_y().children(thread_details::header(
+    let mut controls = Vec::from_iter(thread_details::header(
         s,
         theme,
         &kit,
@@ -2030,7 +2061,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         &layout,
     ));
     if s.terminal_available() {
-        controls = controls.child(crate::terminal::button(s.terminal.is_some(), theme));
+        controls.push(crate::terminal::button(s.terminal.is_some(), theme));
     }
     if !s.pending
         && s.can_read_files
@@ -2038,17 +2069,14 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && s.workspace.terminal_watch().is_some()
         && s.thread_workspace_root().is_some()
     {
-        controls = controls.child(workspace_tree::toggle_button(panel_open, theme));
+        controls.push(workspace_tree::toggle_button(panel_open, theme));
     }
-    header = header.child(controls);
     let refreshing_projects = s.workspace.refresh_request.is_some()
         && composing.is_none()
         && (s.workspace.show_projects || s.workspace.conversation.is_none());
     if s.pending || refreshing_projects {
-        header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
+        actions.push(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
-    let header_trailing = if split_panel { 0. } else { bar.trailing };
-    header = header.pr(header_trailing + 12.0);
     if (composing.is_none() && (s.workspace.show_projects || s.workspace.conversation.is_none()))
         || s.error.is_some()
         || s.workspace.paused
@@ -2057,14 +2085,65 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             .as_ref()
             .is_some_and(|pane| pane.status != LiveStatus::Live || pane.watch.is_none())
     {
-        header = header.child(action(
+        actions.push(action(
             "Refresh",
             theme,
             !s.pending && !refreshing_projects,
             Desktop::refresh_visible,
         ));
     }
-    let mut main = col().grow(1.0).min_w(0.0).h_full().child(header);
+    let trailing = if split_panel { 0. } else { bar.trailing };
+    let leading = if drawer.is_some() || !s.sidebar_layout.open {
+        bar.leading
+    } else {
+        0.
+    };
+    let available = measured_width - leading - trailing;
+    let panels_inline = !controls.is_empty() && available >= 184.;
+    let actions_inline = !actions.is_empty() && available >= 540.;
+    if !panels_inline && !actions_inline {
+        header = header.w_full().pr(trailing + 12.);
+    }
+    let mut toolbar = row()
+        .key("thread-titlebar")
+        .window_drag()
+        .w_full()
+        .flex_wrap()
+        .center_y()
+        .child(header);
+    if !controls.is_empty() {
+        let panels = row()
+            .key("workspace-panel-buttons")
+            .center_y()
+            .gap(4.)
+            .children(controls);
+        toolbar = toolbar.child(if panels_inline {
+            panels
+                .ml(8.)
+                .h(bar.height)
+                .mr(if actions_inline { 0. } else { trailing + 12. })
+        } else {
+            panels.w_full().flex_wrap().px(12.).py(4.)
+        });
+    }
+    if !actions.is_empty() {
+        let actions = row()
+            .key("workspace-header-actions")
+            .center_y()
+            .gap(8.)
+            .children(actions);
+        toolbar = toolbar.child(if actions_inline {
+            actions.ml(8.).h(bar.height).mr(trailing + 12.)
+        } else {
+            actions.w_full().flex_wrap().px(12.).py(4.)
+        });
+    }
+    let mut main = col()
+        .key("workspace-main")
+        .grow(1.0)
+        .min_w(0.0)
+        .h_full()
+        .child(toolbar);
     if let Some(err) = &s.error {
         main = main.child(
             label(err, 13.0, 400.0, theme.text_secondary)
@@ -2136,11 +2215,16 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(drawer);
     }
     if layout.card {
-        main = main.children(thread_details::card(s, measured_width, bar.height, theme));
+        main = main.children(thread_details::card(
+            s,
+            measured_width,
+            toolbar_height,
+            theme,
+        ));
     }
     if measured_width > 0.
         && let Some(banner) =
-            crate::provider_status::view(s, layout.banner_width, bar.height, theme, dark)
+            crate::provider_status::view(s, layout.banner_width, toolbar_height, theme, dark)
     {
         main = main.child(banner);
     }
