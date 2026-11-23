@@ -19,7 +19,7 @@ pub(crate) struct SettingsLabels {
     pub(super) settings: String,
     pub(super) appearance: String,
     pub(super) chat: String,
-    pub(super) voice: super::voice::Labels,
+    pub(crate) voice: super::voice::Labels,
     composer: String,
     advanced: String,
     slash_skills: String,

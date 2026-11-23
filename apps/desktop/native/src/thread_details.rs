@@ -114,7 +114,7 @@ pub(super) struct Layout {
 }
 
 impl Desktop {
-    fn details_target(&self) -> Option<(bool, &str)> {
+    pub(crate) fn details_target(&self) -> Option<(bool, &str)> {
         if !self.workspace.details.mounted.get() {
             return None;
         }

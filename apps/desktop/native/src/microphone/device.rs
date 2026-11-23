@@ -10,23 +10,24 @@ enum Signal {
 }
 
 impl Progress {
-    fn capture(&self, buffer: &Mutex<Vec<f32>>, input: &[f32]) -> bool {
+    fn capture(&self, buffer: &Mutex<Vec<f32>>, input: &[f32], limit: usize) -> bool {
         let mut data = buffer.lock().unwrap_or_else(|e| e.into_inner());
-        if data.len() == LIMIT {
+        if data.len() == limit {
             return false;
         }
-        let input = &input[..input.len().min(LIMIT - data.len())];
+        let input = &input[..input.len().min(limit - data.len())];
         data.extend_from_slice(input);
         let peak = input.iter().fold(0.0_f32, |peak, v| peak.max(v.abs()));
         self.level
             .store((peak.min(1.) * 100.).round() as usize, Ordering::Relaxed);
         self.frames.store(data.len(), Ordering::Relaxed);
-        data.len() == LIMIT
+        data.len() == limit
     }
 }
 
 fn run(
     activity: Activity,
+    record_seconds: usize,
     progress: &Arc<Progress>,
     signal: mpsc::Sender<Signal>,
     commands: mpsc::Receiver<Signal>,
@@ -44,14 +45,14 @@ fn run(
     let stopped = signal.clone();
     let (mut config, capture) = match activity {
         Activity::Record => {
-            let samples = Arc::new(Mutex::new(Vec::with_capacity(LIMIT)));
+            let samples = Arc::new(Mutex::new(Vec::with_capacity(RATE * 10)));
             let buffer = samples.clone();
             let mut config = DeviceConfig::new(DeviceType::Capture);
             config.set_sample_rate(RATE as u32);
             config.capture_mut().set_format(Format::F32);
             config.capture_mut().set_channels(1);
             config.set_data_callback(move |_, _, input| {
-                if state.capture(&buffer, input.as_samples::<f32>()) {
+                if state.capture(&buffer, input.as_samples::<f32>(), RATE * record_seconds) {
                     let _ = signal.send(Signal::Drained);
                 }
             });
@@ -91,7 +92,11 @@ fn run(
     if events.send(Event::Started).is_err() {
         return Ok(None);
     }
-    let timeout = Duration::from_secs(if capture.is_some() { 10 } else { 12 });
+    let timeout = Duration::from_secs(if capture.is_some() {
+        record_seconds as u64
+    } else {
+        12
+    });
     let reason = commands.recv_timeout(timeout);
     drop(device);
     if matches!(reason, Err(mpsc::RecvTimeoutError::Disconnected)) {
@@ -119,7 +124,7 @@ fn run(
     }))
 }
 
-pub(crate) fn helper() -> io::Result<()> {
+pub(crate) fn helper(dictating: bool) -> io::Result<()> {
     let mut args = std::env::args().skip(2);
     let mut input = BufReader::new(io::stdin());
     let number = |s: &str| s.parse::<usize>().map_err(io::Error::other);
@@ -151,10 +156,17 @@ pub(crate) fn helper() -> io::Result<()> {
     let state = progress.clone();
     let (events, receive) = mpsc::channel();
     std::thread::spawn(move || {
-        let event = run(activity, &state, signal, commands, &events)
-            .ok()
-            .flatten()
-            .unwrap_or(Event::Failed(failure));
+        let event = run(
+            activity,
+            if dictating { 300 } else { 10 },
+            &state,
+            signal,
+            commands,
+            &events,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(Event::Failed(failure));
         let _ = events.send(event);
     });
     let mut output = BufWriter::new(io::stdout().lock());

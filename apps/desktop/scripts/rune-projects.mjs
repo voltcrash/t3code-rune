@@ -29,6 +29,7 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
+import { workspaceDictation } from "./rune-dictation.mjs";
 import { watchVoiceModels } from "../src/native/voiceModels.ts";
 import { readClientSettings, patchClientSettings } from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
@@ -204,6 +205,30 @@ function startWorkspaceFeed(owner, initial, watch) {
     editors,
     usage,
     usageTotals,
+    dictation: workspaceDictation({
+      owner,
+      local: owner === localSession,
+      signal,
+      read: readPreference,
+      save: savePreference,
+      report: (event) => write({ ...event, watch }),
+      settings: () => {
+        const {
+          speechLanguage,
+          speechTranslateToEnglish,
+          speechCustomWords,
+          speechRemoveFillerWords,
+          speechSilenceFiltering,
+        } = clientSettings;
+        return {
+          speechLanguage,
+          speechTranslateToEnglish,
+          speechCustomWords,
+          speechRemoveFillerWords,
+          speechSilenceFiltering,
+        };
+      },
+    }),
     voiceModels: watchVoiceModels(owner, signal, (catalog) =>
       write({ type: "voicemodels", watch, catalog }),
     ),
@@ -780,6 +805,16 @@ function publishClientSettings(error) {
       chat: m(msg("Chat")),
       voice: {
         title: m(msg("Voice")),
+        dictation: {
+          destination: m(msg("Transcribe with")),
+          retry_revoke: m(msg("Retry turning off dictation")),
+          off: m(msg("Off")),
+          start: m(msg("Start voice input")),
+          cancel: m(msg("Cancel voice input")),
+          finish: m(msg("Finish voice input")),
+          transcribing: m(msg("Transcribing…")),
+          starting: m(msg("Starting…")),
+        },
         microphone: {
           title: m(msg("Test microphone")),
           description: m(
@@ -1632,6 +1667,7 @@ async function handleWorkspaceRequest(request, reply) {
         type: "workspace",
         environment_id: reading.environmentId,
         editors: workspaceFeed.editors.catalog(),
+        dictation: workspaceFeed.dictation.choice(),
         landing_project: workspaceFeed.initialLanding,
         watch: request.id,
         clock_offset: workspace.clockOffset,
@@ -1702,6 +1738,18 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "setdictation" || request?.type === "dictate") {
+      const feed = workspaceFeed;
+      if (feed && feed.watch === request.watch) {
+        if (request.type === "setdictation") feed.dictation.select(request.enabled === true);
+        else if (request.action === "start")
+          void feed.dictation.start(request.operation, request.draft);
+        else if (request.action === "insert")
+          feed.dictation.insert(request.operation, request.draft);
+        else feed.dictation.finish(request.operation, request.action === "cancel");
+      }
+      continue;
+    }
     if (request?.type === "voicemodels" || request?.type === "changevoicemodel") {
       if (workspaceFeed && workspaceFeed.watch === request.watch) {
         if (request.type === "voicemodels") workspaceFeed.voiceModels.show(request.open);

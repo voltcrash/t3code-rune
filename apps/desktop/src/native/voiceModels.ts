@@ -22,7 +22,7 @@ type SpeechSession = Pick<
   "environmentId" | "label" | "httpBaseUrl" | "token" | "canWriteSettings" | "http"
 >;
 
-function speechConnection(session: SpeechSession): PreparedConnection {
+export function speechConnection(session: SpeechSession): PreparedConnection {
   const { environmentId, label, httpBaseUrl, token } = session;
   const socket = new URL("/ws", httpBaseUrl);
   socket.protocol = socket.protocol === "https:" ? "wss:" : "ws:";

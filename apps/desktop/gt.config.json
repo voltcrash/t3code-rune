@@ -5,6 +5,7 @@
     "src/**/*.ts",
     "scripts/rune-projects.mjs",
     "scripts/rune-editors.mjs",
+    "scripts/rune-dictation.mjs",
     "../../packages/client-runtime/src/state/providerStatus.ts",
     "../../packages/client-runtime/src/state/threadActivityAnnouncement.ts",
     "../../packages/shared/src/usageLimitsCopy.ts",

@@ -249,5 +249,20 @@
   "1df95cbe8d51f396": "Nivel de entrada del micrófono",
   "22d83d5c866695af": "No se pudo acceder al micrófono.",
   "9b581819633e98f1": "No se grabó audio. Inténtalo de nuevo.",
-  "0315c97b2fce2512": "No se pudo reproducir esta grabación. Vuelve a grabar."
+  "0315c97b2fce2512": "No se pudo reproducir esta grabación. Vuelve a grabar.",
+  "5c3711f9ed600d2a": "Transcribir con",
+  "90a258fff61fd77e": "Desactivado",
+  "ad63d228b2f3491e": "Iniciar entrada de voz",
+  "cae195de360a3d75": "Cancelar entrada de voz",
+  "5c572579e2230b4e": "Terminar entrada de voz",
+  "8e8acd5aa22b46c6": "Transcribiendo…",
+  "21f8de934db6d28e": "No se pudieron guardar los ajustes.",
+  "0ef4193f2c7ee925": "Elige un destino de transcripción en los ajustes de voz.",
+  "aefccd4dd22d4121": "No se pudo preparar la transcripción de voz.",
+  "6be0d6f18425b5c7": "Elige un modelo de transcripción en los ajustes de voz.",
+  "499fb0b7d2e2bb5f": "No se pudo iniciar el micrófono.",
+  "43692a5af811085a": "Falló la transcripción de voz. Revisa el destino en Ajustes → Voz.",
+  "b6e6c93abb35a98e": "No se detectó voz.",
+  "a20b495b9e6f82b9": "Iniciando…",
+  "acca565dc877084e": "Volver a intentar desactivar el dictado"
 }

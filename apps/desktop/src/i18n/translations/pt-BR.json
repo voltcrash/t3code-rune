@@ -249,5 +249,20 @@
   "1df95cbe8d51f396": "Nível de entrada do microfone",
   "22d83d5c866695af": "Não foi possível acessar o microfone.",
   "9b581819633e98f1": "Nenhum áudio foi gravado. Tente novamente.",
-  "0315c97b2fce2512": "Não foi possível reproduzir esta gravação. Tente gravar novamente."
+  "0315c97b2fce2512": "Não foi possível reproduzir esta gravação. Tente gravar novamente.",
+  "5c3711f9ed600d2a": "Transcrever com",
+  "90a258fff61fd77e": "Desativado",
+  "ad63d228b2f3491e": "Iniciar entrada de voz",
+  "cae195de360a3d75": "Cancelar entrada de voz",
+  "5c572579e2230b4e": "Concluir entrada de voz",
+  "8e8acd5aa22b46c6": "Transcrevendo…",
+  "21f8de934db6d28e": "Não foi possível salvar as configurações.",
+  "0ef4193f2c7ee925": "Escolha um destino de transcrição nas configurações de voz.",
+  "aefccd4dd22d4121": "Não foi possível preparar a transcrição de voz.",
+  "6be0d6f18425b5c7": "Escolha um modelo de transcrição nas configurações de voz.",
+  "499fb0b7d2e2bb5f": "Não foi possível iniciar o microfone.",
+  "43692a5af811085a": "Falha na transcrição de voz. Verifique o destino em Configurações → Voz.",
+  "b6e6c93abb35a98e": "Nenhuma fala detectada.",
+  "a20b495b9e6f82b9": "Iniciando…",
+  "acca565dc877084e": "Tentar desativar o ditado novamente"
 }

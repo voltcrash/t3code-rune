@@ -315,7 +315,10 @@ impl Desktop {
             });
         }
     }
-    fn launch(&mut self) {
+    pub(super) fn launch(&mut self) {
+        if self.finish_dictation(true) {
+            return;
+        }
         if self.pending || !self.can_operate || self.submit_after_paste() {
             return;
         }
@@ -378,6 +381,9 @@ pub(super) fn view(
         &s.composer_hints.message,
         theme,
         |field| {
+            if s.dictating(&target) {
+                return super::dictation::recording_field(field);
+            }
             let field = field
                 .label("Message")
                 .disabled(locked)
@@ -485,7 +491,11 @@ pub(super) fn view(
         ));
     }
     controls = controls.child(spacer());
-    controls = controls.child(model).child(s.send_button(
+    controls = controls.child(model);
+    if !locked && let Some(button) = s.dictation_button(&target, theme) {
+        controls = controls.child(button);
+    }
+    controls = controls.child(s.send_button(
         cx,
         theme,
         if draft.uncertain {
@@ -493,7 +503,7 @@ pub(super) fn view(
         } else {
             "Start thread"
         },
-        !s.pending && draft.ready(),
+        !s.pending && (draft.ready() || s.dictating(&target)),
         Desktop::launch,
     ));
     let heading_font = if viewport_width >= 640. {
