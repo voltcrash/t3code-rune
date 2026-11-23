@@ -453,6 +453,70 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
   return { kind: "splice", index: start, remove, rows: rows.slice(start, rows.length - end) };
 }
 
+export function updateWindow(
+  state: Window,
+  event: OrchestrationV2DomainEvent,
+  emit: (update: Update) => void,
+) {
+  const before = state.projection;
+  const previousRuns = before.runs;
+  const previousRequests = state.projection.runtimeRequests;
+  const update = applyEvent(state, event);
+  if (previousRuns !== state.projection.runs) {
+    const run = activeThreadRun(state.projection)?.id ?? null;
+    if (state.activeRun !== run) {
+      state.activeRun = run;
+      emit({ kind: "run", run });
+    }
+  }
+  if (
+    previousRequests !== state.projection.runtimeRequests ||
+    (event.type === "turn-item.updated" &&
+      (event.payload.type === "approval_request" || event.payload.type === "user_input_request"))
+  ) {
+    state.requests = pendingRequests(state.projection);
+    emit({ kind: "requests", ...state.requests });
+  }
+  const wasRunlessActive = state.runlessWorkActive;
+  if (before.nodes !== state.projection.nodes || before.thread !== state.projection.thread)
+    state.runlessWorkActive = deriveRunlessWorkStartedAt(state.projection) !== null;
+  const liveItem =
+    event.type === "turn-item.updated" &&
+    (state.activeRun !== null || (state.runlessWorkActive && update?.kind === "append")) &&
+    event.payload.runId === state.activeRun;
+  const structureChanged =
+    before.runs !== state.projection.runs ||
+    before.attempts !== state.projection.attempts ||
+    before.subagents !== state.projection.subagents ||
+    wasRunlessActive !== state.runlessWorkActive;
+  const responseBoundary =
+    event.type === "turn-item.updated" &&
+    (event.payload.type === "user_message" || event.payload.type === "notification");
+  const rowsChanged = before.visibleTurnItems !== state.projection.visibleTurnItems;
+  let changedFolds: Folds | undefined;
+  if (
+    structureChanged ||
+    (rowsChanged &&
+      (responseBoundary ||
+        !liveItem ||
+        (update?.kind === "splice" &&
+          state.layout.folds.some(
+            (fold) => update.index <= fold.at || update.index < (fold.ranges.at(-1)?.[1] ?? 0),
+          ))))
+  ) {
+    const layout = nativeTurnLayout(state.projection, state.indices);
+    if (!NodeUtil.isDeepStrictEqual(state.layout.folds, layout.folds)) changedFolds = layout.folds;
+    if (!NodeUtil.isDeepStrictEqual(state.layout.replies, layout.replies))
+      emit({ kind: "replies", replies: layout.replies });
+    state.layout = layout;
+  }
+  if (update?.kind === "splice" && changedFolds) emit({ ...update, folds: changedFolds });
+  else {
+    if (update) emit(update);
+    if (changedFolds) emit({ kind: "folds", folds: changedFolds });
+  }
+}
+
 class LiveStreamEnded extends Schema.TaggedError<LiveStreamEnded>()("LiveStreamEnded", {}) {}
 export function followWindow(
   session: Session,
@@ -509,63 +573,8 @@ export function followWindow(
             emit({ kind: "deleted" });
             return;
           }
-          const before = state.projection;
-          const previousRuns = before.runs;
-          const previousRequests = state.projection.runtimeRequests;
-          const update = applyEvent(state, item.event);
           state.sequence = item.sequence;
-          if (previousRuns !== state.projection.runs) {
-            const run = activeThreadRun(state.projection)?.id ?? null;
-            if (state.activeRun !== run) {
-              state.activeRun = run;
-              emit({ kind: "run", run });
-            }
-          }
-          if (
-            previousRequests !== state.projection.runtimeRequests ||
-            (item.event.type === "turn-item.updated" &&
-              (item.event.payload.type === "approval_request" ||
-                item.event.payload.type === "user_input_request"))
-          ) {
-            state.requests = pendingRequests(state.projection);
-            emit({ kind: "requests", ...state.requests });
-          }
-          const wasRunlessActive = state.runlessWorkActive;
-          if (before.nodes !== state.projection.nodes || before.thread !== state.projection.thread)
-            state.runlessWorkActive = deriveRunlessWorkStartedAt(state.projection) !== null;
-          const liveItem =
-            item.event.type === "turn-item.updated" &&
-            (state.activeRun !== null || (state.runlessWorkActive && update?.kind === "append")) &&
-            item.event.payload.runId === state.activeRun;
-          const structureChanged =
-            before.runs !== state.projection.runs ||
-            before.attempts !== state.projection.attempts ||
-            before.subagents !== state.projection.subagents ||
-            wasRunlessActive !== state.runlessWorkActive;
-          const rowsChanged = before.visibleTurnItems !== state.projection.visibleTurnItems;
-          let changedFolds: Folds | undefined;
-          if (
-            structureChanged ||
-            (rowsChanged &&
-              (!liveItem ||
-                (update?.kind === "splice" &&
-                  state.layout.folds.some(
-                    (fold) =>
-                      update.index <= fold.at || update.index < (fold.ranges.at(-1)?.[1] ?? 0),
-                  ))))
-          ) {
-            const layout = nativeTurnLayout(state.projection, state.indices);
-            if (!NodeUtil.isDeepStrictEqual(state.layout.folds, layout.folds))
-              changedFolds = layout.folds;
-            if (!NodeUtil.isDeepStrictEqual(state.layout.replies, layout.replies))
-              emit({ kind: "replies", replies: layout.replies });
-            state.layout = layout;
-          }
-          if (update?.kind === "splice" && changedFolds) emit({ ...update, folds: changedFolds });
-          else {
-            if (update) emit(update);
-            if (changedFolds) emit({ kind: "folds", folds: changedFolds });
-          }
+          updateWindow(state, item.event, emit);
           if (
             item.event.type === "turn-item.updated" &&
             (item.event.payload.type === "command_execution" ||
