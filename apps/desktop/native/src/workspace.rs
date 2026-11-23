@@ -1961,7 +1961,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         || diff_open
         || s.workspace.file_preview.is_some()
         || s.workspace.explorer.is_some();
+    let mut bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
+    let sidebar_cap = panel_width::sidebar_cap(viewport[0]);
     let split_panel = panel_open
+        && (!s.sidebar_layout.open || sidebar_cap >= bounds.min)
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
@@ -2282,7 +2285,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
     let show_sidebar = drawer.is_none() && s.sidebar_layout.open && (!panel_open || split_panel);
-    let bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
+    if split_panel {
+        bounds.max = bounds.max.min(sidebar_cap).max(bounds.min);
+    }
     let width = if drawer.is_some() {
         (viewport[0] - 12.).max(1.)
     } else {
