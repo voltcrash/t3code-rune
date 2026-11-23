@@ -64,7 +64,7 @@ pass `--skip-build` to the Rune packager. Set `APP_VERSION` for the bundle if us
 Use `--target dir` to launch or inspect an unpacked distribution. The output directory contains
 the macOS app bundle, Linux `AppRun`, or Windows executable inside a platform-specific folder.
 
-- On macOS, install the Xcode Command Line Tools to build the app. Extract the zip and open
+- On macOS, install CMake and the Xcode Command Line Tools to build the app. Extract the zip and open
   the app, or build a disk image with `vp run dist:desktop:rune --target dmg`. Open the
   disk image and drag **T3 Code** to **Applications**. Pass `--arch x64` for Intel Macs or
   `--arch universal` for an installer that runs on both Intel and Apple Silicon. Install the
@@ -72,12 +72,12 @@ the macOS app bundle, Linux `AppRun`, or Windows executable inside a platform-sp
   Pass `--signed` to use an installed Developer ID Application identity. If several are installed,
   set `CSC_NAME` to its full name or fingerprint. Set `APPLE_API_KEY` to the path to the App Store
   Connect private key, along with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, to notarize and staple.
-- On Debian or Ubuntu Linux, install a C toolchain, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
+- On Debian or Ubuntu Linux, install a C/C++ toolchain, CMake, `libpulse-dev`, `libxkbcommon-dev`, `dpkg-dev`, `patchelf`,
   and the repository’s pinned Node distribution. For an AppImage, also install `appimagetool`
   and run the resulting file from a graphical session. To build an installable Debian package,
   use `vp run dist:desktop:rune --target deb` on the target architecture and install the result
   with `sudo apt install ./<filename>.deb`.
-- On Windows, install the Visual Studio C++ build tools for Rust. Extract the whole zip and
+- On Windows, install CMake and the Visual Studio C++ build tools for Rust. Extract the whole zip and
   launch the T3 Code executable beside its `resources` folder. For a per-user installer,
   install NSIS 3, put `makensis` on PATH, and run `vp run dist:desktop:rune --target nsis`.
   The installer adds Start menu and desktop shortcuts and an entry in Windows Installed apps.
@@ -368,13 +368,13 @@ Run `vp run dist:desktop:win --help` for all packaging flags.
 
 ### Linux AppImage prerequisites
 
-Build on a Linux host of the target architecture with Rust, a C/C++ toolchain, pkg-config,
-libsecret and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
+Build on a Linux host of the target architecture with Rust, a C/C++ toolchain, CMake, pkg-config,
+libsecret, libpulse and libxkbcommon development headers, patchelf, squashfs-tools, and `appimagetool`
 on PATH. The Debian target also uses `dpkg-deb` and `dpkg-shlibdeps` (install `dpkg-dev` on Debian or Ubuntu).
 
 ### macOS DMG prerequisites
 
-Install the Xcode Command Line Tools with `xcode-select --install` and install Rust.
+Install the Xcode Command Line Tools with `xcode-select --install` and install Rust and CMake.
 For a cross-architecture or universal build, add the requested Rust targets:
 
 ```sh
@@ -383,7 +383,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 ### Windows installer prerequisites
 
-Install Rust, Python 3, and Visual Studio Build Tools with **Desktop development with C++**.
+Install Rust, Python 3, CMake, and Visual Studio Build Tools with **Desktop development with C++**.
 Include the Windows SDK and the MSVC build tools and Spectre-mitigated libraries for the target
 architecture. Add its Rust target:
 

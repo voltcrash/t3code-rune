@@ -1,3 +1,6 @@
+#[path = "microphone_test.rs"]
+mod microphone_test;
+
 use super::{Desktop, Request, label};
 use rune::{El, TextEdit, TextStyle, col, el, row, text_input, tok};
 use serde::Deserialize;
@@ -11,6 +14,7 @@ pub(super) const MIC: rune::Icon = rune::Icon {
 #[derive(Deserialize)]
 pub(crate) struct Labels {
     pub(super) title: String,
+    microphone: Box<microphone_test::Labels>,
     models: String,
     search: String,
     empty: String,
@@ -57,10 +61,14 @@ pub(crate) struct Catalog {
 pub(crate) struct VoiceSettings {
     pub(crate) catalog: Option<Catalog>,
     query: TextEdit,
+    microphone: microphone_test::Test,
 }
 
 impl Desktop {
     pub(crate) fn show_voice_models(&mut self, open: bool) {
+        if !open {
+            self.voice_settings.microphone = Default::default();
+        }
         if let Some(watch) = self.workspace.feed {
             self.write_request(None, Request::VoiceModels { watch, open });
         }
@@ -204,6 +212,11 @@ pub(super) fn view(s: &Desktop, labels: &Labels, narrow: bool, theme: &tok::Them
     let mut section = col()
         .w_full()
         .gap(10.)
+        .child(microphone_test::view(
+            &state.microphone,
+            &labels.microphone,
+            theme,
+        ))
         .child(label(&labels.models, 16., 600., theme.text));
     let Some(watch) = s.workspace.feed else {
         return section.child(label(&labels.disconnected, 13., 400., theme.text_secondary).wrap());

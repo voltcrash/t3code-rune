@@ -30,6 +30,7 @@ rune = { git = "https://github.com/voltcrash/rune", rev = "edf85cc3f2ff593d20443
 rune-kit = { git = "https://github.com/voltcrash/rune", rev = "edf85cc3f2ff593d204433ffd10f3b2f0ef05adb", features = [
   "markdown",
 ] }
+cubeb = { version = "0.38", features = ["no-private-apis-in-coreaudio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { version = "0.3", default-features = false, features = [

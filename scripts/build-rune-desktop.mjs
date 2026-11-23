@@ -497,6 +497,8 @@ async function buildRunePackage() {
         CFBundleVersion: version,
         LSApplicationCategoryType: "public.app-category.developer-tools",
         NSHighResolutionCapable: true,
+        NSMicrophoneUsageDescription:
+          "T3 Code uses your microphone when you choose to record audio.",
       }),
     );
     await NodeFSP.symlink(binaryName, NodePath.join(bin, product));

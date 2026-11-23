@@ -560,7 +560,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev libxkbcommon-dev pkg-config dpkg-dev patchelf file squashfs-tools
+          sudo apt-get install -y libsecret-1-dev libxkbcommon-dev cmake libpulse-dev pkg-config dpkg-dev patchelf file squashfs-tools
           dir="$RUNNER_TEMP/rune-appimagetool"
           mkdir -p "$dir/bin"
           cd "$dir"
