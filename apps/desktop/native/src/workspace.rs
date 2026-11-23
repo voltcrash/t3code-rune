@@ -272,6 +272,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 }
 
 pub(super) struct Workspace {
+    drawer: std::cell::Cell<Option<bool>>,
     pub(super) sequence: u64,
     environment_id: Option<String>,
     pub(super) feed: Option<u64>,
@@ -347,6 +348,7 @@ impl Workspace {
     pub fn new() -> Self {
         Self {
             sequence: 0,
+            drawer: Default::default(),
             environment_id: None,
             feed: None,
             refresh_request: None,
@@ -722,6 +724,7 @@ impl Desktop {
     }
     pub(super) fn prepare_scratch(&mut self) {
         if self.can_operate && self.workspace.scratch_available && !self.pending {
+            self.close_sidebar_drawer();
             self.send(Request::PrepareScratch);
         }
     }
@@ -758,6 +761,7 @@ impl Desktop {
         if self.pending {
             return;
         }
+        self.close_sidebar_drawer();
         let opened = self.workspace.show_projects
             || self.new_threads.active.is_some()
             || !self.history.on_thread(id)
@@ -824,9 +828,19 @@ impl Desktop {
         self.workspace.actions.close_menu();
     }
 
+    pub(super) fn close_sidebar_drawer(&self) {
+        if self.workspace.drawer.get().is_some() {
+            self.workspace.drawer.set(Some(false));
+        }
+    }
+
     pub(super) fn toggle_sidebar(&mut self) {
         self.workspace.project_scope.close();
         self.sidebar_layout.end_drag();
+        if let Some(open) = self.workspace.drawer.get() {
+            self.workspace.drawer.set(Some(!open));
+            return;
+        }
         self.sidebar_layout.open = !self.sidebar_layout.open;
         self.write_request(
             None,
@@ -844,6 +858,7 @@ impl Desktop {
     }
 
     pub(super) fn show_projects(&mut self) {
+        self.close_sidebar_drawer();
         self.leave_landing();
         self.leave_visible_thread();
         self.close_conversation_inspectors();
@@ -955,6 +970,12 @@ const CLOSE_SIDEBAR: rune::Icon = rune::Icon {
     name: "panel-left-close",
     view: 24.,
     body: r#"<g stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m7-6-3-3 3-3"/></g>"#,
+};
+
+const OPEN_SIDEBAR: rune::Icon = rune::Icon {
+    name: "panel-left-open",
+    view: 24.,
+    body: r#"<g stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m4-12 3 3-3 3"/></g>"#,
 };
 
 const WORKTREE_ICON: rune::Icon = rune::Icon {
@@ -1458,6 +1479,7 @@ fn add_project(s: &mut Desktop, tx: &mut Tx) {
     if !s.can_operate || s.pending {
         return;
     }
+    s.close_sidebar_drawer();
     s.leave_landing();
     if !s.local {
         s.project_path.get_or_insert_with(|| TextEdit::new(""));
@@ -1849,6 +1871,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let mut draft_preview = None;
     let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
     let narrow = viewport[0] < 640.;
+    let drawer = (viewport[0] < 768.).then(|| s.workspace.drawer.get().unwrap_or(false));
+    s.workspace.drawer.set(drawer);
     let composing = s.new_threads.active.as_deref();
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
@@ -1904,13 +1928,22 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .center_y()
         .gap(8.0)
         .px(16.0);
-    if !s.sidebar_layout.open {
-        header = header.pl(bar.leading + 12.0).child(action(
-            "Show sidebar",
-            theme,
-            true,
-            Desktop::toggle_sidebar,
-        ));
+    if drawer.is_some() || !s.sidebar_layout.open {
+        let caption = "Show sidebar";
+        header = header.pl(bar.leading + 12.).child(
+            el().key(caption)
+                .role("button")
+                .label(caption)
+                .help(caption)
+                .focusable(true)
+                .no_window_drag()
+                .size(28., 28.)
+                .center()
+                .radius(5.)
+                .hover(theme.separator)
+                .child(icon(&OPEN_SIDEBAR, 16.).color(theme.text))
+                .on_press(Desktop::toggle_sidebar),
+        );
     }
     if let Some(project) = composing.and_then(|id| s.workspace.project(id)) {
         header = header
@@ -2089,23 +2122,37 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(banner);
     }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    let show_sidebar = s.sidebar_layout.open && (!panel_open || split_panel);
+    let show_sidebar = drawer.is_none() && s.sidebar_layout.open && (!panel_open || split_panel);
     let bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
-    let width = if narrow {
-        176.
+    let width = if drawer.is_some() {
+        (viewport[0] - 12.).max(1.)
     } else {
         bounds.shown(s.sidebar_layout)
     };
-    s.workspace.row_clock.mounted.set(show_sidebar);
-    if show_sidebar {
-        root = root.child(sidebar(
-            s,
-            bar,
-            [width, viewport[1]],
-            theme,
-            dark,
-            &mut overlays,
-        ));
+    s.workspace
+        .row_clock
+        .mounted
+        .set(show_sidebar || drawer == Some(true));
+    if show_sidebar || drawer == Some(true) {
+        let side = sidebar(s, bar, [width, viewport[1]], theme, dark, &mut overlays);
+        if show_sidebar {
+            root = root.child(side);
+        } else {
+            let sheet = side
+                .absolute(0., 0.)
+                .key("sidebar-drawer")
+                .role("dialog")
+                .label("Sidebar")
+                .focus_return("Show sidebar")
+                .modal(true, |s: &mut Desktop| s.close_sidebar_drawer());
+            let layer = el()
+                .absolute(0., 0.)
+                .w_full()
+                .h_full()
+                .fill(rune::Color::BLACK.alpha(0.3))
+                .child(sheet);
+            overlays.insert(0, layer);
+        }
     }
     thread_details::menu(s, &kit, &mut overlays);
     thread_actions::sidebar_menu(s, &kit, &mut overlays);
@@ -2137,7 +2184,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     } else {
         root.child(main)
     };
-    let workspace = if show_sidebar && !narrow {
+    let workspace = if show_sidebar {
         workspace.child(crate::sidebar_layout::rail(width, bounds))
     } else {
         workspace

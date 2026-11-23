@@ -309,6 +309,7 @@ impl Desktop {
     }
     pub fn prepare_thread(&mut self, project: &str) {
         if self.can_operate && !self.pending {
+            self.close_sidebar_drawer();
             self.send(Request::PrepareThread {
                 project: project.to_owned(),
             });
