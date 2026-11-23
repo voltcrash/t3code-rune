@@ -1,6 +1,13 @@
+import {
+  searchSlashCommandItems,
+  type SlashSearchItem,
+} from "@t3tools/client-runtime/composerSlashCommandSearch";
 import { providerWorkspaceSnapshotBasis } from "@t3tools/client-runtime/state/server-config-projection";
 import * as Equal from "effect/Equal";
-import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
+import {
+  getProviderSkillsForSlashMenu,
+  resolveProviderSkillsForCwd,
+} from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "@t3tools/client-runtime/providerSkillSearch";
 import {
   isProviderWorkspaceSnapshotCurrent,
@@ -9,6 +16,7 @@ import {
   ProviderInstanceId,
   WS_METHODS,
   type ServerProvider,
+  type ServerProviderSkill,
 } from "@t3tools/contracts";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import * as Fiber from "effect/Fiber";
@@ -28,6 +36,47 @@ type Rpc = {
     Effect.Error<ReturnType<Refresh>>
   >;
 };
+export interface SlashMenu {
+  readonly model: string | null;
+  readonly showSkills: boolean;
+}
+
+function skillEntry(skill: ServerProviderSkill) {
+  return {
+    path: skill.name,
+    kind: "skill",
+    link: "$" + skill.name,
+    label: formatProviderSkillDisplayName(skill),
+    description: skill.shortDescription ?? skill.description ?? "",
+  };
+}
+
+function slashEntries(
+  menu: SlashMenu,
+  skills: ReadonlyArray<ServerProviderSkill>,
+  provider: string,
+  query: string,
+) {
+  const items: SlashSearchItem[] = [];
+  if (menu.model !== null) {
+    items.push({ type: "slash-command", command: "model", description: menu.model });
+  }
+  for (const skill of getProviderSkillsForSlashMenu(skills, menu.showSkills)) {
+    items.push({ type: "skill", provider, skill });
+  }
+  return searchSlashCommandItems(items, query, 80).map((item) =>
+    item.type === "skill"
+      ? skillEntry(item.skill)
+      : {
+          path: "/model",
+          kind: "model",
+          link: "",
+          label: "/model",
+          description: item.description,
+        },
+  );
+}
+
 export function composerSkillSearch() {
   let scan:
     | {
@@ -46,7 +95,9 @@ export function composerSkillSearch() {
     instance: string,
     held: ServerProvider | undefined,
     query: string,
+    slash?: SlashMenu,
   ) {
+    if (slash && !slash.showSkills) return slashEntries(slash, [], instance, query);
     const now = yield* Clock.currentTimeMillis;
     let provider = held;
     const snapshot = held?.workspaceSnapshots?.find((value) => value.cwd === cwd);
@@ -94,16 +145,9 @@ export function composerSkillSearch() {
       }
       provider = updated ? result : (held ?? result);
     }
-    return searchProviderSkills(
-      provider ? resolveProviderSkillsForCwd(provider, cwd) : [],
-      query,
-      80,
-    ).map((skill) => ({
-      path: skill.name,
-      kind: "skill",
-      link: "$" + skill.name,
-      label: formatProviderSkillDisplayName(skill),
-      description: skill.shortDescription ?? skill.description ?? "",
-    }));
+    const skills = provider ? resolveProviderSkillsForCwd(provider, cwd) : [];
+    return slash
+      ? slashEntries(slash, skills, instance, query)
+      : searchProviderSkills(skills, query, 80).map(skillEntry);
   });
 }

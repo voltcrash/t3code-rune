@@ -1,6 +1,6 @@
 import * as Equal from "effect/Equal";
 import { providerWorkspaceSnapshotBasis } from "@t3tools/client-runtime/state/server-config-projection";
-import { composerSkillSearch } from "./composerSkills.ts";
+import { composerSkillSearch, type SlashMenu } from "./composerSkills.ts";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { watchProjectFileActions } from "./projectFile.ts";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
@@ -451,6 +451,7 @@ export function watchWorkspace(
       root: string,
       query: string,
       instance: string | null,
+      slash?: SlashMenu,
     ) {
       const checkout = () => {
         const thread = draft ? undefined : threads.get(id);
@@ -458,13 +459,13 @@ export function watchWorkspace(
         return project && !project.archived ? (thread?.worktree ?? project.path) : undefined;
       };
       const rpc = activeRpc;
-      if (!session.canOperate || !rpc || checkout() !== root) return [];
+      if (!session.canOperate || !rpc || checkout() !== root) return null;
       skillInstance = instance;
       if (instance) {
-        if (!skillScope) return [];
+        if (!skillScope) return null;
         const provider = skillProvider(workspaceConfig);
-        const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query);
-        return activeRpc === rpc && checkout() === root ? skills : [];
+        const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query, slash);
+        return activeRpc === rpc && checkout() === root ? skills : null;
       }
       if (!session.canBrowse) return [];
       const { entries } = yield* rpc[WS_METHODS.projectsSearchEntries]({

@@ -178,6 +178,10 @@
       "types": "./src/platform/index.ts",
       "default": "./src/platform/index.ts"
     },
+    "./composerSlashCommandSearch": {
+      "types": "./src/composerSlashCommandSearch.ts",
+      "default": "./src/composerSlashCommandSearch.ts"
+    },
     "./providerSkillSearch": {
       "types": "./src/providerSkillSearch.ts",
       "default": "./src/providerSkillSearch.ts"

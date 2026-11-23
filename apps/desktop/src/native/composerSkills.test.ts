@@ -33,15 +33,20 @@ it.effect("keeps machine skills when the provider has no workspace scanner", () 
       [WS_METHODS.serverRefreshProviders]: () =>
         Effect.succeed({ providers: [{ ...held, skills: [], workspaceSnapshots: [] }] }),
     };
-    const entries = yield* composerSkillSearch()(
-      rpc,
-      yield* Effect.scope,
-      cwd,
-      held.instanceId,
-      held,
-      "",
-    );
+    const search = composerSkillSearch();
+    const scope = yield* Effect.scope;
+    const entries = yield* search(rpc, scope, cwd, held.instanceId, held, "");
     expect(entries.map((entry) => entry.link)).toEqual(["$machine-skill"]);
+    const slash = { model: "Switch response model", showSkills: true };
+    const results = yield* search(rpc, scope, cwd, held.instanceId, held, "", slash);
+    expect(results.map((entry) => entry.path)).toEqual(["/model", "machine-skill"]);
+    const exact = yield* search(rpc, scope, cwd, held.instanceId, held, "skill:machine", slash);
+    expect(exact.map((entry) => entry.link)).toEqual(["$machine-skill"]);
+    const disabled = yield* search(rpc, scope, cwd, held.instanceId, held, "", {
+      ...slash,
+      showSkills: false,
+    });
+    expect(disabled.map((entry) => entry.path)).toEqual(["/model"]);
   }).pipe(Effect.scoped),
 );
 

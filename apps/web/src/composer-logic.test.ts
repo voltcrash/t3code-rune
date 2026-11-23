@@ -25,7 +25,7 @@ import {
   isPathSuggestionCurrent,
   replaceTextRange,
 } from "./composer-logic";
-import { slashCommandItemsForPromptPosition } from "./components/chat/composerSlashCommandSearch";
+import { slashCommandItemsForPromptPosition } from "@t3tools/client-runtime/composerSlashCommandSearch";
 import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
 import { formatTerminalContextReference } from "./lib/terminalContext";
 
