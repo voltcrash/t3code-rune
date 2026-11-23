@@ -47,7 +47,8 @@ import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
 import * as NodeUtil from "node:util";
-import { nativeTurnFolds } from "./turnFolds.ts";
+import { renderCodexDirectivesForCopy } from "@t3tools/shared/codexMarkdownDirectives";
+import { nativeTurnLayout } from "./turnFolds.ts";
 
 type Row = {
   key: string;
@@ -63,6 +64,7 @@ type Row = {
     | "user"
     | "assistant";
   body: string;
+  copy_body?: string;
   attachments: Array<{
     name: string;
     image?: string;
@@ -156,8 +158,13 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     return { key, role: "tasks", body, caption: taskListLabel(item.steps), attachments: [] };
   }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
+  const copy =
+    item.type === "assistant_message" && !item.streaming
+      ? renderCodexDirectivesForCopy(item.text)
+      : item.text;
   return {
     key,
+    ...(copy === item.text ? {} : { copy_body: copy }),
     entry_id: item.messageId,
     role: item.type === "user_message" ? "user" : "assistant",
     body:
@@ -191,9 +198,10 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   };
 }
 
-type Folds = ReturnType<typeof nativeTurnFolds>;
+type Layout = ReturnType<typeof nativeTurnLayout>;
+type Folds = Layout["folds"];
 type Window = {
-  folds: Folds;
+  layout: Layout;
   projectRoot: string | undefined;
   projection: OrchestrationV2ThreadProjection;
   activeRun: string | null;
@@ -208,6 +216,7 @@ type Window = {
 };
 type Update =
   | { kind: "folds"; folds: Folds }
+  | { kind: "replies"; replies: Layout["replies"] }
   | { kind: "splice"; index: number; remove: number; rows: Row[]; folds?: Folds }
   | { kind: "append"; index: number; key: string; text: string }
   | ({ kind: "window" } & ReturnType<typeof windowReply>)
@@ -268,7 +277,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
     watermark: snapshot.latestLocalTurnOrdinal ?? null,
     cursor: snapshot.hasMoreHistory ? (snapshot.historyCursor ?? null) : null,
     earlier_pages: 0,
-    folds: [],
+    layout: { folds: [], replies: [] },
     rows: [],
     indices: new Map(),
   };
@@ -286,7 +295,7 @@ const expandedWindow = Effect.fn("nativeDesktop.expandedWindow")(function* (
     lastPage = page.items;
   }
   windowRows(state);
-  state.folds = nativeTurnFolds(state.projection, state.indices);
+  state.layout = nativeTurnLayout(state.projection, state.indices);
   state.requests = pendingRequests(state.projection);
   return state;
 });
@@ -309,7 +318,7 @@ const loadWindow = Effect.fn("nativeDesktop.loadWindow")(function* (
     const page = yield* readPage(session, request.thread, request.cursor);
     earlier(previous, page);
     windowRows(previous);
-    previous.folds = nativeTurnFolds(previous.projection, previous.indices);
+    previous.layout = nativeTurnLayout(previous.projection, previous.indices);
     previous.requests = pendingRequests(previous.projection);
     return previous;
   }
@@ -340,7 +349,7 @@ export function readWindow(session: Session, request: ReadRequest, previous?: Wi
 export function windowReply(state: Window) {
   return {
     rows: state.rows,
-    folds: state.folds,
+    ...state.layout,
     active_run: state.activeRun,
     ...state.requests,
     cursor: state.cursor,
@@ -361,6 +370,7 @@ function sameRow(a: Row, b: Row) {
     a.key === b.key &&
     a.role === b.role &&
     a.body === b.body &&
+    a.copy_body === b.copy_body &&
     a.caption === b.caption &&
     samePlan(a, b) &&
     a.exit_code === b.exit_code &&
@@ -414,6 +424,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
         !row.file &&
         row.role !== "command" &&
         row.role === old.role &&
+        row.copy_body === old.copy_body &&
         row.caption === old.caption &&
         samePlan(old, row) &&
         row.attachments.length === 0 &&
@@ -538,15 +549,17 @@ export function followWindow(
             (rowsChanged &&
               (!liveItem ||
                 (update?.kind === "splice" &&
-                  state.folds.some(
+                  state.layout.folds.some(
                     (fold) =>
                       update.index <= fold.at || update.index < (fold.ranges.at(-1)?.[1] ?? 0),
                   ))))
           ) {
-            const folds = nativeTurnFolds(state.projection, state.indices);
-            if (!NodeUtil.isDeepStrictEqual(state.folds, folds)) {
-              state.folds = changedFolds = folds;
-            }
+            const layout = nativeTurnLayout(state.projection, state.indices);
+            if (!NodeUtil.isDeepStrictEqual(state.layout.folds, layout.folds))
+              changedFolds = layout.folds;
+            if (!NodeUtil.isDeepStrictEqual(state.layout.replies, layout.replies))
+              emit({ kind: "replies", replies: layout.replies });
+            state.layout = layout;
           }
           if (update?.kind === "splice" && changedFolds) emit({ ...update, folds: changedFolds });
           else {

@@ -145,27 +145,82 @@ fn file_card(
         .child(save)
 }
 
-fn copy_prompt(pane: &Conversation, message: &MessageRow, theme: &tok::Theme) -> El {
+impl Conversation {
+    fn can_copy(&self, row: &MessageRow) -> bool {
+        if row.role == "user" {
+            return !row.body.is_empty();
+        }
+        row.entry_id
+            .as_ref()
+            .is_some_and(|id| self.replies.contains(id))
+    }
+}
+
+impl Desktop {
+    pub(crate) fn poll_copy_feedback(&mut self, tx: &mut rune::Tx) -> bool {
+        let Some(pane) = self.workspace.conversation.as_mut() else {
+            return false;
+        };
+        let Some((_, until)) = &pane.copied else {
+            return false;
+        };
+        if let Some(remaining) = until.checked_duration_since(std::time::Instant::now()) {
+            tx.wake_after(remaining);
+            return false;
+        }
+        pane.copied = None;
+        pane.revision += 1;
+        true
+    }
+}
+
+fn copy_message(s: &Desktop, pane: &Conversation, message: &MessageRow, theme: &tok::Theme) -> El {
     let thread = pane.id.clone();
     let key = message.key.clone();
-    el().key(format!("copy-prompt-{key}"))
+    let prefix = if message.role == "user" {
+        "copy-prompt"
+    } else {
+        "copy-response"
+    };
+    let copied = pane.copied.as_ref().is_some_and(|(id, _)| id == &key);
+    let name = &s.workspace.attachment_labels.copy_message;
+    let button = el()
+        .key(format!("{prefix}-{key}"))
         .role("button")
-        .label("Copy message")
-        .help("Copy message")
+        .label(name)
+        .help(name)
         .focusable(true)
         .size(24., 24.)
         .radius(5.)
         .center()
         .hover(theme.hover)
-        .child(icon(&glyphs::COPY, 12.).color(theme.text_secondary))
-        .on_press_tx(move |s: &mut Desktop, tx| {
-            if let Some(pane) = &s.workspace.conversation
-                && pane.id == thread
-                && let Some(row) = pane.rows.iter().find(|row| row.key == key)
-            {
-                tx.copy(&row.body);
-            }
-        })
+        .child(
+            icon(
+                if copied {
+                    &glyphs::CHECK
+                } else {
+                    &glyphs::COPY
+                },
+                12.,
+            )
+            .color(theme.text_secondary),
+        );
+    if copied {
+        return button.disabled(true);
+    }
+    button.on_press_tx(move |s: &mut Desktop, tx| {
+        if let Some(pane) = &mut s.workspace.conversation
+            && pane.id == thread
+            && let Some(row) = pane.rows.iter().find(|row| row.key == key)
+            && pane.can_copy(row)
+        {
+            tx.copy(row.copy_body.as_deref().unwrap_or(&row.body));
+            let delay = std::time::Duration::from_secs(1);
+            pane.copied = Some((key.clone(), std::time::Instant::now() + delay));
+            pane.revision += 1;
+            tx.wake_after(delay);
+        }
+    })
 }
 
 pub(super) fn prompt(
@@ -216,7 +271,7 @@ pub(super) fn prompt(
                 .self_end()
                 .pr(4.)
                 .group_opacity(0., 1.)
-                .child(copy_prompt(pane, message, theme)),
+                .child(copy_message(s, pane, message, theme)),
         );
     }
     col().w_full().pb(16.).hover_group().child(content)
@@ -224,6 +279,7 @@ pub(super) fn prompt(
 
 pub(super) fn reply(
     s: &Desktop,
+    pane: &Conversation,
     message: &MessageRow,
     theme: &tok::Theme,
     kit: &Kit,
@@ -243,6 +299,9 @@ pub(super) fn reply(
         } else {
             label(&file.name, 12., 500., theme.text_secondary)
         });
+    }
+    if pane.can_copy(message) {
+        body = body.child(row().child(copy_message(s, pane, message, theme)));
     }
     col().w_full().px(4.).pt(2.).pb(8.).child(body)
 }

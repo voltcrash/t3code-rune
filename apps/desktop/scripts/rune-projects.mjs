@@ -1399,6 +1399,7 @@ async function handleWorkspaceRequest(request, reply) {
           remove_some: m(msg("Remove some text or an attachment, then paste again.")),
           attachment: m(msg("Attachment")),
           copy: m(msg("Copy contents")),
+          copy_message: m(msg("Copy message")),
           copy_preview: m(msg("Copy preview")),
           source: m(msg("Show source")),
           rendered: m(msg("Show rendered markdown")),

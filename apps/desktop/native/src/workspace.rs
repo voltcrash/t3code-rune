@@ -126,6 +126,7 @@ pub(super) struct MessageRow {
     key: String,
     role: String,
     body: String,
+    copy_body: Option<String>,
     attachments: Vec<images::Attachment>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
@@ -139,6 +140,8 @@ pub(super) struct MessageRow {
 
 #[derive(Deserialize)]
 pub(super) struct ConversationWindow {
+    #[serde(default)]
+    replies: HashSet<String>,
     #[serde(default)]
     folds: Vec<turn_folds::Fold>,
     #[serde(default)]
@@ -163,6 +166,9 @@ pub(super) enum LiveStatus {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(super) enum LiveUpdate {
+    Replies {
+        replies: HashSet<String>,
+    },
     Folds {
         folds: Vec<turn_folds::Fold>,
     },
@@ -195,6 +201,8 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    replies: HashSet<String>,
+    copied: Option<(String, std::time::Instant)>,
     find: Option<thread_find::Search>,
     folds: turn_folds::Layout,
     project_root: Option<String>,
@@ -224,6 +232,7 @@ impl Conversation {
         questions::replace(forms, &self.id, window.questions);
         self.replace_approvals(window.approvals);
         self.set_active_run(window.active_run);
+        self.replies = window.replies;
         self.rows = window.rows;
         self.folds.update(self.rows.len(), Some(window.folds));
         self.sequence = Some(window.sequence);
@@ -610,6 +619,11 @@ impl Workspace {
                 row.body.push_str(&text);
                 pane.sequence = Some(sequence);
             }
+            LiveUpdate::Replies { replies } if !pane.needs_reload => {
+                pane.replies = replies;
+                pane.sequence = Some(sequence);
+                pane.revision += 1;
+            }
             LiveUpdate::Folds { folds } if !pane.needs_reload => {
                 pane.folds.update(pane.rows.len(), Some(folds));
                 pane.sequence = Some(sequence);
@@ -826,6 +840,8 @@ impl Desktop {
             approvals: vec![],
             stop_operation: None,
             stop_feedback: None,
+            replies: HashSet::new(),
+            copied: None,
             active_run: None,
             id: id.to_owned(),
             rows: Vec::new(),
@@ -1898,7 +1914,7 @@ fn timeline(
                 if message.role == "user" {
                     message::prompt(s, pane, message, theme, bubble)
                 } else {
-                    message::reply(s, message, theme, &message_kit, &style)
+                    message::reply(s, pane, message, theme, &message_kit, &style)
                 }
             },
         )
@@ -2457,6 +2473,7 @@ mod tests {
                 index: 0,
                 remove: 0,
                 rows: vec![MessageRow {
+                    copy_body: None,
                     entry_id: None,
                     preview: Default::default(),
                     key: "msg".into(),
@@ -2623,6 +2640,7 @@ mod tests {
         desktop.open_thread("thread");
         let workspace = &mut desktop.workspace;
         let message = |key: &str| MessageRow {
+            copy_body: None,
             entry_id: None,
             preview: Default::default(),
             key: key.into(),
@@ -2639,6 +2657,7 @@ mod tests {
         };
         workspace.conversation.as_mut().unwrap().replace(
             ConversationWindow {
+                replies: HashSet::new(),
                 folds: vec![],
                 questions: vec![],
                 approvals: vec![],
