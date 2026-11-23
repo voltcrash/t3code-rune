@@ -1,3 +1,4 @@
+import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
 import { openExternalUrl } from "./rune-external.mjs";
@@ -1261,6 +1262,8 @@ async function handleWorkspaceRequest(request, reply) {
           empty: m(msg("No files found.")),
         },
         attachment_labels: {
+          too_large: m(msg("Pasted text is too large to attach")),
+          remove_some: m(msg("Remove some text or an attachment, then paste again.")),
           attachment: m(msg("Attachment")),
           copy: m(msg("Copy contents")),
           copy_preview: m(msg("Copy preview")),
@@ -1305,6 +1308,7 @@ async function handleWorkspaceRequest(request, reply) {
         local: localSession?.sameFilesystem ?? false,
         can_operate: session.canOperate,
         can_read_files: session.canBrowse,
+        text_paste: textPasteLimits(session),
         can_write_files: session.canWriteFiles,
         can_pin: session.canPin,
         terminal_read: session.canReadTerminal || session.canOperateTerminal,

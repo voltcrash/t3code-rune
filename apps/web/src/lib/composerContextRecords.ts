@@ -30,6 +30,7 @@ import { decodeMsg, msg } from "gt-react";
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import {
+  attachmentContextRecord,
   collectComposerContextReferences,
   sanitizeComposerContextLabel,
   toKindScopedComposerContextId,
@@ -507,21 +508,7 @@ export function uploadedAttachmentContextRecord(
   return attachmentId === undefined ? null : attachmentContextRecord({ attachment, attachmentId });
 }
 
-export function attachmentContextRecord(
-  bound: BoundComposerAttachment,
-): ImageContextRecord | FileContextRecord {
-  const { attachment, attachmentId } = bound;
-  const base = {
-    version: 1 as const,
-    contextId: toKindScopedComposerContextId(attachment.type, attachment.id),
-    label: sanitizeComposerContextLabel(attachment.name, attachment.type),
-    attachmentId,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-  };
-  return attachment.type === "image" ? { ...base, kind: "image" } : { ...base, kind: "file" };
-}
+export { attachmentContextRecord };
 
 export function buildMessageContext(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;

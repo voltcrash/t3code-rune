@@ -1,5 +1,8 @@
 import {
   COMPOSER_CONTEXT_LABEL_MAX_CHARS,
+  type ChatAttachment,
+  type FileContextRecord,
+  type ImageContextRecord,
   type ComposerContextId,
   type ComposerContextKind,
   type ComposerContextRecord,
@@ -51,6 +54,23 @@ export function toKindScopedComposerContextId(
 ): ComposerContextId {
   const prefix = `${kind}_`;
   return toComposerContextId(`${prefix}${producerId}`);
+}
+
+export function attachmentContextRecord(bound: {
+  attachment: Pick<ChatAttachment, "type" | "id" | "name" | "mimeType" | "sizeBytes">;
+  attachmentId: string;
+}): ImageContextRecord | FileContextRecord {
+  const { attachment, attachmentId } = bound;
+  const base = {
+    version: 1 as const,
+    contextId: toKindScopedComposerContextId(attachment.type, attachment.id),
+    label: sanitizeComposerContextLabel(attachment.name, attachment.type),
+    attachmentId,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+  };
+  return attachment.type === "image" ? { ...base, kind: "image" } : { ...base, kind: "file" };
 }
 
 export function formatComposerContextHref(kind: ComposerContextKind, contextId: ComposerContextId) {

@@ -41,6 +41,7 @@ import { openEnvironmentRpc } from "./environmentRpc.ts";
 import { headersFor, type Session } from "./projects.ts";
 
 import { filePreviewKind, type FilePreviewKind } from "@t3tools/shared/filePreview";
+import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { formatBytes } from "@t3tools/shared/formatBytes";
 import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
@@ -156,7 +157,15 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   return {
     key,
     role: item.type === "user_message" ? "user" : "assistant",
-    body: item.text,
+    body:
+      item.type === "user_message" && item.context
+        ? replaceComposerContextReferences(item.text, (ref) => {
+            const file = item.context?.records.find(
+              (r) => r.contextId === ref.contextId && r.kind === "file" && "attachmentId" in r,
+            );
+            return file?.label ?? ref.source;
+          })
+        : item.text,
     attachments: (item.attachments ?? []).map((a) => {
       const name = a.name;
       if (a.type === "image") {

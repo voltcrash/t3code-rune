@@ -8,7 +8,13 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
-import { committedAttachments, prepareAttachments, retryAttachments } from "./attachments.ts";
+import {
+  bindAttachments,
+  committedAttachments,
+  prepareAttachments,
+  retryAttachments,
+  type SelectedFile,
+} from "./attachments.ts";
 import { selectionForSend, type Handoff } from "./models.ts";
 import type { Session } from "./projects.ts";
 
@@ -25,7 +31,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
     thread: string;
     text: string;
     operation: string;
-    files: readonly string[];
+    files: readonly SelectedFile[];
     model?: Handoff | null;
     permission?: { instance: string; mode: string } | null;
   },
@@ -71,7 +77,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
     createdBy: "user",
     creationSource: "web",
     text: input.text,
-    attachments,
+    ...bindAttachments(input.files, attachments),
     ...(modelSelection ? { modelSelection } : {}),
     deliveryIntent: "auto",
     dispatchMode: { type: "start_immediately" },

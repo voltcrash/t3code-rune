@@ -67,12 +67,6 @@ impl NewThreads {
             .filter(|draft| !draft.uncertain)
             .map(|d| &d.prompt)
     }
-    pub(super) fn edit_prompt(&mut self, id: &str) -> Option<&mut TextEdit> {
-        self.drafts
-            .get_mut(id)
-            .filter(|draft| !draft.uncertain)
-            .map(|d| &mut d.prompt)
-    }
     pub(super) fn has_draft(&self, project: &str) -> bool {
         self.drafts.contains_key(project)
     }
@@ -137,9 +131,9 @@ impl NewThreads {
             self.active = None;
         }
     }
-    pub(super) fn editable_files(&mut self) -> Option<&mut Vec<Attachment>> {
+    pub(super) fn editable_files(&mut self) -> Option<(&mut Vec<Attachment>, &mut TextEdit)> {
         let draft = self.current();
-        (!draft.uncertain).then_some(&mut draft.files)
+        (!draft.uncertain).then_some((&mut draft.files, &mut draft.prompt))
     }
     pub(super) fn picker_options(&self) -> Option<(&[permissions::OptionRow], &str)> {
         let draft = self.drafts.get(self.active.as_ref()?)?;
@@ -237,7 +231,8 @@ impl LaunchDraft {
     }
     fn ready(&self) -> bool {
         self.permission().is_some()
-            && (!self.prompt.text.trim().is_empty() || !self.files.is_empty())
+            && (!self.prompt.text.trim().is_empty()
+                || self.files.iter().any(|f| f.selected(&self.prompt)))
             && (!self.worktree || !self.base.text.trim().is_empty())
     }
 }
@@ -339,7 +334,12 @@ impl Desktop {
             project,
             model: draft.model.clone().unwrap(),
             text: crate::mentions::prompt(&draft.prompt),
-            files: draft.files.clone(),
+            files: draft
+                .files
+                .iter()
+                .filter(|f| f.selected(&draft.prompt))
+                .cloned()
+                .collect(),
             operation: draft.operation.clone(),
             base: draft.worktree.then(|| draft.base.text.trim().to_owned()),
         };
@@ -377,9 +377,13 @@ pub(super) fn view(
         .placeholder("Ask anything...", theme.text_secondary)
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
+        .on_input_change(|s: &mut Desktop, _| {
+            let draft = s.new_threads.current();
+            crate::attachments::release_unreachable(&mut draft.files, &draft.prompt);
+        })
         .on_submit(|s: &mut Desktop, _| s.launch());
     s.mentions.view(&target, cx, kit, overlays);
-    let field = target.input(field);
+    let field = target.input(field, &s.copied_files, &draft.files);
     let options = draft
         .choices
         .iter()
@@ -573,7 +577,7 @@ pub(super) fn view(
             Desktop::prepare_scratch,
         ));
     }
-    let list = target.list(&draft.files, theme, locked, s, draft_preview);
+    let list = target.list(&draft.files, &draft.prompt, theme, locked, s, draft_preview);
     let surface = composer::surface(
         s.composer_card(theme, dark).key("composer-new-thread"),
         field,
@@ -639,6 +643,7 @@ mod tests {
         drafts
             .editable_files()
             .unwrap()
+            .0
             .push(Attachment::local("photo.png"));
         assert!(drafts.current().ready());
         drafts.current().runtime_override = Some("approval-required".into());

@@ -64,10 +64,6 @@ impl Draft {
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
     }
-    pub(super) fn edit_mention(&mut self) -> &mut TextEdit {
-        self.operation = None;
-        &mut self.editor
-    }
     pub(super) fn preserve_answer(&mut self, value: &str) {
         self.editor.set_caret(self.editor.text.len());
         self.editor.undo_group(|edit| {
@@ -76,11 +72,12 @@ impl Draft {
             }
             edit.insert(value);
         });
+        crate::attachments::release_unreachable(&mut self.files, &self.editor);
         self.operation = None;
     }
-    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
+    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>, &mut TextEdit)) {
         let before = self.files.len();
-        change(&mut self.files);
+        change(&mut self.files, &mut self.editor);
         if self.files.len() != before {
             self.operation = None;
         }
@@ -91,7 +88,9 @@ impl Draft {
         instance: &str,
         model: &str,
     ) -> Option<Request<'static>> {
-        if self.editor.text.trim().is_empty() && self.files.is_empty() {
+        if self.editor.text.trim().is_empty()
+            && !self.files.iter().any(|f| f.selected(&self.editor))
+        {
             return None;
         }
         let text = crate::mentions::prompt(&self.editor);
@@ -122,7 +121,12 @@ impl Draft {
             permission: self.permission.clone(),
             model: self.model.clone(),
             text,
-            files: self.files.clone(),
+            files: self
+                .files
+                .iter()
+                .filter(|f| f.selected(&self.editor))
+                .cloned()
+                .collect(),
             operation,
         })
     }
@@ -280,12 +284,13 @@ pub(super) fn view(
             .on_input_change(move |s: &mut Desktop, _| {
                 if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
                     draft.operation = None;
+                    crate::attachments::release_unreachable(&mut draft.files, &draft.editor);
                 }
             })
             .on_submit(|s: &mut Desktop, _| s.send_message());
         s.mentions
             .view(&target, cx, &s.contrast.kit(dark), overlays);
-        target.input(field)
+        target.input(field, &s.copied_files, &draft.files)
     };
     let pane = s
         .workspace
@@ -293,7 +298,8 @@ pub(super) fn view(
         .as_ref()
         .expect("composer has a conversation");
     let guarded = matches!(pane.stop_feedback, Some(StopFeedback::Landed(_)));
-    let empty = draft.editor.text.trim().is_empty() && draft.files.is_empty();
+    let empty = draft.editor.text.trim().is_empty()
+        && !draft.files.iter().any(|f| f.selected(&draft.editor));
     let send = s.send_button(
         cx,
         theme,
@@ -367,7 +373,14 @@ pub(super) fn view(
     let list = if asking {
         None
     } else {
-        target.list(&draft.files, theme, s.pending, s, draft_preview)
+        target.list(
+            &draft.files,
+            &draft.editor,
+            theme,
+            s.pending,
+            s,
+            draft_preview,
+        )
     };
     target.drop_area(
         surface(
@@ -538,10 +551,36 @@ mod tests {
     }
 
     #[test]
+    fn preserving_a_displaced_answer_releases_a_folded_file_from_redo() {
+        let mut app = Desktop::new();
+        app.open_thread("thread");
+        app.pending = false;
+        app.can_operate = true;
+        app.workspace.show_projects = false;
+        app.workspace.drafts.entry("thread".into()).or_default();
+        app.text_paste = serde_json::from_value(serde_json::json!({
+            "threshold": 8, "input": 500, "file": 500,
+        }))
+        .unwrap();
+        assert!(
+            crate::attachments::Target::Thread("thread".into())
+                .paste(&mut app, &rune::ClipboardContent::new("fold this answer"))
+        );
+        let draft = app.workspace.drafts.get_mut("thread").unwrap();
+        let path = std::path::PathBuf::from(&draft.files[0].path);
+        draft.editor.undo();
+        assert!(path.exists());
+        draft.preserve_answer("typed answer");
+        assert_eq!(draft.editor.text, "typed answer");
+        assert!(draft.files.is_empty());
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn a_retry_reuses_the_operation_until_the_matching_send_is_confirmed() {
         let mut ws = Workspace::new();
         let draft = ws.drafts.entry("thread".into()).or_default();
-        draft.edit_files(|files| files.push(Attachment::local("document.pdf")));
+        draft.edit_files(|files, _| files.push(Attachment::local("document.pdf")));
         let Request::SendMessage { operation, .. } =
             draft.submission("thread", "codex", "original").unwrap()
         else {
