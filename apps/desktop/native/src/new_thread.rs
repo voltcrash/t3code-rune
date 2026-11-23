@@ -375,7 +375,7 @@ pub(super) fn view(
         .label("Message")
         .w_full()
         .color(theme.text)
-        .placeholder("Ask anything...", theme.text_secondary)
+        .placeholder(&s.composer_hints.message, theme.text_secondary)
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
         .on_input_change(|s: &mut Desktop, _| {

@@ -176,6 +176,7 @@ enum Reply {
         label: String,
         #[serde(default)]
         mention_labels: Box<mentions::Labels>,
+        composer_hints: Box<composer::Hints>,
         #[serde(default)]
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
@@ -752,6 +753,7 @@ struct Desktop {
     last_id: u64,
     request_id: u64,
     mentions: mentions::Picker,
+    composer_hints: composer::Hints,
     clipboard_paste: Option<attachments::PendingPaste>,
     copied_files: attachments::Clipboard,
     clipboard_uploads: std::collections::HashMap<u64, Vec<std::sync::Arc<tempfile::TempPath>>>,
@@ -814,6 +816,7 @@ impl Desktop {
             last_id: 0,
             request_id: 0,
             mentions: Default::default(),
+            composer_hints: Default::default(),
             clipboard_paste: None,
             copied_files: Default::default(),
             clipboard_uploads: Default::default(),
@@ -1344,6 +1347,7 @@ impl Desktop {
             Reply::Connected {
                 label,
                 mention_labels,
+                composer_hints,
                 attachment_labels,
                 update_labels,
                 usage_labels,
@@ -1376,6 +1380,7 @@ impl Desktop {
                 self.terminal_write = terminal_write;
                 self.workspace.details.settings = details;
                 self.mentions.labels = *mention_labels;
+                self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
@@ -2492,6 +2497,7 @@ mod tests {
             id: Some(5),
             reply: Reply::Connected {
                 mention_labels: Default::default(),
+                composer_hints: Default::default(),
                 attachment_labels: Default::default(),
                 update_labels: None,
                 usage_labels: None,

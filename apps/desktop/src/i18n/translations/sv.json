@@ -212,5 +212,9 @@
   "162108e16ed96771": "Skärmläsare",
   "0ce04933a7047deb": "Fönstertitel för skärmläsare",
   "45d544caaabd1a31": "Inled fönstertiteln med trådens status, till exempel Behöver godkännande, och dess namn, så att skärmläsare läser upp dem först när du byter app. Aktivitetsfält, delade skärmar och tidrapporteringsverktyg ser det också.",
-  "a44c3a64fb82f86c": "Återställ fönstertitel för skärmläsare till standard"
+  "a44c3a64fb82f86c": "Återställ fönstertitel för skärmläsare till standard",
+  "06ca993fa4236249": "Fråga vad som helst. @ filer, $ färdigheter, / kommandon",
+  "9a3db19d3e12dea6": "Skriv ditt svar",
+  "d9c81b6a6bad8058": "Välj ett alternativ ovan",
+  "ea8fec0f7052e43e": "Skriv ditt eget svar eller lämna tomt för att använda det valda alternativet"
 }

@@ -526,10 +526,12 @@ pub(super) fn input(s: &Desktop, thread: &str, theme: &tok::Theme) -> El {
         .color(theme.text)
         .w_full()
         .placeholder(
-            if editable {
-                "Type your answer…"
+            if !editable {
+                &s.composer_hints.choose_option
+            } else if q.options.is_empty() {
+                &s.composer_hints.type_answer
             } else {
-                "Choose an option above"
+                &s.composer_hints.optional_answer
             },
             theme.text_secondary,
         )

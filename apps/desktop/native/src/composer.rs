@@ -15,6 +15,14 @@ struct SendAttempt {
     model: String,
 }
 
+#[derive(Default, serde::Deserialize)]
+pub(super) struct Hints {
+    pub(super) message: String,
+    pub(super) type_answer: String,
+    pub(super) choose_option: String,
+    pub(super) optional_answer: String,
+}
+
 pub(super) struct Draft {
     pub(super) editor: TextEdit,
     files: Vec<Attachment>,
@@ -276,7 +284,7 @@ pub(super) fn view(
             .label("Message")
             .w_full()
             .color(theme.text)
-            .placeholder("Ask anything...", theme.text_secondary)
+            .placeholder(&s.composer_hints.message, theme.text_secondary)
             .disabled(s.pending)
             .on_edit(move |s: &mut Desktop| {
                 &mut s.workspace.drafts.get_mut(&input_id).unwrap().editor

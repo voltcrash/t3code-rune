@@ -212,5 +212,9 @@
   "162108e16ed96771": "Lecteur d’écran",
   "0ce04933a7047deb": "Titre de fenêtre pour le lecteur d’écran",
   "45d544caaabd1a31": "Commence le titre de la fenêtre par le statut du fil, comme Approbation requise, et par son nom, pour que les lecteurs d’écran les lisent en premier quand vous changez d’app. Les barres des tâches, les écrans partagés et les outils de suivi du temps le voient aussi.",
-  "a44c3a64fb82f86c": "Réinitialiser le titre de fenêtre pour le lecteur d’écran à la valeur par défaut"
+  "a44c3a64fb82f86c": "Réinitialiser le titre de fenêtre pour le lecteur d’écran à la valeur par défaut",
+  "06ca993fa4236249": "Demandez ce que vous voulez. @ fichiers, $ skills, / commandes",
+  "9a3db19d3e12dea6": "Saisissez votre réponse",
+  "d9c81b6a6bad8058": "Choisissez une option ci-dessus",
+  "ea8fec0f7052e43e": "Saisissez votre propre réponse, ou laissez vide pour utiliser l’option sélectionnée"
 }
