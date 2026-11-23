@@ -29,6 +29,7 @@ import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
+import { watchVoiceModels } from "../src/native/voiceModels.ts";
 import { readClientSettings, patchClientSettings } from "../src/settings/DesktopClientSettings.ts";
 import * as Logger from "effect/Logger";
 import * as FileSystem from "effect/FileSystem";
@@ -203,6 +204,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     editors,
     usage,
     usageTotals,
+    voiceModels: watchVoiceModels(owner, signal, (catalog) =>
+      write({ type: "voicemodels", watch, catalog }),
+    ),
     hasRegistryIcon: (url) => registryIcons.has(url),
     ...feed,
   };
@@ -774,6 +778,20 @@ function publishClientSettings(error) {
       settings: m(msg("Settings")),
       appearance: m(msg("Appearance")),
       chat: m(msg("Chat")),
+      voice: {
+        title: m(msg("Voice")),
+        models: m(msg("Models")),
+        search: m(msg("Search transcription models")),
+        empty: m(msg("No models match.")),
+        download: m(msg("Download")),
+        select: m(msg("Use model")),
+        selected: m(msg("Selected")),
+        cancel: m(msg("Cancel")),
+        remove: m(msg("Delete")),
+        refresh: m(msg("Refresh")),
+        loading: m(msg("Loading…")),
+        disconnected: m(msg("Connect an environment first.")),
+      },
       composer: m(msg("Composer")),
       screen_reader: m(msg("Screen reader")),
       window_title: m(msg("Screen reader window title")),
@@ -1666,6 +1684,13 @@ try {
       continue;
     }
     const reply = (value) => write({ id: request?.id, ...value });
+    if (request?.type === "voicemodels" || request?.type === "changevoicemodel") {
+      if (workspaceFeed && workspaceFeed.watch === request.watch) {
+        if (request.type === "voicemodels") workspaceFeed.voiceModels.show(request.open);
+        else void workspaceFeed.voiceModels.change(request.action, request.model);
+      }
+      continue;
+    }
     if (request?.type === "composerfiles") {
       composerFileSearch?.abort();
       const feed = workspaceFeed;
