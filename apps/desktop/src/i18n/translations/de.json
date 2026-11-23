@@ -212,5 +212,9 @@
   "162108e16ed96771": "Screenreader",
   "0ce04933a7047deb": "Fenstertitel für Screenreader",
   "45d544caaabd1a31": "Den Fenstertitel mit dem Status des Threads, etwa „Genehmigung erforderlich“, und seinem Namen beginnen, damit Screenreader sie beim App-Wechsel zuerst vorlesen. Taskleisten, geteilte Bildschirme und Zeiterfassungen sehen ihn auch.",
-  "a44c3a64fb82f86c": "Fenstertitel für Screenreader auf Standard zurücksetzen"
+  "a44c3a64fb82f86c": "Fenstertitel für Screenreader auf Standard zurücksetzen",
+  "06ca993fa4236249": "Frag einfach. @ Dateien, $ Skills, / Befehle",
+  "9a3db19d3e12dea6": "Gib deine Antwort ein",
+  "d9c81b6a6bad8058": "Wähle oben eine Option",
+  "ea8fec0f7052e43e": "Gib deine eigene Antwort ein oder lass das Feld leer, um die ausgewählte Option zu verwenden"
 }

@@ -212,5 +212,9 @@
   "162108e16ed96771": "Screen reader",
   "0ce04933a7047deb": "Screen reader window title",
   "45d544caaabd1a31": "Start the window title with the thread's status, like Needs approval, and its name, so screen readers read them first when you switch apps. Taskbars, shared screens, and time trackers see it too.",
-  "a44c3a64fb82f86c": "Reset screen reader window title to default"
+  "a44c3a64fb82f86c": "Reset screen reader window title to default",
+  "06ca993fa4236249": "Ask anything. @ files, $ skills, / commands",
+  "9a3db19d3e12dea6": "Type your answer",
+  "d9c81b6a6bad8058": "Choose an option above",
+  "ea8fec0f7052e43e": "Type your own answer, or leave this blank to use the selected option"
 }

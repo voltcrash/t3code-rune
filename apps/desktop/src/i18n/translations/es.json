@@ -212,5 +212,9 @@
   "162108e16ed96771": "Lector de pantalla",
   "0ce04933a7047deb": "Título de ventana para el lector de pantalla",
   "45d544caaabd1a31": "Empieza el título de la ventana con el estado del hilo, como Necesita aprobación, y su nombre, para que los lectores de pantalla los lean primero al cambiar de app. Las barras de tareas, las pantallas compartidas y los registradores de tiempo también lo ven.",
-  "a44c3a64fb82f86c": "Restablecer el título de ventana para el lector de pantalla al valor predeterminado"
+  "a44c3a64fb82f86c": "Restablecer el título de ventana para el lector de pantalla al valor predeterminado",
+  "06ca993fa4236249": "Pregunta lo que quieras. @ archivos, $ skills, / comandos",
+  "9a3db19d3e12dea6": "Escribe tu respuesta",
+  "d9c81b6a6bad8058": "Elige una opción de arriba",
+  "ea8fec0f7052e43e": "Escribe tu propia respuesta o déjalo en blanco para usar la opción seleccionada"
 }

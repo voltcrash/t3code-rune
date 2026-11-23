@@ -15,6 +15,14 @@ struct SendAttempt {
     model: String,
 }
 
+#[derive(Default, serde::Deserialize)]
+pub(super) struct Hints {
+    pub(super) message: String,
+    pub(super) type_answer: String,
+    pub(super) choose_option: String,
+    pub(super) optional_answer: String,
+}
+
 pub(super) struct Draft {
     pub(super) editor: TextEdit,
     files: Vec<Attachment>,
@@ -252,6 +260,39 @@ impl Desktop {
     }
 }
 
+pub(super) fn input(
+    cx: &Cx<Desktop>,
+    key: &str,
+    editor: &TextEdit,
+    hint: &str,
+    theme: &tok::Theme,
+    bind: impl FnOnce(El) -> El,
+) -> El {
+    let style = TextStyle::new(14., 400.).lh(21.);
+    let padding = 4.;
+    let mut minimum: f32 = 53.5;
+    if editor.text.is_empty()
+        && editor.preedit().is_none()
+        && let Some([width, _]) = cx.layout_size(key)
+    {
+        let content_width = (width - 2. * padding).max(1.);
+        let (_, height) = rune::text::measure(hint, &[], style, Some(content_width));
+        minimum = minimum.max(height + 2. * padding);
+    }
+    let field = text_input(editor, style)
+        .key(key)
+        .w_full()
+        .padding(padding)
+        .color(theme.text)
+        .placeholder(hint, theme.text_secondary)
+        .min_h(minimum);
+    auto_grow(bind(field), 2, 7)
+        .w_full()
+        .px(4.)
+        .min_h(53.5)
+        .max_h(144_f32.max(minimum))
+}
+
 pub(super) fn view(
     s: &Desktop,
     thread: &crate::Thread,
@@ -269,28 +310,36 @@ pub(super) fn view(
     let asking = s.workspace.questions.contains_key(id);
     let target = super::attachments::Target::Thread(id.to_owned());
     let field = if asking {
-        super::questions::input(s, id, theme)
+        super::questions::input(s, id, theme, cx)
     } else {
-        let field = text_input(&draft.editor, TextStyle::new(14.0, 400.0).lh(21.0))
-            .key("message-input")
-            .label("Message")
-            .w_full()
-            .color(theme.text)
-            .placeholder("Ask anything...", theme.text_secondary)
-            .disabled(s.pending)
-            .on_edit(move |s: &mut Desktop| {
-                &mut s.workspace.drafts.get_mut(&input_id).unwrap().editor
-            })
-            .on_input_change(move |s: &mut Desktop, _| {
-                if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
-                    draft.operation = None;
-                    crate::attachments::release_unreachable(&mut draft.files, &draft.editor);
-                }
-            })
-            .on_submit(|s: &mut Desktop, _| s.send_message());
         s.mentions
             .view(&target, cx, &s.contrast.kit(dark), overlays);
-        target.input(field, &s.copied_files, &draft.files)
+        input(
+            cx,
+            "message-input",
+            &draft.editor,
+            &s.composer_hints.message,
+            theme,
+            |field| {
+                let field = field
+                    .label("Message")
+                    .disabled(s.pending)
+                    .on_edit(move |s: &mut Desktop| {
+                        &mut s.workspace.drafts.get_mut(&input_id).unwrap().editor
+                    })
+                    .on_input_change(move |s: &mut Desktop, _| {
+                        if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
+                            draft.operation = None;
+                            crate::attachments::release_unreachable(
+                                &mut draft.files,
+                                &draft.editor,
+                            );
+                        }
+                    })
+                    .on_submit(|s: &mut Desktop, _| s.send_message());
+                target.input(field, &s.copied_files, &draft.files)
+            },
+        )
     };
     let pane = s
         .workspace
@@ -488,18 +537,13 @@ pub(super) fn surface(
     footer: Option<El>,
     lane: crate::workspace::thread_details::Lane,
 ) -> El {
-    let input = auto_grow(field.padding(4.).min_h(53.5), 2, 7)
-        .w_full()
-        .px(4.)
-        .min_h(53.5)
-        .max_h(144.);
     let surface = column
         .px(9.)
         .pt(13.)
         .pb(9.)
         .gap(4.)
         .children(list.map(|files| files.px(3.)))
-        .child(input)
+        .child(field)
         .child(controls);
     lane.pad(col().w_full())
         .pt(8.0)

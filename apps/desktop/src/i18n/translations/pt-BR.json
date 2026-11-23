@@ -212,5 +212,9 @@
   "162108e16ed96771": "Leitor de tela",
   "0ce04933a7047deb": "Título da janela para leitor de tela",
   "45d544caaabd1a31": "Começa o título da janela com o status da thread, como Precisa de aprovação, e o nome dela, para que leitores de tela os leiam primeiro quando você troca de app. Barras de tarefas, telas compartilhadas e rastreadores de tempo também o veem.",
-  "a44c3a64fb82f86c": "Redefinir o título da janela para o leitor de tela para o padrão"
+  "a44c3a64fb82f86c": "Redefinir o título da janela para o leitor de tela para o padrão",
+  "06ca993fa4236249": "Pergunte qualquer coisa. @ arquivos, $ skills, / comandos",
+  "9a3db19d3e12dea6": "Digite sua resposta",
+  "d9c81b6a6bad8058": "Escolha uma opção acima",
+  "ea8fec0f7052e43e": "Digite sua própria resposta ou deixe em branco para usar a opção selecionada"
 }

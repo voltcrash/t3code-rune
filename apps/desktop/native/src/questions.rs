@@ -1,5 +1,5 @@
 use super::{Desktop, Request, workspace::LiveStatus};
-use rune::{El, ScrollSpec, TextEdit, TextStyle, col, el, row, spacer, text, text_input, tok};
+use rune::{El, ScrollSpec, TextEdit, TextStyle, col, el, row, spacer, text, tok};
 use rune_kit::{Markdown, MarkdownStyle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -508,7 +508,7 @@ pub(super) fn banner(s: &Desktop, thread: &str, theme: &tok::Theme, dark: bool) 
     col().w_full().px(40.).mb(-8.).child(card)
 }
 
-pub(super) fn input(s: &Desktop, thread: &str, theme: &tok::Theme) -> El {
+pub(super) fn input(s: &Desktop, thread: &str, theme: &tok::Theme, cx: &rune::Cx<Desktop>) -> El {
     let f = &s.workspace.questions[thread];
     let step = f.step;
     let q = &f.prompt.questions[step];
@@ -520,31 +520,38 @@ pub(super) fn input(s: &Desktop, thread: &str, theme: &tok::Theme) -> El {
     let can_edit = editable
         && s.question_enabled(thread, &version, step)
         && f.prompt.response_capability != "not_resumable";
-    text_input(&f.answers[step].editor, TextStyle::new(14., 400.).lh(21.))
-        .key(format!("answer-{}-{step}", f.prompt.version))
-        .label("Question answer")
-        .color(theme.text)
-        .w_full()
-        .placeholder(
-            if editable {
-                "Type your answer…"
-            } else {
-                "Choose an option above"
-            },
-            theme.text_secondary,
-        )
-        .disabled(!can_edit)
-        .on_edit(move |s: &mut Desktop| {
-            &mut s.workspace.questions.get_mut(&id).unwrap().answers[step].editor
-        })
-        .on_input_change(move |s: &mut Desktop, _| {
-            s.answer_advance = None;
-            if let Some(f) = s.workspace.questions.get_mut(&typing) {
-                f.answers[step].edited = true;
-                f.answers[step].selected.clear();
-            }
-        })
-        .on_submit(move |s: &mut Desktop, _| s.advance_answer(&submit, &version, step, false))
+    let hint = if !editable {
+        &s.composer_hints.choose_option
+    } else if q.options.is_empty() {
+        &s.composer_hints.type_answer
+    } else {
+        &s.composer_hints.optional_answer
+    };
+    super::composer::input(
+        cx,
+        &format!("answer-{}-{step}", f.prompt.version),
+        &f.answers[step].editor,
+        hint,
+        theme,
+        |field| {
+            field
+                .label("Question answer")
+                .disabled(!can_edit)
+                .on_edit(move |s: &mut Desktop| {
+                    &mut s.workspace.questions.get_mut(&id).unwrap().answers[step].editor
+                })
+                .on_input_change(move |s: &mut Desktop, _| {
+                    s.answer_advance = None;
+                    if let Some(f) = s.workspace.questions.get_mut(&typing) {
+                        f.answers[step].edited = true;
+                        f.answers[step].selected.clear();
+                    }
+                })
+                .on_submit(move |s: &mut Desktop, _| {
+                    s.advance_answer(&submit, &version, step, false)
+                })
+        },
+    )
 }
 
 pub(super) fn controls(s: &Desktop, thread: &str, theme: &tok::Theme) -> El {

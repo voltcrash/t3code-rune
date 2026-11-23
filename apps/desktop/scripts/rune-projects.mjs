@@ -1276,6 +1276,14 @@ async function handleWorkspaceRequest(request, reply) {
       reply({
         type: "connected",
         label: session.label,
+        composer_hints: {
+          message: m(msg("Ask anything. @ files, $ skills, / commands")),
+          type_answer: m(msg("Type your answer")),
+          choose_option: m(msg("Choose an option above")),
+          optional_answer: m(
+            msg("Type your own answer, or leave this blank to use the selected option"),
+          ),
+        },
         mention_labels: {
           search: m(msg("Search files")),
           commands: m(msg("Commands")),
