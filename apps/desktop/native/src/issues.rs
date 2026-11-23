@@ -1,8 +1,10 @@
+mod detail;
 use super::{
     Desktop, Request,
     navigation::Page,
     workspace::{action, label},
 };
+pub(crate) use detail::{Activity, Document, Reference};
 use rune::{
     El, GrowthSpec, Icon, ScrollSpec, TextEdit, TextStyle, col, el, icon, row, text_input, tok,
 };
@@ -28,6 +30,14 @@ const CLOSED: Icon = Icon {
 #[derive(Deserialize)]
 pub(crate) struct Labels {
     pub title: String,
+    detail_close: String,
+    detail_refresh: String,
+    older: String,
+    browser: String,
+    description: String,
+    labels: String,
+    none: String,
+    assignees: String,
     search: String,
     open: String,
     closed: String,
@@ -65,12 +75,12 @@ enum Status {
 #[derive(Deserialize)]
 struct Issue {
     identity: String,
+    reference: Reference,
     title: String,
     key: String,
     context: String,
     group: String,
     status: Status,
-    url: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -90,6 +100,7 @@ enum MenuKind {
 #[derive(Default)]
 pub(crate) struct Issues {
     pub labels: Option<Labels>,
+    detail: Option<detail::Panel>,
     watch: Option<u64>,
     query: TextEdit,
     filter: Filter,
@@ -102,6 +113,11 @@ pub(crate) struct Issues {
 }
 
 impl Desktop {
+    pub(crate) fn show_issue_list(&mut self, tx: &mut rune::Tx) {
+        self.open_issues();
+        self.sync_issues(tx);
+    }
+
     pub(crate) fn open_issues(&mut self) {
         if !self.pending && self.workspace.issues.labels.is_some() {
             self.open_index_page(Page::Issues);
@@ -111,8 +127,10 @@ impl Desktop {
     pub(crate) fn sync_issues(&mut self, tx: &mut rune::Tx) -> bool {
         let active = self.history.on_issues() && self.workspace.issues.labels.is_some();
         let watch = self.workspace.feed.filter(|_| active);
-        if watch == self.workspace.issues.watch {
-            return false;
+        let changed_watch = watch != self.workspace.issues.watch;
+        let detail_changed = self.sync_issue_detail(watch, changed_watch, tx);
+        if !changed_watch {
+            return detail_changed;
         }
         let entering = self.workspace.issues.watch.is_none() && watch.is_some();
         if let Some(old) = self.workspace.issues.watch {
@@ -133,7 +151,12 @@ impl Desktop {
         self.workspace.issues.list = Default::default();
         self.workspace.issues.error = None;
         self.workspace.issues.pending = false;
-        if entering && !self.settings_open && self.palette.is_none() && !self.workspace.usage.open {
+        if entering
+            && self.history.issue().is_none()
+            && !self.settings_open
+            && self.palette.is_none()
+            && !self.workspace.usage.open
+        {
             tx.focus_when_shown("issue-search", false);
         }
         if watch.is_some() {
@@ -205,7 +228,7 @@ pub(crate) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
         button
             .focusable(true)
             .hover(theme.hover)
-            .on_press(Desktop::open_issues)
+            .on_press_tx(Desktop::show_issue_list)
     })
 }
 
@@ -276,13 +299,18 @@ pub(crate) fn view(
     s: &Desktop,
     theme: &tok::Theme,
     dark: bool,
-    wide: bool,
+    width: f32,
     overlays: &mut Vec<El>,
 ) -> El {
     let page = &s.workspace.issues;
     let Some(labels) = &page.labels else {
         return el();
     };
+    let split = width >= 820. && page.detail.is_some();
+    if !split && let Some(panel) = &page.detail {
+        return detail::view(s, panel, labels, theme, dark);
+    }
+    let wide = width >= 528. && !split;
     let search = text_input(&page.query, TextStyle::new(13., 400.))
         .key("issue-search")
         .label(&labels.search)
@@ -436,21 +464,24 @@ pub(crate) fn view(
                     .radius(6.)
                     .child(icon(mark, 16.).color(ink))
                     .child(details);
-                if let Some(url) = issue.url.clone() {
-                    item.role("link")
-                        .label(&summary)
-                        .help(&url)
-                        .hover(colors.hover)
-                        .focusable(true)
-                        .on_press_tx(move |_: &mut Desktop, tx| {
-                            let _ = tx.open_url(&url);
-                        })
-                } else {
-                    item
-                }
+                let reference = issue.reference.clone();
+                let selected = s.history.issue() == Some(&reference);
+                item.role("button")
+                    .label(&summary)
+                    .fill(if selected {
+                        colors.hover
+                    } else {
+                        rune::Color::TRANSPARENT
+                    })
+                    .hover(colors.hover)
+                    .focusable(true)
+                    .on_press_tx(move |s: &mut Desktop, tx| {
+                        s.open_index_page(Page::Issue(reference.clone()));
+                        s.sync_issues(tx);
+                    })
             },
         )
-        .virtual_rows_version((page.operation, page.pending, colors.text));
+        .virtual_rows_version((page.operation, page.pending, colors.text, s.history.issue()));
     body = body.child(
         col()
             .key("issue-list")
@@ -472,5 +503,15 @@ pub(crate) fn view(
             s.load_issues("more")
         }));
     }
-    body
+    if split && let Some(panel) = &page.detail {
+        row()
+            .w_full()
+            .grow(1.)
+            .min_h(0.)
+            .child(body.w((width * 0.38).clamp(260., 420.)).grow(0.))
+            .child(el().w(1.).h_full().fill(theme.separator))
+            .child(detail::view(s, panel, labels, theme, dark))
+    } else {
+        body
+    }
 }

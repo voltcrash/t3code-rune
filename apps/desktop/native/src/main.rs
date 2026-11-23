@@ -44,6 +44,14 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    IssueDetail {
+        watch: u64,
+        operation: u64,
+        document: Option<Box<issues::Document>>,
+        older: Option<Vec<issues::Activity>>,
+        cursor: Option<String>,
+        error: Option<String>,
+    },
     Issues {
         watch: u64,
         operation: u64,
@@ -438,6 +446,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    IssueDetail {
+        watch: u64,
+        operation: u64,
+        reference: Option<issues::Reference>,
+        cursor: Option<String>,
+    },
     Issues {
         watch: u64,
         operation: u64,
@@ -1084,6 +1098,18 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::IssueDetail {
+            watch,
+            operation,
+            document,
+            older,
+            cursor,
+            error,
+        } = message.reply
+        {
+            self.receive_issue_detail(watch, operation, document, older, cursor, error);
+            return;
+        }
         if let Reply::Issues {
             watch,
             operation,
@@ -1628,6 +1654,7 @@ impl Desktop {
             | Reply::Dictation { .. }
             | Reply::VoiceModels { .. }
             | Reply::Issues { .. }
+            | Reply::IssueDetail { .. }
             | Reply::Usage { .. }
             | Reply::UsageTotals { .. }
             | Reply::WorkspaceEditors { .. }
@@ -2206,8 +2233,11 @@ fn start() -> io::Result<()> {
                 && (ev.is_command('[') || ev.is_command(']'))
             {
                 if !tx.key_repeat() {
-                    s.go(ev.is_command(']'));
+                    s.navigate_history(ev.is_command(']'), tx);
                 }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.close_issue_detail(tx) {
                 return true;
             }
             if ev.key == rune::Key::Escape && s.dismiss_details(tx) {

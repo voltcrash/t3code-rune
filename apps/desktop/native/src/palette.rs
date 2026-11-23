@@ -594,8 +594,8 @@ impl Desktop {
             }
             Action::Scratch => self.prepare_scratch(),
             Action::Thread(i) => self.open_thread(&self.workspace.threads[i].id.clone()),
-            Action::Back => self.go(false),
-            Action::Forward => self.go(true),
+            Action::Back => self.navigate_history(false, tx),
+            Action::Forward => self.navigate_history(true, tx),
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::ToggleTerminal => self.toggle_terminal(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
@@ -607,7 +607,7 @@ impl Desktop {
                 add_project(self, tx);
             }
             Action::Projects => self.show_projects(),
-            Action::Issues => self.open_issues(),
+            Action::Issues => self.show_issue_list(tx),
             Action::Settings => self.open_settings(tx),
             Action::Usage => self.open_usage(),
             Action::CheckUpdates => self.check_updates(tx),
