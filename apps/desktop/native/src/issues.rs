@@ -108,12 +108,13 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn sync_issues(&mut self) -> bool {
+    pub(crate) fn sync_issues(&mut self, tx: &mut rune::Tx) -> bool {
         let active = self.history.on_issues() && self.workspace.issues.labels.is_some();
         let watch = self.workspace.feed.filter(|_| active);
         if watch == self.workspace.issues.watch {
             return false;
         }
+        let entering = self.workspace.issues.watch.is_none() && watch.is_some();
         if let Some(old) = self.workspace.issues.watch {
             self.write_request(
                 None,
@@ -132,6 +133,9 @@ impl Desktop {
         self.workspace.issues.list = Default::default();
         self.workspace.issues.error = None;
         self.workspace.issues.pending = false;
+        if entering && !self.settings_open && self.palette.is_none() && !self.workspace.usage.open {
+            tx.focus_when_shown("issue-search", false);
+        }
         if watch.is_some() {
             self.load_issues("list");
         }

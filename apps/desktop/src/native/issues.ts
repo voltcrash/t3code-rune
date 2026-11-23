@@ -47,10 +47,13 @@ type IssueSession = Pick<
   Session,
   "httpBaseUrl" | "token" | "http" | "environmentId" | "canReadIssues"
 >;
+type EnvironmentRpc = Effect.Success<ReturnType<typeof openEnvironmentRpc>>;
+type ListError = Effect.Error<ReturnType<EnvironmentRpc[typeof WS_METHODS.issuesList]>>;
+
 interface ListRpc {
   readonly [WS_METHODS.issuesList]: (
     input: IssueListInput,
-  ) => Effect.Effect<IssueListResult, unknown>;
+  ) => Effect.Effect<IssueListResult, ListError>;
 }
 
 interface IssueRequest {

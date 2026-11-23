@@ -2060,7 +2060,7 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_window_title(tx);
             s.sync_draft_model_watch();
-            let issues = s.sync_issues();
+            let issues = s.sync_issues(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
             let git = s.sync_git();
