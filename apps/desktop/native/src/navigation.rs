@@ -6,6 +6,7 @@ pub(super) enum Page {
     #[default]
     Home,
     Issues,
+    Issue(crate::issues::Reference),
     Thread(String),
     NewThread(String),
 }
@@ -60,7 +61,14 @@ impl History {
     }
 
     pub(super) fn on_issues(&self) -> bool {
-        self.current == Page::Issues
+        matches!(self.current, Page::Issues | Page::Issue(_))
+    }
+
+    pub(super) fn issue(&self) -> Option<&crate::issues::Reference> {
+        match &self.current {
+            Page::Issue(reference) => Some(reference),
+            _ => None,
+        }
     }
 
     pub(super) fn on_thread(&self, id: &str) -> bool {
@@ -94,7 +102,7 @@ impl History {
     pub fn retain(&mut self, ws: &Workspace, drafts: &NewThreads) {
         let available = |page: &Page| match page {
             Page::Home => true,
-            Page::Issues => ws.issues.labels.is_some(),
+            Page::Issues | Page::Issue(_) => ws.issues.labels.is_some(),
             Page::Thread(id) => ws.has_thread(id),
             Page::NewThread(id) => drafts.has_draft(id),
         };
@@ -127,6 +135,11 @@ impl History {
 }
 
 impl Desktop {
+    pub(super) fn navigate_history(&mut self, forward: bool, tx: &mut rune::Tx) {
+        self.go(forward);
+        self.sync_issues(tx);
+    }
+
     pub(super) fn go(&mut self, forward: bool) {
         if self.pending || self.environment.is_none() || self.palette.is_some() {
             return;
@@ -135,6 +148,7 @@ impl Desktop {
         match self.history.pop(forward) {
             Some(Page::Home) => self.show_projects(),
             Some(Page::Issues) => self.open_issues(),
+            Some(page @ Page::Issue(_)) => self.open_index_page(page),
             Some(Page::Thread(id)) => self.open_thread(&id),
             Some(Page::NewThread(project)) => {
                 self.close_sidebar_drawer();
@@ -179,7 +193,7 @@ fn history_button(s: &Desktop, forward: bool, theme: &tok::Theme) -> El {
         button
             .focusable(true)
             .hover(theme.separator)
-            .on_press(move |s: &mut Desktop| s.go(forward))
+            .on_press_tx(move |s: &mut Desktop, tx| s.navigate_history(forward, tx))
     } else {
         button.disabled(true).opacity(0.45)
     }

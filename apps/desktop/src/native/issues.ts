@@ -20,6 +20,14 @@ import type { Session } from "./projects.ts";
 
 export function issueLabels() {
   return {
+    detail_close: m(msg("Close")),
+    detail_refresh: m(msg("Refresh issue")),
+    older: m(msg("Load older comments")),
+    browser: m(msg("Open in browser")),
+    description: m(msg("Description")),
+    labels: m(msg("Labels")),
+    none: m(msg("None")),
+    assignees: m(msg("Assignees")),
     title: m(msg("Issues", { $context: "sidebar link to the list of issues" })),
     search: m(msg("Search issues")),
     open: m(msg("Open", { $context: "issue state" })),
@@ -37,11 +45,6 @@ export function issueLabels() {
     loading: m(msg("Loading…")),
     empty: m(msg("No issues under these filters.")),
   };
-}
-
-function trackerLink(raw: string) {
-  const url = URL.parse(raw);
-  return url && (url.protocol === "http:" || url.protocol === "https:") ? url.href : null;
 }
 
 type IssueSession = Pick<
@@ -81,6 +84,13 @@ function issueView(session: IssueSession, page: HeldIssuePage, query: string, so
     has_trackers: groups.length > 0,
     rows: entries.map((row) => ({
       identity: row.url,
+      reference: {
+        projectId: row.projectId,
+        tracker: row.tracker,
+        host: row.host,
+        scope: row.scope,
+        key: row.key,
+      },
       group: row.host,
       title: row.title,
       key: row.displayKey,
@@ -91,7 +101,6 @@ function issueView(session: IssueSession, page: HeldIssuePage, query: string, so
           : !row.state.closeReason || row.state.closeReason === "completed"
             ? "completed"
             : "closed",
-      url: trackerLink(row.url),
     })),
     notices: [
       ...page.answer.trackers.flatMap((t) =>

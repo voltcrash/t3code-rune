@@ -970,7 +970,7 @@ pub(super) fn action(
     action_with_tx(caption, theme, enabled, move |s, _| run(s))
 }
 
-fn action_with_tx(
+pub(super) fn action_with_tx(
     caption: &str,
     theme: &tok::Theme,
     enabled: bool,
@@ -1474,11 +1474,11 @@ fn sidebar(
         && let Some(labels) = &s.workspace.issues.labels
     {
         footer = footer.child(
-            action(
+            action_with_tx(
                 &labels.back,
                 theme,
                 !s.pending && s.history.available(false),
-                |s| s.go(false),
+                |s, tx| s.navigate_history(false, tx),
             )
             .grow(1.),
         );
@@ -2178,7 +2178,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         );
     }
     main = main.child(if s.history.on_issues() {
-        crate::issues::view(s, theme, dark, measured_width >= 528., &mut overlays)
+        crate::issues::view(s, theme, dark, measured_width, &mut overlays)
     } else if let Some(id) = composing
         && let Some(project) = s.workspace.project(id)
     {

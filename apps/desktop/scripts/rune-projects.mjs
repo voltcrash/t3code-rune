@@ -1,3 +1,4 @@
+import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
@@ -232,6 +233,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     }),
     voiceModels: watchVoiceModels(owner, signal, (catalog) =>
       write({ type: "voicemodels", watch, catalog }),
+    ),
+    readIssue: issueDetailReader(owner, signal, feed.activeRpc, (operation, reply) =>
+      write({ type: "issuedetail", watch, operation, ...reply }),
     ),
     issues: workspaceIssues(owner, signal, feed.activeRpc, (operation, list, error) =>
       write({ type: "issues", watch, operation, list, error }),
@@ -1788,6 +1792,12 @@ try {
           .pipe(Effect.timeout("12 seconds")),
         { signal },
       ).then(result, () => result(null));
+      continue;
+    }
+    if (request?.type === "issuedetail") {
+      const feed = workspaceFeed;
+      if (feed?.watch === request.watch)
+        void feed.readIssue(request.operation, request.reference, request.cursor);
       continue;
     }
     if (request?.type === "issues") {
