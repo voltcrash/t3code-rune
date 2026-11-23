@@ -69,65 +69,62 @@ fn marked_occurrences(
     needle: &str,
     mut index: usize,
     active: Option<usize>,
+    breaks: &[usize],
     mut mark: impl FnMut(Vec<Range<usize>>, bool),
 ) {
     let through = active.map_or(MARKS_PER_ROW, |n| MARKS_PER_ROW.max(n.saturating_add(1)));
     let rendered = rune_kit::markdown::Rendered::new(src);
     for (block, text) in rendered.texts().enumerate() {
-        if index >= through {
-            break;
-        }
-        for range in Folded::new(text).matches(needle).take(through - index) {
-            if Some(index) == active || index < MARKS_PER_ROW {
-                mark(
-                    rendered.source_ranges(src, block, range),
-                    Some(index) == active,
-                );
+        let folded = Folded::new(text);
+        let mut cursor = 0;
+        while index < through
+            && let Some(offset) = folded.text[cursor..].find(needle)
+        {
+            let start = cursor + offset;
+            let end = start + needle.len();
+            cursor = end;
+            let paint = index < MARKS_PER_ROW || Some(index) == active;
+            if paint || !breaks.is_empty() {
+                let range = folded.original(start)..folded.original(end);
+                let ranges = rendered.source_ranges(src, block, range);
+                if let (Some(first), Some(last)) = (ranges.first(), ranges.last()) {
+                    let next = breaks.partition_point(|&at| at < first.start);
+                    if breaks.get(next).is_some_and(|&at| at < last.end) {
+                        // A rejected candidate can overlap a real match on the next line.
+                        cursor = start + folded.text[start..].chars().next().unwrap().len_utf8();
+                        continue;
+                    }
+                }
+                if paint {
+                    mark(ranges, Some(index) == active);
+                }
             }
             index += 1;
+        }
+        if index >= through {
+            break;
         }
     }
 }
 
-// The server renders user-authored soft breaks as line breaks. Keep the byte map to the raw bubble.
 fn prompt_occurrences(
     src: &str,
     needle: &str,
     active: Option<usize>,
-    mut mark: impl FnMut(Vec<Range<usize>>, bool),
+    mark: impl FnMut(Vec<Range<usize>>, bool),
 ) {
     use pulldown_cmark::{Event, Options, Parser};
-    if !needle.contains(' ') || !src.contains(['\r', '\n']) {
-        return marked_occurrences(src, needle, 0, active, mark);
-    }
-    let options =
-        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
-    let mut expanded = String::new();
-    let mut inserted = Vec::new();
-    let mut cursor = 0;
-    for (event, range) in Parser::new_ext(src, options).into_offset_iter() {
-        if event != Event::SoftBreak {
-            continue;
-        }
-        if let Some(offset) = src[range.clone()].find(['\r', '\n']) {
-            let at = range.start + offset;
-            expanded.push_str(&src[cursor..at]);
-            inserted.push(expanded.len());
-            expanded.push('\\');
-            cursor = at;
-        }
-    }
-    if inserted.is_empty() {
-        return marked_occurrences(src, needle, 0, active, mark);
-    }
-    expanded.push_str(&src[cursor..]);
-    let original = |offset| offset - inserted.partition_point(|&at| at < offset);
-    marked_occurrences(&expanded, needle, 0, active, |mut ranges, current| {
-        for range in &mut ranges {
-            *range = original(range.start)..original(range.end);
-        }
-        mark(ranges, current);
-    });
+    let breaks = if needle.contains(' ') && src.contains(['\r', '\n']) {
+        let options =
+            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+        Parser::new_ext(src, options)
+            .into_offset_iter()
+            .filter_map(|(ev, span)| (ev == Event::SoftBreak).then_some(span.start))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    marked_occurrences(src, needle, 0, active, &breaks, mark);
 }
 
 fn text_mark(range: Range<usize>, current: bool, first: bool) -> rune::TextHighlight {
@@ -182,7 +179,7 @@ pub(in super::super) fn markdown(s: &Desktop, row: &MessageRow, src: &str) -> Ma
         0
     };
     let mut highlights = Vec::new();
-    marked_occurrences(src, &needle, index, active, |ranges, current| {
+    marked_occurrences(src, &needle, index, active, &[], |ranges, current| {
         let mark = if current {
             rune_kit::markdown::Highlight::current().key("thread-find-current")
         } else {
@@ -223,6 +220,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_soft_break_in_a_reference_label_preserves_the_original_markdown_parse() {
+        let src = "[unrelated\nneedle needle]\n\n[unrelated needle needle]: https://example.com\n\nLiteral \\[needle needle\\]";
+        let mut hits = Vec::new();
+        prompt_occurrences(src, "needle needle]", Some(0), |ranges, _| {
+            hits.push(ranges.first().unwrap().start);
+        });
+        assert_eq!(hits, [src.rfind("needle needle").unwrap()]);
+    }
     #[test]
     fn search_keeps_original_byte_offsets_for_curly_quotes_and_dotted_i() {
         let source = "İt’s Σς. IT'S";
