@@ -83,6 +83,10 @@ impl Desktop {
         if !self.workspace.search.text.is_empty() {
             self.workspace.clear_search();
         }
+        if self.workspace.drawer.get() == Some(true) {
+            self.close_files_panel();
+            self.close_diff();
+        }
         self.open_thread(id);
     }
 }

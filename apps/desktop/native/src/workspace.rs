@@ -272,7 +272,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 }
 
 pub(super) struct Workspace {
-    drawer: std::cell::Cell<Option<bool>>,
+    pub(super) drawer: std::cell::Cell<Option<bool>>,
     pub(super) sequence: u64,
     environment_id: Option<String>,
     pub(super) feed: Option<u64>,
@@ -828,9 +828,22 @@ impl Desktop {
         self.workspace.actions.close_menu();
     }
 
-    pub(super) fn close_sidebar_drawer(&self) {
-        if self.workspace.drawer.get().is_some() {
+    pub(super) fn close_unmounted_sidebar_menus(&mut self) -> bool {
+        if self.workspace.row_clock.mounted.get() {
+            return false;
+        }
+        let scope = self.workspace.project_scope.is_open();
+        if scope {
+            self.workspace.project_scope.close();
+        }
+        self.workspace.actions.close_sidebar_menu() || scope
+    }
+
+    pub(super) fn close_sidebar_drawer(&mut self) {
+        if self.workspace.drawer.get() == Some(true) {
             self.workspace.drawer.set(Some(false));
+            self.workspace.project_scope.close();
+            self.workspace.actions.close_sidebar_menu();
         }
     }
 
@@ -838,7 +851,11 @@ impl Desktop {
         self.workspace.project_scope.close();
         self.sidebar_layout.end_drag();
         if let Some(open) = self.workspace.drawer.get() {
-            self.workspace.drawer.set(Some(!open));
+            if open {
+                self.close_sidebar_drawer();
+            } else {
+                self.workspace.drawer.set(Some(true));
+            }
             return;
         }
         self.sidebar_layout.open = !self.sidebar_layout.open;
@@ -2153,9 +2170,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .child(sheet);
             overlays.insert(0, layer);
         }
+        thread_actions::sidebar_menu(s, &kit, &mut overlays);
     }
     thread_details::menu(s, &kit, &mut overlays);
-    thread_actions::sidebar_menu(s, &kit, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let workspace = if panel_open {
         let bar = Topbar {
