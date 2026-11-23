@@ -7,6 +7,7 @@ import * as Path from "effect/Path";
 import {
   readThreadLayout,
   setThreadDetailsVisibility,
+  setThreadPanelMaximized,
   setThreadPanelWidth,
 } from "./threadDetails.ts";
 
@@ -23,12 +24,17 @@ it.effect("remembers layout separately for each environment, thread, and draft",
     setThreadPanelWidth(open, "local", "one", 440);
     setThreadPanelWidth(open, "local", "one", 510);
     setThreadPanelWidth(open, "local", "two", 360);
+    setThreadPanelMaximized(open, "local", "one", true);
+    setThreadPanelMaximized(open, "remote", "one", true);
+    setThreadPanelMaximized(open, "remote", "one", false);
     expect(readThreadLayout(open, "remote")).toEqual({
       widths: { one: 643 },
+      maximized: [],
       hidden: { threads: ["one"], drafts: [] },
     });
     expect(readThreadLayout(open, "local")).toEqual({
       widths: { one: 510, two: 360 },
+      maximized: ["one"],
       hidden: { threads: [], drafts: ["one"] },
     });
   }).pipe(Effect.provide(NodeServices.layer)),

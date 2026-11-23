@@ -179,6 +179,7 @@ pub(super) fn header(
             labels.download.replace("{label}", &preview.path),
             theme,
         ))
+        .children(app.maximize_control(theme))
         .child(
             button(&labels.file_close, &glyphs::CLOSE)
                 .key("attachment-panel-close")

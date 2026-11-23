@@ -192,6 +192,9 @@ impl Desktop {
                     Origin::Attachment(file) => Some(attachment_trigger(&file.key, &file.id)),
                     Origin::Workspace(_) => None,
                 });
+        if self.workspace.explorer.is_none() {
+            self.set_panel_maximized(false);
+        }
         self.close_file_preview();
         if let Some(key) = trigger {
             tx.focus_when_shown(key, true);
@@ -341,6 +344,7 @@ pub(super) fn view(
                     .truncate()
                     .help(&preview.path),
             )
+            .children(app.maximize_control(theme))
             .child(action_with_tx(
                 "Close file",
                 theme,

@@ -20,6 +20,7 @@ import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import {
   readThreadLayout,
   setThreadDetailsVisibility,
+  setThreadPanelMaximized,
   setThreadPanelWidth,
   threadDetailsLabels,
 } from "../src/native/threadDetails.ts";
@@ -1396,7 +1397,13 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
-        panel_width: { widths: layout?.widths ?? {}, resize: m(msg("Resize right panel")) },
+        panel_width: {
+          widths: layout?.widths ?? {},
+          maximized: layout?.maximized ?? [],
+          resize: m(msg("Resize right panel")),
+          maximize: m(msg("Maximize panel")),
+          restore: m(msg("Restore panel size")),
+        },
         browser_labels: session.browserAvailable ? browserLabels() : undefined,
         issues_labels: session.canReadIssues ? issueLabels() : undefined,
         usage_labels: usageLabels(),
@@ -1880,25 +1887,32 @@ try {
       clientSettingsWrites = clientSettingsWrites.then(() => setClientSetting(request));
     } else if (request?.type === "openeditor" || request?.type === "chooseeditor") {
       void handleEditor(request, reply);
-    } else if (request?.type === "setpanelwidth") {
-      if (
-        session &&
-        workspaceFeed?.watch === request.watch &&
-        typeof request.thread === "string" &&
-        validWidth(request.width)
-      ) {
+    } else if (request?.type === "setpanelwidth" || request?.type === "setpanelmaximized") {
+      if (session && workspaceFeed?.watch === request.watch && typeof request.thread === "string") {
         try {
-          setThreadPanelWidth(
-            openLayoutDatabase,
-            session.environmentId,
-            request.thread,
-            request.width,
-          );
+          if (request.type === "setpanelmaximized" && typeof request.maximized === "boolean") {
+            setThreadPanelMaximized(
+              openLayoutDatabase,
+              session.environmentId,
+              request.thread,
+              request.maximized,
+            );
+          } else if (request.type === "setpanelwidth" && validWidth(request.width)) {
+            setThreadPanelWidth(
+              openLayoutDatabase,
+              session.environmentId,
+              request.thread,
+              request.width,
+            );
+          }
         } catch {
           reply({
             type: "layoutsaveerror",
             watch: request.watch,
-            error: m(msg("Couldn’t save the panel width.")),
+            error:
+              request.type === "setpanelwidth"
+                ? m(msg("Couldn’t save the panel width."))
+                : m(msg("Couldn’t save the panel layout.")),
           });
         }
       }

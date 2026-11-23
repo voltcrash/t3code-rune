@@ -83,9 +83,11 @@ impl Desktop {
         if !self.workspace.search.text.is_empty() {
             self.workspace.clear_search();
         }
-        if self.workspace.drawer.get() == Some(true) {
-            self.close_files_panel();
-            self.close_diff();
+        if self.workspace.visible_thread().is_some_and(|t| t.id == id)
+            && self.right_panel_open()
+            && (self.workspace.drawer.get() == Some(true) || self.workspace.panel_maximized())
+        {
+            self.dismiss_right_panel();
         }
         self.open_thread(id);
     }

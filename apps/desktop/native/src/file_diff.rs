@@ -254,7 +254,12 @@ pub(super) fn view(app: &Desktop, theme: &tok::Theme, kit: &Kit, bar: Topbar) ->
             app.workspace.diff.state.set_mode(next)
         }));
     }
-    header = header.child(action("Close diff", theme, true, Desktop::close_diff));
+    header = header.children(app.maximize_control(theme)).child(action(
+        "Close diff",
+        theme,
+        true,
+        Desktop::dismiss_right_panel,
+    ));
     let mut view = col().grow(1.).min_w(0.).h_full().child(header);
     let recorded = &panel.recorded;
     if recorded.truncated {

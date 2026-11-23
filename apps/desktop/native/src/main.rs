@@ -231,7 +231,7 @@ enum Reply {
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
         #[serde(default)]
-        panel_width: workspace::panel_width::Widths,
+        panel_width: Box<workspace::panel_width::Widths>,
         browser_labels: Option<Box<browser::Labels>>,
         issues_labels: Option<Box<issues::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
@@ -538,6 +538,11 @@ enum Request<'a> {
         operation: u64,
         #[serde(flatten)]
         input: workspace::workspace_files::Input,
+    },
+    SetPanelMaximized {
+        watch: u64,
+        thread: &'a str,
+        maximized: bool,
     },
     SetPanelWidth {
         watch: u64,
@@ -1553,7 +1558,7 @@ impl Desktop {
                 self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
-                self.workspace.panel_width = panel_width;
+                self.workspace.panel_width = *panel_width;
                 self.workspace.browser.labels = browser_labels;
                 self.workspace.issues.labels = issues_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
@@ -2328,7 +2333,7 @@ fn start() -> io::Result<()> {
                 s.toggle_browser(tx);
                 return true;
             }
-            if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
+            if s.terminal_toggle_key(ev) {
                 if !tx.key_repeat() {
                     s.toggle_terminal(tx);
                 }
@@ -2349,7 +2354,7 @@ fn start() -> io::Result<()> {
                 && s.workspace.explorer.is_some()
                 && s.workspace.file_preview.is_none()
             {
-                s.close_explorer();
+                s.dismiss_right_panel();
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.file_preview.is_some() {
@@ -2357,7 +2362,7 @@ fn start() -> io::Result<()> {
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
-                s.close_diff();
+                s.dismiss_right_panel();
                 return true;
             }
             if s.question_shortcut(ev, tx) {
