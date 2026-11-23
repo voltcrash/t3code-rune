@@ -231,7 +231,7 @@ enum Reply {
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
         #[serde(default)]
-        panel_width: workspace::panel_width::Widths,
+        panel_width: Box<workspace::panel_width::Widths>,
         browser_labels: Option<Box<browser::Labels>>,
         issues_labels: Option<Box<issues::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
@@ -1558,7 +1558,7 @@ impl Desktop {
                 self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
-                self.workspace.panel_width = panel_width;
+                self.workspace.panel_width = *panel_width;
                 self.workspace.browser.labels = browser_labels;
                 self.workspace.issues.labels = issues_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
