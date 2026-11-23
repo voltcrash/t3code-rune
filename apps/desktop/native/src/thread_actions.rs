@@ -130,6 +130,7 @@ impl Desktop {
 
     fn thread_menu(&mut self, thread: &str, origin: Origin, point: Option<(f32, f32)>) {
         self.commit_title();
+        self.workspace.actions.copy_open = false;
         self.workspace.actions.menu = self
             .workspace
             .action_target(thread, origin)

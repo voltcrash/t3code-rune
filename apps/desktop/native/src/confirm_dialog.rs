@@ -83,8 +83,7 @@ pub(crate) fn overlay(
                 .child(cancel)
                 .child(confirm),
         )
-        .modal(true, on_cancel)
-        .modal_click_outside(true);
+        .modal(false, on_cancel);
     overlays.push(
         el().absolute(0., 0.)
             .w_full()
