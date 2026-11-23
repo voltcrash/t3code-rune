@@ -157,6 +157,7 @@ describe("preview stream downloads", () => {
       JSON.stringify({ type: "download", id: "d1", fileName: "a b.csv", sizeBytes: 3 }),
     );
     expect(onDownload).toHaveBeenCalledExactlyOnceWith({
+      id: "d1",
       fileName: "a b.csv",
       sizeBytes: 3,
       url: "http://preview.test/api/preview-stream/download?threadId=thread&tabId=tab&id=d1&wsTicket=ticket",

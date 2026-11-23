@@ -376,5 +376,10 @@
   "eed90253d3241141": "Redimensionar a viewport do navegador pela borda direita",
   "e64d57ecc339edbb": "Redimensionar a viewport do navegador pela borda inferior",
   "ee3ce2dbd17dde22": "Redimensionar a viewport do navegador pelo canto inferior esquerdo",
-  "44a0347dbc93ba80": "Redimensionar a viewport do navegador pelo canto inferior direito"
+  "44a0347dbc93ba80": "Redimensionar a viewport do navegador pelo canto inferior direito",
+  "bbcd3776bcd3e2c5": "{fileName} baixado",
+  "da52805f1f7bae35": "Salvar",
+  "0161b531abf44cba": "Este arquivo não pode ser mostrado aqui",
+  "9c6c2c0feb32db39": "{fileName} de {host} foi baixado.",
+  "b3036052b23a9f21": "Não foi possível abrir o link"
 }

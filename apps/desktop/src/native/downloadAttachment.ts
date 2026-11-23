@@ -74,14 +74,27 @@ export const attachmentResponse = Effect.fn("nativeDesktop.attachmentResponse")(
     .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error" }));
 });
 
-export const downloadAttachment = Effect.fn("nativeDesktop.downloadAttachment")(function* (
+export const downloadFile = Effect.fn("nativeDesktop.downloadFile")(function* (
   baseUrl: string,
   relativeUrl: string,
-  expectedBytes: number,
+  size: number | { maxBytes: number },
   destination: string,
 ) {
   const invalid = new AttachmentUnavailable({ message: "The attachment is unavailable." });
-  const response = yield* attachmentResponse(baseUrl, relativeUrl);
+  const response = yield* attachmentResponse(baseUrl, relativeUrl).pipe(
+    Effect.timeout("5 minutes"),
+  );
+  const limit = typeof size === "number" ? size : size.maxBytes;
+  const encoding = response.headers["content-encoding"];
+  const length =
+    !encoding || encoding === "identity" ? response.headers["content-length"] : undefined;
+  const expectedBytes =
+    typeof size === "number" ? size : length === undefined ? undefined : Number(length);
+  if (
+    expectedBytes !== undefined &&
+    (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0 || expectedBytes > limit)
+  )
+    return yield* invalid;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const temporary = yield* fs.makeTempFileScoped({
@@ -90,12 +103,13 @@ export const downloadAttachment = Effect.fn("nativeDesktop.downloadAttachment")(
   });
   let bytes = 0;
   yield* response.stream.pipe(
+    Stream.timeoutOrElse({ duration: "5 minutes", orElse: () => Stream.fail(invalid) }),
     Stream.tap((chunk) => {
       bytes += chunk.byteLength;
-      return bytes > expectedBytes ? Effect.fail(invalid) : Effect.void;
+      return bytes > limit ? Effect.fail(invalid) : Effect.void;
     }),
     Stream.run(fs.sink(temporary)),
   );
-  if (bytes !== expectedBytes) return yield* invalid;
+  if (expectedBytes !== undefined && bytes !== expectedBytes) return yield* invalid;
   yield* fs.rename(temporary, destination);
 }, Effect.scoped);

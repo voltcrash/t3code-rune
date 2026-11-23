@@ -376,5 +376,10 @@
   "eed90253d3241141": "Cambiar el tamaño del viewport desde el borde derecho",
   "e64d57ecc339edbb": "Cambiar el tamaño del viewport desde el borde inferior",
   "ee3ce2dbd17dde22": "Cambiar el tamaño del viewport desde la esquina inferior izquierda",
-  "44a0347dbc93ba80": "Cambiar el tamaño del viewport desde la esquina inferior derecha"
+  "44a0347dbc93ba80": "Cambiar el tamaño del viewport desde la esquina inferior derecha",
+  "bbcd3776bcd3e2c5": "Se descargó {fileName}",
+  "da52805f1f7bae35": "Guardar",
+  "0161b531abf44cba": "Este archivo no se puede mostrar aquí",
+  "9c6c2c0feb32db39": "{fileName} de {host} se descargó en su lugar.",
+  "b3036052b23a9f21": "No se pudo abrir el enlace"
 }

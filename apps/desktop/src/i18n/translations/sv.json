@@ -376,5 +376,10 @@
   "eed90253d3241141": "Ändra storlek på webbläsarens visningsyta från högerkanten",
   "e64d57ecc339edbb": "Ändra storlek på webbläsarens visningsyta från nederkanten",
   "ee3ce2dbd17dde22": "Ändra storlek på webbläsarens visningsyta från nedre vänstra hörnet",
-  "44a0347dbc93ba80": "Ändra storlek på webbläsarens visningsyta från nedre högra hörnet"
+  "44a0347dbc93ba80": "Ändra storlek på webbläsarens visningsyta från nedre högra hörnet",
+  "bbcd3776bcd3e2c5": "Laddade ned {fileName}",
+  "da52805f1f7bae35": "Spara",
+  "0161b531abf44cba": "Den här filen kan inte visas här",
+  "9c6c2c0feb32db39": "{fileName} från {host} laddades ned i stället.",
+  "b3036052b23a9f21": "Kunde inte öppna länken"
 }

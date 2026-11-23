@@ -2,6 +2,7 @@ import {
   createPreviewStreamClient,
   PREVIEW_STREAM_BASE_PATH,
   previewStreamControlLabel,
+  previewStreamDownloadUrl,
   type PreviewStreamClient,
   type PreviewStreamControl,
   type PreviewStreamInput,
@@ -21,10 +22,12 @@ import {
 import { resolveAddressBarInput } from "@t3tools/shared/preview";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import { HttpClientError } from "effect/http";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
 import { browserDeviceLabels, deviceViewport, type DeviceChange } from "./browserViewport.ts";
+import { downloadFile } from "./downloadAttachment.ts";
 import { BrowserDialog } from "./browserDialog.ts";
 import { openEnvironmentRpc, preparedConnection } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
@@ -42,6 +45,17 @@ export function browserLabels() {
     take: m(msg("Take control")),
     release: m(msg("Release control")),
     retry: m(msg("Try again")),
+    downloaded: m(msg("Downloaded {fileName}", { fileName: "{fileName}" })),
+    save: m(msg("Save", { $context: "verb, saves a downloaded file" })),
+    fileDownload: m(msg("Download")),
+    downloadSource: m(
+      msg("{fileName} from {host} was downloaded instead.", {
+        fileName: "{fileName}",
+        host: "{host}",
+      }),
+    ),
+    fileNotShown: m(msg("This file can’t be shown here")),
+    openExternal: m(msg("Open in browser")),
     dialog: m(msg("Browser dialog")),
     response: m(msg("Dialog response")),
     dismiss: m(msg("Dismiss")),
@@ -69,6 +83,7 @@ export function browserLabels() {
 type Rpc = Effect.Success<ReturnType<typeof openEnvironmentRpc>>;
 type BrowserRequest =
   | { action: "add" | "navigate"; value: string; tab: string | null }
+  | { action: "dismissDownload"; tab: string; id: string }
   | { action: "select"; tab: string }
   | { action: "close"; tab: string }
   | { action: "input"; tab: string; input: PreviewStreamInput }
@@ -139,11 +154,16 @@ function tabView(tab: PreviewSessionSnapshot) {
     can_zoom_out: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS[0],
     back: tab.canGoBack,
     forward: tab.canGoForward,
-    failure: nav._tag === "LoadFailed" ? nav.description : null,
+    download: nav._tag === "LoadFailed" ? nav.download : undefined,
+    failure: nav._tag === "LoadFailed" && !nav.download ? nav.description : null,
   };
 }
 
+type Download = { id: string; fileName: string; sizeBytes?: number };
+
 type Page = {
+  downloadOpenError?: string;
+  download: Pick<Download, "id" | "fileName"> | null;
   deviceChange?: "rotate" | { preset: number };
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
@@ -182,6 +202,9 @@ export function openBrowserPanel(
   let adjustments = Promise.resolve();
   let control: PreviewStreamControl | null = null;
   const dialogs = new BrowserDialog();
+  const downloads = new Map<string, Download[]>();
+  let failedOpen: string | undefined;
+  let openAttempt = 0;
   let viewport: readonly [number, number] = [0, 0];
   let busy = false;
   let error: string | null = null;
@@ -193,7 +216,13 @@ export function openBrowserPanel(
 
   function emit(deviceChange?: Page["deviceChange"]) {
     if (lifetime.aborted) return;
+    const offered = selected && downloads.get(selected)?.[0];
+    const direct = failedOpen && tabs.find((tab) => tab.tabId === selected)?.navStatus;
     publish({
+      ...(direct && direct._tag === "LoadFailed" && direct.download?.id === failedOpen
+        ? { downloadOpenError: m(msg("Could not open the link")) }
+        : {}),
+      download: offered ? { id: offered.id, fileName: offered.fileName } : null,
       ...(deviceChange === undefined ? {} : { deviceChange }),
       tabs: tabs.map(tabView),
       selected,
@@ -239,7 +268,10 @@ export function openBrowserPanel(
   }
   async function select(id: string | null, refreshTicket = true) {
     detach();
-    if (selected !== id) selectionVersion++;
+    if (selected !== id) {
+      selectionVersion++;
+      failedOpen = undefined;
+    }
     selected = id;
     error = null;
     emit();
@@ -260,6 +292,15 @@ export function openBrowserPanel(
       stream = createPreviewStreamClient(target, {
         onFrame(jpeg) {
           if (!lease.aborted) frame(jpeg);
+        },
+        onDownload({ id: downloadId, fileName, sizeBytes }) {
+          if (lease.aborted || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) return;
+          const offers = downloads.get(id) ?? [];
+          if (offers.some((offer) => offer.id === downloadId)) return;
+          offers.push({ id: downloadId, fileName, sizeBytes });
+          // The server retains its newest twenty downloads per tab.
+          downloads.set(id, offers.slice(-20));
+          emit();
         },
         onViewport(size) {
           viewport = [size.width, size.height];
@@ -387,6 +428,9 @@ export function openBrowserPanel(
       }
     }
     tabs = [...retained, ...present.values()];
+    for (const tabId of downloads.keys()) {
+      if (!tabs.some((tab) => tab.tabId === tabId)) downloads.delete(tabId);
+    }
     const choice =
       [preferred, selected].find((id) => tabs.some((tab) => tab.tabId === id)) ??
       tabs[0]?.tabId ??
@@ -435,8 +479,73 @@ export function openBrowserPanel(
       });
   }
   lifetime.addEventListener("abort", detach, { once: true });
+  function dismissDownload(tabId: string, id: string) {
+    const current = downloads.get(tabId);
+    if (current?.some((item) => item.id === id)) {
+      downloads.set(
+        tabId,
+        current.filter((item) => item.id !== id),
+      );
+      emit();
+    }
+  }
   start();
   return {
+    async openDownload(tabId: string, id: string, open: (url: string) => Promise<boolean>) {
+      if (lifetime.aborted || selected !== tabId) return;
+      const nav = tabs.find((tab) => tab.tabId === tabId)?.navStatus;
+      if (nav?._tag !== "LoadFailed" || nav.download?.id !== id) return;
+      const version = selectionVersion;
+      const attempt = ++openAttempt;
+      const url = URL.parse(nav.url);
+      let opened = false;
+      if (
+        url &&
+        ["https:", "http:"].includes(url.protocol) &&
+        !/%(?:00|(?![\da-f]{2}))/i.test(url.href)
+      ) {
+        const pathStart = url.href.indexOf("/", url.protocol.length + 2);
+        const pathAndQuery = url.href.slice(pathStart).replace(/[[\]\\^`{|}]/g, encodeURIComponent);
+        const destination = url.href.slice(0, pathStart) + pathAndQuery;
+        if (destination.length <= 8192) opened = await open(destination).catch(() => false);
+      }
+      if (!lifetime.aborted && selectionVersion === version && openAttempt === attempt) {
+        failedOpen = opened ? undefined : id;
+        emit();
+      }
+    },
+    download(tabId: string, id: string) {
+      if (lifetime.aborted) return;
+      const nav = tabs.find((tab) => tab.tabId === tabId)?.navStatus;
+      const offer = downloads.get(tabId)?.find((item) => item.id === id);
+      if (!offer && !(nav?._tag === "LoadFailed" && nav.download?.id === id)) return;
+      const size = offer?.sizeBytes ?? { maxBytes: 1024 ** 3 };
+      return {
+        save: (path: string) =>
+          resolveDeviceHubAccess({
+            prepared: preparedConnection(session),
+            hubBasePath: PREVIEW_STREAM_BASE_PATH,
+          }).pipe(
+            Effect.timeout("5 minutes"),
+            Effect.flatMap((access) =>
+              downloadFile(
+                session.httpBaseUrl,
+                previewStreamDownloadUrl({ access, threadId, tabId }, id),
+                size,
+                path,
+              ).pipe(
+                Effect.tapError((error) =>
+                  HttpClientError.isHttpClientError(error) &&
+                  (error.response?.status === 404 || error.response?.status === 410)
+                    ? Effect.sync(() => dismissDownload(tabId, id))
+                    : Effect.void,
+                ),
+              ),
+            ),
+            Effect.tap(() => Effect.sync(() => dismissDownload(tabId, id))),
+          ),
+      };
+    },
     stop() {
       stopped.abort();
     },
@@ -458,6 +567,10 @@ export function openBrowserPanel(
           if (selected) void select(selected);
           await refresh();
         }
+        return;
+      }
+      if (request.action === "dismissDownload") {
+        if (request.tab === selected) dismissDownload(request.tab, request.id);
         return;
       }
       if (!service) return;
