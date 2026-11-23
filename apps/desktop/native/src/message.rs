@@ -290,7 +290,7 @@ pub(super) fn reply(
                     }
                     _ if !href.is_empty() && !href.starts_with('#') => {
                         if let Some(location) = &location {
-                            s.preview_workspace_path(location.clone(), href.to_owned(), true);
+                            s.resolve_workspace_link(location.clone(), href.to_owned());
                         }
                     }
                     _ => {}

@@ -21,7 +21,7 @@ pub(crate) enum Input {
     Search { query: String, cancel: bool },
     Filter { query: String, cancel: bool },
     Read { path: String, cancel: bool },
-    Link { href: String, cancel: bool },
+    Resolve { href: String },
     List { directory: String, cancel: bool },
 }
 
@@ -38,7 +38,6 @@ pub(crate) struct LinkTarget {
 }
 
 pub(crate) struct Preview {
-    href: Option<String>,
     reveal_line: Option<usize>,
     origin: Origin,
     rendered: bool,
@@ -174,6 +173,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_file_preview(&mut self) {
+        self.workspace.resolving_file_link = None;
         if let Some(p) = self.workspace.file_preview.take() {
             match p.origin {
                 Origin::Workspace(location) => self.file_request(
@@ -213,10 +213,29 @@ impl Desktop {
     }
 
     pub(super) fn open_workspace_file(&mut self, location: Location, path: String) {
-        self.preview_workspace_path(location, path, false);
+        self.preview_workspace_path(location, path, None);
     }
 
-    pub(super) fn preview_workspace_path(&mut self, location: Location, path: String, link: bool) {
+    pub(super) fn resolve_workspace_link(&mut self, location: Location, href: String) {
+        let operation = self.next_request_id();
+        self.workspace.resolving_file_link = Some((operation, location.clone()));
+        self.file_request(location, operation, Input::Resolve { href });
+    }
+
+    pub(crate) fn receive_workspace_link(&mut self, operation: u64, link: Option<LinkTarget>) {
+        let Some((_, location)) = self
+            .workspace
+            .resolving_file_link
+            .take_if(|(id, _)| *id == operation)
+        else {
+            return;
+        };
+        if let Some(link) = link {
+            self.preview_workspace_path(location, link.path, link.line);
+        }
+    }
+
+    fn preview_workspace_path(&mut self, location: Location, path: String, line: Option<usize>) {
         if self.file_location().as_ref() != Some(&location) {
             return;
         }
@@ -226,8 +245,7 @@ impl Desktop {
         let operation = self.next_request_id();
         self.workspace.file_preview = Some(Preview {
             origin: Origin::Workspace(location.clone()),
-            href: link.then(|| path.clone()),
-            reveal_line: None,
+            reveal_line: line,
             rendered: false,
             operation,
             path: path.clone(),
@@ -237,16 +255,9 @@ impl Desktop {
         self.file_request(
             location,
             operation,
-            if link {
-                Input::Link {
-                    href: path,
-                    cancel: false,
-                }
-            } else {
-                Input::Read {
-                    path,
-                    cancel: false,
-                }
+            Input::Read {
+                path,
+                cancel: false,
             },
         );
     }
@@ -256,11 +267,9 @@ impl Desktop {
             return;
         };
         match &p.origin {
-            Origin::Workspace(location) => self.preview_workspace_path(
-                location.clone(),
-                p.href.as_ref().unwrap_or(&p.path).clone(),
-                p.href.is_some(),
-            ),
+            Origin::Workspace(location) => {
+                self.preview_workspace_path(location.clone(), p.path.clone(), p.reveal_line)
+            }
             Origin::Attachment(file) => {
                 if !file.reads_text() {
                     return;
@@ -281,18 +290,11 @@ impl Desktop {
         operation: u64,
         contents: Option<String>,
         truncated: bool,
-        link: Option<LinkTarget>,
         error: Option<String>,
     ) {
         if let Some(p) = &mut self.workspace.file_preview
             && p.operation == operation
         {
-            if let Some(target) = link
-                && p.href.is_some()
-            {
-                p.path = target.path;
-                p.reveal_line = target.line;
-            }
             p.source = contents.map(|text| {
                 Source::new(
                     &p.path,
@@ -555,14 +557,13 @@ mod tests {
                 root: "/repo".into(),
             }),
             operation: 12,
-            href: None,
             reveal_line: None,
             path: "src/main.rs".into(),
             source: None,
             error: None,
         });
-        app.receive_file_source(12, Some("/* 漢字\r\n */\r\n".into()), true, None, None);
-        app.receive_file_source(11, None, false, None, Some("Stale failure".into()));
+        app.receive_file_source(12, Some("/* 漢字\r\n */\r\n".into()), true, None);
+        app.receive_file_source(11, None, false, Some("Stale failure".into()));
         let preview = app.workspace.file_preview.as_ref().unwrap();
         let source = preview.source.as_ref().unwrap();
         assert!(preview.error.is_none() && source.truncated);
@@ -582,7 +583,7 @@ mod tests {
         });
         for text in ["a\n\n".repeat(200_000), "é中🎨".repeat(100_000)] {
             app.workspace.file_preview.as_mut().unwrap().rendered = true;
-            app.receive_file_source(12, Some(text), false, None, None);
+            app.receive_file_source(12, Some(text), false, None);
             let p = app.workspace.file_preview.as_ref().unwrap();
             assert!(!p.rendered);
             let source = p.source.as_ref().unwrap();

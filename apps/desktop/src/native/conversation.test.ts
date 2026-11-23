@@ -87,10 +87,14 @@ it("keeps the previous final reply copyable when the next run receives its promp
   message(
     1,
     "assistant",
-    'See :codex-file-citation{path="src/main.rs" line_range_start="12"}, then L12.',
+    'See :codex-file-citation{path="src/main.rs" line_range_start="12"}, then L12. ![Diagram](docs/main.rs)',
   );
-  expect(state.rows.at(-1)?.body).toBe("See [main.rs · L12](<src/main.rs#L12>), then L12.");
-  expect(state.rows.at(-1)?.copy_body).toBe("See [main.rs](<src/main.rs#L12>), then L12.");
+  expect(state.rows.at(-1)?.body).toBe(
+    "See [main.rs · repo/src · L12](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",
+  );
+  expect(state.rows.at(-1)?.copy_body).toBe(
+    "See [main.rs](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",
+  );
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");

@@ -14,8 +14,9 @@ import {
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
 } from "./codexArtifactTemplates.ts";
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "./fileLinks.ts";
-import { inlineCodeFilePathCandidate, resolveMarkdownFileLink } from "./markdownLinks.ts";
+import { markdownFileParentSuffixes } from "./markdownFileLabels.ts";
+import { fileLinkLabel } from "./fileLinks.ts";
+import { resolveMarkdownFileLink } from "./markdownLinks.ts";
 import {
   codexFileCitationMarkdown,
   resolveCodexFileCitationLink,
@@ -324,49 +325,39 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
   for (const child of node.children ?? []) collectDirectiveMatches(child, matches);
 }
 
-function fileLabels(tree: MarkdownAstNode, cwd: string | undefined) {
-  const paths: string[] = [];
-  function visit(node: MarkdownAstNode) {
-    const href =
-      node.type === "link"
-        ? node.url
-        : node.type === "inlineCode" && node.value
-          ? inlineCodeFilePathCandidate(node.value)
-          : null;
-    const resolved = href && resolveMarkdownFileLink(href, cwd);
-    if (resolved) paths.push(resolved.position.path);
-    for (const child of node.children ?? []) visit(child);
-  }
-  visit(tree);
-  const suffixes = buildFileLinkParentSuffixByPath(paths);
-  return (citation: CodexFileCitationLink) => {
-    const file = resolveMarkdownFileLink(citation.href, cwd);
-    return file ? { ...citation, label: fileLinkLabel(file.position, suffixes) } : citation;
-  };
-}
-
 function renderDirectiveMatches(
   markdown: string,
   replacementFor: (match: DirectiveMatch) => string | undefined,
   display?: { readonly cwd: string | undefined },
 ): string {
-  const tree = parseCodexMarkdown(markdown);
   const matches: DirectiveMatch[] = [];
-  collectDirectiveMatches(tree, matches);
-  const label =
-    display && matches.some((m) => m.citation) ? fileLabels(tree, display.cwd) : undefined;
-  let rendered = markdown;
-  for (const match of matches.sort((left, right) => right.start - left.start)) {
-    const replacement = match.labelRange
-      ? markdown.slice(...match.labelRange)
-      : match.citation
-        ? codexFileCitationMarkdown(label?.(match.citation) ?? match.citation)
-        : replacementFor(match);
-    if (replacement !== undefined) {
-      rendered = rendered.slice(0, match.start) + replacement + rendered.slice(match.end);
+  collectDirectiveMatches(parseCodexMarkdown(markdown), matches);
+  const render = (suffixes?: ReadonlyMap<string, string>) => {
+    const parts: string[] = [];
+    let start = 0;
+    for (const match of matches) {
+      let replacement: string | undefined;
+      if (match.labelRange) replacement = markdown.slice(...match.labelRange);
+      else if (match.citation) {
+        const citation = match.citation;
+        const file = suffixes && resolveMarkdownFileLink(citation.href, display?.cwd);
+        replacement = codexFileCitationMarkdown(
+          file && suffixes
+            ? { ...citation, label: fileLinkLabel(file.position, suffixes) }
+            : citation,
+        );
+      } else replacement = replacementFor(match);
+      if (replacement === undefined) continue;
+      parts.push(markdown.slice(start, match.start), replacement);
+      start = match.end;
     }
-  }
-  return rendered;
+    parts.push(markdown.slice(start));
+    return parts.join("");
+  };
+  const rendered = render();
+  return display && matches.some((match) => match.citation)
+    ? render(markdownFileParentSuffixes(markdown, rendered, display.cwd))
+    : rendered;
 }
 
 export function renderCodexInlineDirectivesAsMarkdown(

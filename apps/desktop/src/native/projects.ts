@@ -501,7 +501,6 @@ const threadWorkspaceRoot = Effect.fn("nativeDesktop.threadWorkspaceRoot")(funct
 type WorkspaceFileInput =
   | { readonly action: "search" | "filter"; readonly query: string }
   | { readonly action: "read"; readonly path: string }
-  | { readonly action: "link"; readonly href: string }
   | { readonly action: "list"; readonly directory: string };
 
 export function workspaceMarkdownLink(href: string, root: string) {
@@ -518,7 +517,7 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
   activeRpc: Effect.Success<ReturnType<typeof openEnvironmentRpc>> | undefined,
 ) {
   const cwd =
-    input.action !== "read" && input.action !== "link" && activeRpc
+    input.action !== "read" && activeRpc
       ? expectedRoot
       : yield* threadWorkspaceRoot(session, threadId, expectedRoot);
   const rpc = activeRpc ?? (yield* openEnvironmentRpc(session));
@@ -551,20 +550,10 @@ export const readWorkspaceFiles = Effect.fn("nativeDesktop.readWorkspaceFiles")(
         return rpc[WS_METHODS.projectsListEntries]({ cwd, directoryPath: input.directory }).pipe(
           Effect.map(({ entries, truncated }) => ({ type: "fileentries", entries, truncated })),
         );
-      case "link":
-      case "read": {
-        const link = input.action === "link" ? workspaceMarkdownLink(input.href, cwd) : null;
-        const path = input.action === "read" ? input.path : link?.path;
-        if (!path) return Effect.fail(new InvalidProjectPath());
-        return rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: path }).pipe(
-          Effect.map(({ contents, truncated }) => ({
-            type: "filesource",
-            contents,
-            truncated,
-            ...(link && { link }),
-          })),
+      case "read":
+        return rpc[WS_METHODS.projectsReadFile]({ cwd, relativePath: input.path }).pipe(
+          Effect.map(({ contents, truncated }) => ({ type: "filesource", contents, truncated })),
         );
-      }
     }
   };
   const result = yield* list();
