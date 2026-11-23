@@ -163,11 +163,11 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
   const markdown =
     item.type === "assistant_message"
-      ? renderCodexInlineDirectivesAsMarkdown(item.text)
+      ? renderCodexInlineDirectivesAsMarkdown(item.text, { cwd: root })
       : item.text;
   const copy =
     item.type === "assistant_message" && !item.streaming
-      ? renderCodexDirectivesForCopy(markdown)
+      ? renderCodexDirectivesForCopy(item.text)
       : markdown;
   return {
     key,

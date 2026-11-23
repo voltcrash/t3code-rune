@@ -14,7 +14,13 @@ import {
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
 } from "./codexArtifactTemplates.ts";
-import { codexFileCitationMarkdown, resolveCodexFileCitationLink } from "./codexFileCitations.ts";
+import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "./fileLinks.ts";
+import { inlineCodeFilePathCandidate, resolveMarkdownFileLink } from "./markdownLinks.ts";
+import {
+  codexFileCitationMarkdown,
+  resolveCodexFileCitationLink,
+  type CodexFileCitationLink,
+} from "./codexFileCitations.ts";
 
 const COLON = 58;
 const DASH = 45;
@@ -46,7 +52,7 @@ interface MarkdownAstNode {
   position?: MarkdownPosition;
   data?: {
     codexArtifactTemplate?: CodexArtifactTemplate;
-    codexFileCitationMarkdown?: string;
+    codexFileCitation?: CodexFileCitationLink;
     codexFollowUp?: true;
     hName?: string;
     hProperties?: Record<string, unknown>;
@@ -203,7 +209,7 @@ function renderFileCitation(node: MarkdownAstNode, source: string, insideLink: b
   node.type = "link";
   node.url = citation.href;
   node.children = [{ type: "text", value: citation.label }];
-  node.data = { codexFileCitationMarkdown: codexFileCitationMarkdown(citation) };
+  node.data = { codexFileCitation: citation };
   delete node.name;
   delete node.attributes;
   delete node.value;
@@ -291,7 +297,7 @@ function parseCodexMarkdown(markdown: string): MarkdownAstNode {
 interface DirectiveMatch {
   readonly start: number;
   readonly end: number;
-  readonly markdown?: string;
+  readonly citation?: CodexFileCitationLink;
   readonly template?: CodexArtifactTemplate;
   readonly labelRange?: readonly [start: number, end: number];
 }
@@ -300,8 +306,8 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
   if (start !== undefined && end !== undefined) {
-    if (node.data?.codexFileCitationMarkdown !== undefined) {
-      matches.push({ start, end, markdown: node.data.codexFileCitationMarkdown });
+    if (node.data?.codexFileCitation !== undefined) {
+      matches.push({ start, end, citation: node.data.codexFileCitation });
       return;
     }
     if (node.data?.codexArtifactTemplate !== undefined) {
@@ -318,17 +324,44 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
   for (const child of node.children ?? []) collectDirectiveMatches(child, matches);
 }
 
+function fileLabels(tree: MarkdownAstNode, cwd: string | undefined) {
+  const paths: string[] = [];
+  function visit(node: MarkdownAstNode) {
+    const href =
+      node.type === "link"
+        ? node.url
+        : node.type === "inlineCode" && node.value
+          ? inlineCodeFilePathCandidate(node.value)
+          : null;
+    const resolved = href && resolveMarkdownFileLink(href, cwd);
+    if (resolved) paths.push(resolved.position.path);
+    for (const child of node.children ?? []) visit(child);
+  }
+  visit(tree);
+  const suffixes = buildFileLinkParentSuffixByPath(paths);
+  return (citation: CodexFileCitationLink) => {
+    const file = resolveMarkdownFileLink(citation.href, cwd);
+    return file ? { ...citation, label: fileLinkLabel(file.position, suffixes) } : citation;
+  };
+}
+
 function renderDirectiveMatches(
   markdown: string,
   replacementFor: (match: DirectiveMatch) => string | undefined,
+  display?: { readonly cwd: string | undefined },
 ): string {
+  const tree = parseCodexMarkdown(markdown);
   const matches: DirectiveMatch[] = [];
-  collectDirectiveMatches(parseCodexMarkdown(markdown), matches);
+  collectDirectiveMatches(tree, matches);
+  const label =
+    display && matches.some((m) => m.citation) ? fileLabels(tree, display.cwd) : undefined;
   let rendered = markdown;
   for (const match of matches.sort((left, right) => right.start - left.start)) {
     const replacement = match.labelRange
       ? markdown.slice(...match.labelRange)
-      : replacementFor(match);
+      : match.citation
+        ? codexFileCitationMarkdown(label?.(match.citation) ?? match.citation)
+        : replacementFor(match);
     if (replacement !== undefined) {
       rendered = rendered.slice(0, match.start) + replacement + rendered.slice(match.end);
     }
@@ -336,7 +369,10 @@ function renderDirectiveMatches(
   return rendered;
 }
 
-export function renderCodexInlineDirectivesAsMarkdown(markdown: string): string {
+export function renderCodexInlineDirectivesAsMarkdown(
+  markdown: string,
+  display?: { readonly cwd: string | undefined },
+): string {
   if (
     !markdown.includes(`:${CODEX_FILE_CITATION_NAME}`) &&
     !markdown.includes(`:${CODEX_FOLLOW_UP_NAME}`)
@@ -344,7 +380,7 @@ export function renderCodexInlineDirectivesAsMarkdown(markdown: string): string 
     return markdown;
   }
 
-  return renderDirectiveMatches(markdown, (match) => match.markdown);
+  return renderDirectiveMatches(markdown, () => undefined, display);
 }
 
 export function renderCodexDirectivesForCopy(markdown: string): string {
@@ -357,7 +393,6 @@ export function renderCodexDirectivesForCopy(markdown: string): string {
   }
 
   return renderDirectiveMatches(markdown, (match) => {
-    if (match.markdown !== undefined) return match.markdown;
     if (match.template === undefined) return undefined;
     return `${match.template.displayName} (${codexArtifactTemplatePresentationLabel(match.template.artifactKind)})`;
   });

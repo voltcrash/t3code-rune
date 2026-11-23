@@ -14,7 +14,7 @@ it("keeps the previous final reply copyable when the next run receives its promp
   const state: Parameters<typeof updateWindow>[0] = {
     layout: { folds: [], replies: [] },
     projection: v2Projection,
-    projectRoot: undefined,
+    projectRoot: "/repo",
     activeRun: null,
     runlessWorkActive: false,
     requests: { approvals: [], questions: [] },
@@ -84,14 +84,22 @@ it("keeps the previous final reply copyable when the next run receives its promp
   };
   apply({ ...event, type: "run.created", payload: run(1, "completed") });
   message(1, "user");
-  message(1, "assistant", 'See :codex-file-citation{path="src/main.rs" line_range_start="12"}.');
-  expect(state.rows.at(-1)?.body).toBe("See [main.rs](<src/main.rs#L12>).");
-  expect(state.rows.at(-1)?.copy_body).toBeUndefined();
+  message(
+    1,
+    "assistant",
+    'See :codex-file-citation{path="src/main.rs" line_range_start="12"}, then L12.',
+  );
+  expect(state.rows.at(-1)?.body).toBe("See [main.rs · L12](<src/main.rs#L12>), then L12.");
+  expect(state.rows.at(-1)?.copy_body).toBe("See [main.rs](<src/main.rs#L12>), then L12.");
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");
   expect(replies).toEqual(["assistant-1"]);
-  message(2, "assistant");
+  const literal =
+    '::artifact-template{skill_name="artifact-template-hello-world" skill_directory="/skills/hello" display_name="Hello World" artifact_kind="document"}';
+  message(2, "assistant", `:codex-followup[${literal}]{prompt="Continue"}`);
+  const response = state.rows.at(-1);
+  expect(response?.copy_body ?? response?.body).toBe(literal);
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.updated", payload: run(2, "completed") });
   expect(replies).toEqual(["assistant-1", "assistant-2"]);

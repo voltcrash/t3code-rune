@@ -288,7 +288,6 @@ pub(super) fn reply(
                     Ok(url) if matches!(url.scheme(), "https" | "http") => {
                         let _ = tx.open_url(url.as_str());
                     }
-                    Ok(url) if url.scheme() != "file" && url.scheme().len() != 1 => {}
                     _ if !href.is_empty() && !href.starts_with('#') => {
                         if let Some(location) = &location {
                             s.preview_workspace_path(location.clone(), href.to_owned(), true);

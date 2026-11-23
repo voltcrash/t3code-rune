@@ -70,6 +70,7 @@ it.effect(
 );
 
 it("opens Markdown citations at their line inside the active environment checkout", () => {
+  expect(workspaceMarkdownLink("README.md:12", "/repo")).toEqual({ path: "README.md", line: 12 });
   expect(workspaceMarkdownLink("docs/a%20b.md#L38-L42", "/work/project")).toEqual({
     path: "docs/a b.md",
     line: 38,
