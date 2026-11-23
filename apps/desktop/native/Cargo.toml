@@ -24,10 +24,10 @@ serde_json = "1"
 tempfile = "3"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-rune = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e", features = [
+rune = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794", features = [
   "native-file-dialog",
 ] }
-rune-kit = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e", features = [
+rune-kit = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794", features = [
   "markdown",
 ] }
 
@@ -53,9 +53,9 @@ winsafe = { version = "0.0.29", features = ["kernel"] }
 
 # Cargo applies Rune's platform patches only from the root manifest.
 [patch.crates-io]
-accesskit_macos = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
-accesskit_windows = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
-parley_engine = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
-sctk-adwaita = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
-wgpu-hal = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
-winit = { git = "https://github.com/voltcrash/rune", rev = "06f729c695430fa5f66e85d1789218b48f2bd03e" }
+accesskit_macos = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }
+accesskit_windows = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }
+parley_engine = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }
+sctk-adwaita = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }
+wgpu-hal = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }
+winit = { git = "https://github.com/voltcrash/rune", rev = "ff14136de70e61bd39bcc52b2f4d57923a658794" }

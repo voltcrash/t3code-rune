@@ -6,7 +6,7 @@ pub(crate) use preview::Preview;
 use rune::{El, FileDialogOptions, Icon, TextStyle, col, el, icon, row, text, tok};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 use tempfile::TempPath;
 
 #[derive(serde::Deserialize)]
@@ -70,8 +70,8 @@ pub(super) struct TextPasteLimits {
 #[derive(Clone)]
 pub(super) struct Selection {
     pub(super) path: String,
-    pasted: Option<Rc<PastedText>>,
-    clipboard_file: Option<Rc<TempPath>>,
+    pasted: Option<Arc<PastedText>>,
+    clipboard_file: Option<Arc<TempPath>>,
     thumbnail: Option<preview::Thumbnail>,
 }
 
@@ -173,7 +173,7 @@ impl Selection {
         let file = file.into_temp_path();
         let path = file.to_str().ok_or(io::ErrorKind::InvalidData)?.to_owned();
         Ok(Self {
-            clipboard_file: Some(Rc::new(file)),
+            clipboard_file: Some(Arc::new(file)),
             ..Self::local(&path)
         })
     }
@@ -301,7 +301,7 @@ impl Target {
         let plain = self.clone();
         field
             .pill_style(crate::mentions::chip)
-            .input_copy_text_for(move |edit, dest| clipboard.copy(edit, dest, &selections))
+            .input_copy_write(move |edit, _| clipboard.copy(edit, &selections))
             .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
             .on_input_key(move |app: &mut Desktop, key, tx| {
                 const PASTE_AS_TEXT: rune::Chord = rune::Chord::new(rune::ChordKey::Char('v'))
@@ -335,7 +335,7 @@ impl Target {
             })
     }
 
-    fn edit(
+    pub(super) fn edit(
         &self,
         app: &mut Desktop,
         change: impl FnOnce(&mut Vec<Selection>, &mut rune::TextEdit),
@@ -442,7 +442,7 @@ impl Target {
                         number += 1;
                         name = format!("pasted-text-{number}.txt");
                     }
-                    let paste = Rc::new(PastedText::new(name, text.len()));
+                    let paste = Arc::new(PastedText::new(name, text.len()));
                     if retained + paste.link.len() + 1 > limits.input {
                         error = Some(remove_some);
                         consumed = true;
@@ -720,9 +720,8 @@ mod tests {
         let (files, edit) = app.new_threads.editable_files().unwrap();
         let path = PathBuf::from(&files[0].path);
         edit.set_selection(0, edit.text.len());
-        let wire = clipboard
-            .copy(edit, rune::CopyDestination::Clipboard, files)
-            .unwrap();
+        let write = clipboard.copy(edit, files).unwrap();
+        let wire = write.content().text().to_owned();
         edit.insert("");
         assert!(source.paste(&mut app, &ClipboardContent::new(&wire)));
         let (files, edit) = app.new_threads.editable_files().unwrap();
@@ -752,11 +751,8 @@ mod tests {
             std::fs::read_to_string(&files[0].path).unwrap(),
             "a folded file"
         );
-        clipboard.copy(
-            &rune::TextEdit::new("other"),
-            rune::CopyDestination::Clipboard,
-            &[],
-        );
+        drop(write);
+        assert!(clipboard.files(&wire).is_none());
         edit.undo();
         files.extend((1..FILE_LIMIT).map(|i| Selection::local(&format!("{i}.txt"))));
         destination.add(&mut app, &[PathBuf::from("one more.txt")]);

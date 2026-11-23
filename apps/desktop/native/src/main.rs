@@ -737,7 +737,7 @@ struct Desktop {
     mentions: mentions::Picker,
     clipboard_paste: Option<attachments::PendingPaste>,
     copied_files: attachments::Clipboard,
-    clipboard_uploads: std::collections::HashMap<u64, Vec<std::rc::Rc<tempfile::TempPath>>>,
+    clipboard_uploads: std::collections::HashMap<u64, Vec<std::sync::Arc<tempfile::TempPath>>>,
     pending: bool,
     starting_local: bool,
     error: Option<String>,

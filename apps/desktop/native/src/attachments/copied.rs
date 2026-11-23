@@ -1,55 +1,72 @@
 use super::{FILE_LIMIT, Selection, Target};
 use crate::Desktop;
-use rune::{CopyDestination, TextEdit};
-use std::{cell::RefCell, rc::Rc};
+use rune::{ClipboardWrite, TextEdit};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Weak},
+};
+use tempfile::TempPath;
 
 #[derive(Default, Clone)]
-pub(crate) struct Clipboard(Rc<RefCell<[Option<Copied>; 2]>>);
+pub(crate) struct Clipboard(Rc<RefCell<Vec<Copied>>>);
 
 struct Copied {
     text: String,
-    files: Vec<Selection>,
+    files: Weak<Vec<CopiedFile>>,
+}
+
+struct CopiedFile {
+    paste: Arc<super::PastedText>,
+    path: Arc<TempPath>,
 }
 
 impl Clipboard {
-    pub(super) fn copy(
-        &self,
-        edit: &TextEdit,
-        dest: CopyDestination,
-        files: &[Selection],
-    ) -> Option<String> {
-        let text = crate::mentions::copy_selection(edit);
+    pub(super) fn copy(&self, edit: &TextEdit, files: &[Selection]) -> Option<ClipboardWrite> {
+        let mut copies = self.0.borrow_mut();
+        copies.retain(|c| c.files.strong_count() != 0);
+        let text = crate::mentions::copy_selection(edit)?;
         let (start, end) = edit.range();
-        let mut slots = self.0.borrow_mut();
-        slots[match dest {
-            CopyDestination::Clipboard => 0,
-            CopyDestination::PrimarySelection => 1,
-        }] = text.as_ref().and_then(|text| {
-            let selected: Vec<_> = files
-                .iter()
-                .filter(|file| {
-                    file.pasted.as_ref().is_some_and(|paste| {
-                        edit.pills()
-                            .any(|(r, id)| r.start >= start && r.end <= end && id == paste.pill)
+        let copied: Vec<_> = files
+            .iter()
+            .filter_map(|file| {
+                let paste = file.pasted.as_ref()?;
+                let path = file.clipboard_file.as_ref()?;
+                edit.pills()
+                    .any(|(r, id)| r.start >= start && r.end <= end && id == paste.pill)
+                    .then(|| CopiedFile {
+                        paste: paste.clone(),
+                        path: path.clone(),
                     })
-                })
-                .cloned()
-                .collect();
-            (!selected.is_empty()).then(|| Copied {
-                text: text.clone(),
-                files: selected,
             })
+            .collect();
+        if copied.is_empty() {
+            return Some(ClipboardWrite::text(text));
+        }
+        let files = Arc::new(copied);
+        copies.push(Copied {
+            text: text.clone(),
+            files: Arc::downgrade(&files),
         });
-        text
+        Some(ClipboardWrite::text(text).with_resource(files))
     }
 
-    fn files(&self, text: &str) -> Option<Vec<Selection>> {
-        self.0
-            .borrow()
+    pub(super) fn files(&self, text: &str) -> Option<Vec<Selection>> {
+        let copies = self.0.borrow();
+        let copied = copies
             .iter()
-            .flatten()
-            .find(|clip| clip.text == text)
-            .map(|clip| clip.files.clone())
+            .filter(|clip| clip.text == text)
+            .find_map(|clip| clip.files.upgrade())?;
+        copied
+            .iter()
+            .map(|file| {
+                Some(Selection {
+                    pasted: Some(file.paste.clone()),
+                    clipboard_file: Some(file.path.clone()),
+                    ..Selection::local(file.path.to_str()?)
+                })
+            })
+            .collect()
     }
 }
 

@@ -64,10 +64,6 @@ impl Draft {
     pub(super) fn select_permission(&mut self, choice: crate::permissions::Selection) {
         self.permission = Some(choice);
     }
-    pub(super) fn edit_mention(&mut self) -> &mut TextEdit {
-        self.operation = None;
-        &mut self.editor
-    }
     pub(super) fn preserve_answer(&mut self, value: &str) {
         self.editor.set_caret(self.editor.text.len());
         self.editor.undo_group(|edit| {

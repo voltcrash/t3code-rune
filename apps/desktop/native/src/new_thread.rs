@@ -67,12 +67,6 @@ impl NewThreads {
             .filter(|draft| !draft.uncertain)
             .map(|d| &d.prompt)
     }
-    pub(super) fn edit_prompt(&mut self, id: &str) -> Option<&mut TextEdit> {
-        self.drafts
-            .get_mut(id)
-            .filter(|draft| !draft.uncertain)
-            .map(|d| &mut d.prompt)
-    }
     pub(super) fn has_draft(&self, project: &str) -> bool {
         self.drafts.contains_key(project)
     }

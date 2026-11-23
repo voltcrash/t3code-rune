@@ -420,24 +420,21 @@ impl Desktop {
 
     fn choose_mention(&mut self, operation: u64, path: &str, tx: &mut Tx) {
         let current = self.mention_trigger(tx.focused());
-        let Some(s) = &self.mentions.search else {
+        let Some(s) = self.mentions.search.take_if(|s| {
+            !s.dismissed && s.operation == operation && current.as_ref() == Some(&s.trigger)
+        }) else {
             return;
         };
-        if s.operation != operation || s.dismissed || current.as_ref() != Some(&s.trigger) {
-            return;
-        }
         let Some(entry) = s.entries.iter().find(|e| e.path == path) else {
+            self.mentions.search = Some(s);
             return;
         };
-        let edit = match &s.trigger.owner {
-            Target::Thread(id) => self.workspace.drafts.get_mut(id).map(|d| d.edit_mention()),
-            Target::Project(id) => self.new_threads.edit_prompt(id),
-        };
-        let Some(edit) = edit else { return };
-        let model = entry.kind == "model";
-        entry.choose(edit, s.trigger.range.clone());
-        self.mentions.search = None;
-        if model {
+        let mut open_model = false;
+        s.trigger.owner.edit(self, |_, edit| {
+            entry.choose(edit, s.trigger.range.clone());
+            open_model = entry.kind == "model";
+        });
+        if open_model {
             self.open_composer_models(tx);
         }
     }
@@ -573,7 +570,18 @@ mod tests {
             false,
             "",
         );
-        app.new_threads.edit_prompt("p").unwrap().insert("$rev");
+        app.new_threads.editable_files().unwrap().1.insert("$rev");
+        app.text_paste =
+            serde_json::from_value(serde_json::json!({"threshold": 8, "input": 500, "file": 500}))
+                .unwrap();
+        assert!(
+            Target::Project("p".into())
+                .paste(&mut app, &rune::ClipboardContent::new("long folded text"))
+        );
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        let staged = std::path::PathBuf::from(&files[0].path);
+        edit.undo();
+        assert!(staged.exists());
         let mut rt = rune::Runtime::new(
             app,
             |_, _| rune::el().key("new-thread-prompt").focusable(true),
@@ -606,6 +614,10 @@ mod tests {
             s.mentions.receive(fresh, vec![row()]);
             assert!(s.mention_key(&owner, &enter, tx));
             assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
+            assert!(
+                !staged.exists(),
+                "choosing the skill removed the last redo reference"
+            );
         });
     }
     #[test]
