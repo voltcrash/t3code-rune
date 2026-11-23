@@ -1,4 +1,4 @@
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 use std::collections::BTreeSet;
 
 fn fits(text: &str) -> bool {
@@ -39,7 +39,11 @@ pub(super) fn partition(text: String, mut push: impl FnMut(String, bool)) {
     let mut definitions = BTreeSet::new();
     while let Some((event, span)) = events.next() {
         if depth == 0 {
-            start = span.start;
+            start = if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Indented))) {
+                text[..span.start].rfind('\n').map_or(0, |end| end + 1)
+            } else {
+                span.start
+            };
         }
         match event {
             Event::Start(tag) => {

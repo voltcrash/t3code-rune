@@ -528,7 +528,7 @@ mod tests {
         ]);
         let (last, earlier) = panel.activity.split_last().unwrap();
         let article = format!(
-            "# Summary\n\n{long}\n\n[Read the guide][guide]\n\n[guide]: https://example.test/guide"
+            "# Summary\n\n{long}\n\n    [example](https://example.test/)\n\n[Read the guide][guide]\n\n[guide]: https://example.test/guide"
         );
         let article = blocks("article", 0, None, article);
         assert!(
@@ -541,6 +541,18 @@ mod tests {
                 |b| b.markdown && b.text.contains("[guide]: https://example.test/guide")
             )
         );
+        let example = article
+            .iter()
+            .find(|part| part.text.contains("[example]"))
+            .unwrap();
+        assert!(example.markdown);
+        let mut tokens = pulldown_cmark::Parser::new(&example.text);
+        assert!(matches!(
+            tokens.next(),
+            Some(pulldown_cmark::Event::Start(
+                pulldown_cmark::Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Indented)
+            ))
+        ));
         assert_eq!(last.text, "Original");
         assert!(
             earlier
