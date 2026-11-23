@@ -49,6 +49,13 @@ impl Entry {
             .unwrap_or_else(|| self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path))
     }
     fn choose(&self, edit: &mut TextEdit, mut range: Range<usize>) {
+        if self.kind == "model" {
+            edit.undo_group(|edit| {
+                edit.set_selection(range.start, range.end);
+                edit.insert("");
+            });
+            return;
+        }
         if edit.text[range.end..].starts_with(' ') {
             range.end += 1;
         }
@@ -427,12 +434,7 @@ impl Desktop {
         };
         let Some(edit) = edit else { return };
         let model = entry.kind == "model";
-        if model {
-            edit.set_selection(s.trigger.range.start, s.trigger.range.end);
-            edit.insert("");
-        } else {
-            entry.choose(edit, s.trigger.range.clone());
-        }
+        entry.choose(edit, s.trigger.range.clone());
         self.mentions.search = None;
         if model {
             self.open_composer_models(tx);
@@ -532,6 +534,24 @@ mod tests {
         edit.undo();
         assert_eq!(prompt(&edit), "Review @co here @dir");
     }
+    #[test]
+    fn undoing_the_model_command_restores_its_original_caret() {
+        let mut edit = TextEdit::new("Review /mo tomorrow");
+        let caret = "Review /mo".len();
+        edit.set_caret(caret);
+        let (range, term, kind) = query(&edit).unwrap();
+        assert_eq!(kind, Kind::Command);
+        Entry::model_command(term, "Switch response model for this thread")
+            .unwrap()
+            .choose(&mut edit, range);
+        assert_eq!(edit.text, "Review  tomorrow");
+        edit.undo();
+        assert_eq!(edit.text, "Review /mo tomorrow");
+        assert_eq!((edit.anchor, edit.focus), (caret, caret));
+        edit.insert("d");
+        assert_eq!(edit.text, "Review /mod tomorrow");
+    }
+
     #[test]
     fn enter_waits_for_a_highlighted_skill_to_refresh() {
         let mut app = Desktop::new();
