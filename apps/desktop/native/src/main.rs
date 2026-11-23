@@ -72,6 +72,7 @@ enum Reply {
     ClientSettings {
         settings_labels: appearance::SettingsLabels,
         slash_skills: bool,
+        reader_title: bool,
         sans: String,
         code: String,
         smoothing: bool,
@@ -471,6 +472,9 @@ enum Request<'a> {
     SetContrast {
         value: u8,
     },
+    SetReaderTitle {
+        enabled: bool,
+    },
     SetSlashSkills {
         enabled: bool,
     },
@@ -714,6 +718,8 @@ struct Desktop {
     settings_page: appearance::SettingsPage,
     settings_labels: Option<appearance::SettingsLabels>,
     slash_skills: bool,
+    reader_title: bool,
+    window_title: Option<[String; 5]>,
     composer_advanced: bool,
     update: updates::Panel,
     settings_error: Option<String>,
@@ -777,6 +783,8 @@ impl Desktop {
             settings_page: Default::default(),
             settings_labels: None,
             slash_skills: true,
+            reader_title: false,
+            window_title: None,
             composer_advanced: false,
             update: Default::default(),
             settings_error: None,
@@ -834,6 +842,7 @@ impl Desktop {
             saving_client_settings: self.saving_client_settings,
             settings_labels: self.settings_labels.take(),
             slash_skills: self.slash_skills,
+            reader_title: self.reader_title,
             chat_width: self.chat_width,
             contrast: self.contrast,
             font_families: std::mem::take(&mut self.font_families),
@@ -1926,6 +1935,7 @@ fn start() -> io::Result<()> {
     let spec = AppSpec {
         min_size: Some((400.0, 360.0)),
         poll: Some(|s: &mut Desktop, now, tx| {
+            s.sync_window_title(tx);
             s.sync_draft_model_watch();
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
@@ -2277,6 +2287,7 @@ fn start() -> io::Result<()> {
                 if let Reply::ClientSettings {
                     settings_labels,
                     slash_skills,
+                    reader_title,
                     sans,
                     code,
                     smoothing,
@@ -2285,6 +2296,8 @@ fn start() -> io::Result<()> {
                     error,
                 } = reply.reply
                 {
+                    s.reader_title = reader_title;
+                    s.sync_window_title(tx);
                     s.settings_labels = Some(settings_labels);
                     if s.slash_skills != slash_skills {
                         s.slash_skills = slash_skills;
@@ -2349,6 +2362,7 @@ fn start() -> io::Result<()> {
                         }
                 );
                 s.receive(reply);
+                s.sync_window_title(tx);
                 s.sync_permission_menu(tx);
                 s.close_stale_models();
                 if update_palette && let Some(palette) = &s.palette {
@@ -2359,7 +2373,10 @@ fn start() -> io::Result<()> {
                 }
             });
         }
-        handle.update(|s, _| s.worker_closed());
+        handle.update(|s, tx| {
+            s.worker_closed();
+            s.sync_window_title(tx);
+        });
         let status = child.wait()?;
         if source_build && !received_response && !status.success() {
             handle.close();

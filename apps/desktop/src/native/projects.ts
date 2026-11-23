@@ -5,6 +5,7 @@ import * as Clock from "effect/Clock";
 import {
   hasUnseenCompletion,
   resolveSidebarRowStatus,
+  resolveThreadWindowStatus,
   shouldRecedeSidebarThread,
 } from "@t3tools/client-runtime/state/sidebar-row-status";
 import {
@@ -57,6 +58,8 @@ import {
 import { parseOAuthScope } from "@t3tools/shared/oauthScope";
 import { isHostPath, normalizeProjectPathForDispatch } from "@t3tools/shared/path";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
+import { m } from "../i18n/catalog.ts";
 import { permissionLabel } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import * as NodePath from "@effect/platform-node/NodePath";
@@ -193,6 +196,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     thread.lastVisitedAt === undefined ? session.legacyVisits?.get(thread.id) : undefined;
   const visited = localVisit ? { ...shell, lastVisitedAt: localVisit } : shell;
   const row = resolveSidebarRowStatus(visited);
+  const titleStatus = resolveThreadWindowStatus(shell);
   const isUnread = hasUnseenCompletion(visited);
   const status =
     row === "working" && shell.goal?.status === "active"
@@ -215,6 +219,7 @@ export function threadSummary(thread: OrchestrationV2ThreadShell, session: Sessi
     branch: thread.branch,
     ...(thread.worktreePath ? { worktree: thread.worktreePath } : {}),
     status,
+    ...(titleStatus && { title_status: m(THREAD_STATUS_TEXT[titleStatus]) }),
     status_at: timestamp ? Date.parse(timestamp) : null,
     recedes: shouldRecedeSidebarThread({
       status: row,

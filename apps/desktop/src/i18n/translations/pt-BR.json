@@ -202,5 +202,15 @@
   "4a1201bd18283940": "Inclui também as skills no menu de comandos /. As skills sempre aparecem quando você digita $.",
   "950712602a01125d": "Redefinir as skills no menu de barra para o padrão",
   "54ec29e2adae5d93": "Fechar configurações",
-  "dcc1969a12fc311b": "Não foi possível salvar esta configuração neste computador."
+  "dcc1969a12fc311b": "Não foi possível salvar esta configuração neste computador.",
+  "624506a403296638": "Trabalhando",
+  "7bfe35051f932b93": "Precisa de aprovação",
+  "b67d6bd5c4e311b7": "Precisa da sua resposta",
+  "166661f94b300f5b": "Concluído",
+  "d4d89c139de812a8": "Falhou",
+  "c1e03a860c856245": "Parado",
+  "162108e16ed96771": "Leitor de tela",
+  "0ce04933a7047deb": "Título da janela para leitor de tela",
+  "45d544caaabd1a31": "Começa o título da janela com o status da thread, como Precisa de aprovação, e o nome dela, para que leitores de tela os leiam primeiro quando você troca de app. Barras de tarefas, telas compartilhadas e rastreadores de tempo também o veem.",
+  "a44c3a64fb82f86c": "Redefinir o título da janela para o leitor de tela para o padrão"
 }

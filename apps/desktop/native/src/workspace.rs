@@ -70,6 +70,7 @@ pub(super) struct Thread {
     branch: Option<String>,
     worktree: Option<String>,
     status: sidebar_status::RowStatus,
+    title_status: Option<String>,
     status_at: Option<i64>,
     #[serde(default)]
     recedes: bool,
@@ -618,6 +619,39 @@ impl Workspace {
 }
 
 impl Desktop {
+    pub(super) fn sync_window_title(&mut self, tx: &mut Tx) {
+        let thread = self
+            .workspace
+            .visible_thread()
+            .filter(|_| self.new_threads.active.is_none());
+        let name = thread.map_or("", |t| t.title.trim());
+        let project = thread
+            .and_then(|t| self.workspace.project(&t.project))
+            .map_or("", |p| p.title.trim());
+        let status = thread
+            .and_then(|t| t.title_status.as_deref())
+            .filter(|_| self.reader_title)
+            .unwrap_or("");
+        let prefix = if status.is_empty() { "" } else { ": " };
+        let parts = if name.is_empty() {
+            [status, prefix, super::product_name(), "", ""]
+        } else if project.is_empty() {
+            [status, prefix, name, "", ""]
+        } else if self.reader_title {
+            [status, prefix, name, " - ", project]
+        } else {
+            ["", "", project, " / ", name]
+        };
+        if self
+            .window_title
+            .as_ref()
+            .is_none_or(|previous| *previous != parts)
+        {
+            tx.set_title(parts.concat().replace('\0', "�"));
+            self.window_title = Some(parts.map(str::to_owned));
+        }
+    }
+
     pub(super) fn begin_landing(&mut self, project: String) {
         if self.pending
             || !matches!(self.landing, Landing::Index)
@@ -2229,6 +2263,7 @@ mod tests {
             branch: None,
             worktree: None,
             status: sidebar_status::RowStatus::Ready,
+            title_status: None,
             status_at: None,
             recedes: false,
             sort_at,

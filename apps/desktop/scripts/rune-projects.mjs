@@ -769,11 +769,20 @@ function publishClientSettings(error) {
   write({
     type: "clientsettings",
     slash_skills: clientSettings.showSkillsInSlashMenu,
+    reader_title: clientSettings.screenReaderWindowTitle,
     settings_labels: {
       settings: m(msg("Settings")),
       appearance: m(msg("Appearance")),
       chat: m(msg("Chat")),
       composer: m(msg("Composer")),
+      screen_reader: m(msg("Screen reader")),
+      window_title: m(msg("Screen reader window title")),
+      title_description: m(
+        msg(
+          "Start the window title with the thread's status, like Needs approval, and its name, so screen readers read them first when you switch apps. Taskbars, shared screens, and time trackers see it too.",
+        ),
+      ),
+      title_reset: m(msg("Reset screen reader window title to default")),
       advanced: m(msg("Advanced")),
       slash_skills: m(msg("Show skills in slash menu")),
       slash_description: m(
@@ -807,6 +816,8 @@ async function setClientSetting(request) {
     let changes;
     if (request.type === "setfontsmoothing" && typeof request.smoothing === "boolean") {
       changes = { fontSmoothing: request.smoothing };
+    } else if (request.type === "setreadertitle" && typeof request.enabled === "boolean") {
+      changes = { screenReaderWindowTitle: request.enabled };
     } else if (request.type === "setslashskills" && typeof request.enabled === "boolean") {
       changes = { showSkillsInSlashMenu: request.enabled };
     } else if (
@@ -1242,8 +1253,8 @@ async function handleWorkspaceRequest(request, reply) {
         ? await host.connect(lifetime.signal, openVisitDatabase)
         : await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
       try {
-        initialWorkspace = await readWorkspace(connected);
         await clientSettingsWrites;
+        initialWorkspace = await readWorkspace(connected);
         if (host && server !== host) throw new Error("Local server stopped");
       } catch (error) {
         connected.legacyVisits?.close();
@@ -1734,6 +1745,7 @@ try {
     } else if (
       request?.type === "setfontsmoothing" ||
       request?.type === "setslashskills" ||
+      request?.type === "setreadertitle" ||
       request?.type === "setfontfamily" ||
       request?.type === "setchatwidth" ||
       request?.type === "setcontrast"

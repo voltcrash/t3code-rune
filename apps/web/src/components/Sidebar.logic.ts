@@ -1,6 +1,6 @@
 import {
   hasUnseenCompletion,
-  resolveSidebarThreadStatus,
+  resolveThreadWindowStatus,
   resolveSidebarRowStatus,
   type SidebarThreadStatusInput,
 } from "@t3tools/client-runtime/state/sidebar-row-status";
@@ -885,21 +885,8 @@ export function resolveWindowTitleThreadStatus(
   thread: SidebarThreadStatusInput,
   resolve: MessageResolver = m,
 ): string | null {
-  // A guest waiting doesn't hide that the agent is still working.
-  switch (resolveSidebarThreadStatus({ ...thread, pendingGuestMessageCount: 0 })) {
-    case "approval":
-      return resolve(THREAD_STATUS_TEXT.approval);
-    case "input":
-      return resolve(THREAD_STATUS_TEXT.input);
-    case "preparing":
-    case "working":
-      return resolve(THREAD_STATUS_TEXT.working);
-    case "waiting":
-      // Waiting on a child thread is still this turn, so it must not read as finished.
-      return thread.runtime?.status === "running" ? resolve(THREAD_STATUS_TEXT.working) : null;
-    default:
-      return null;
-  }
+  const status = resolveThreadWindowStatus(thread);
+  return status ? resolve(THREAD_STATUS_TEXT[status]) : null;
 }
 
 /**
