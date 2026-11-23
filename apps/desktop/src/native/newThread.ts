@@ -10,6 +10,7 @@ import {
   ProjectId,
   ThreadId,
   WS_METHODS,
+  type OrchestrationV2RuntimeRequest,
   type OrchestrationV2ThreadLaunchInput,
   type ServerConfig,
 } from "@t3tools/contracts";
@@ -178,6 +179,22 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
   } satisfies OrchestrationV2ThreadLaunchInput;
 });
 
+export function launchWindowStatus(
+  requests: ReadonlyArray<Pick<OrchestrationV2RuntimeRequest, "kind" | "status" | "createdAt">>,
+  active: boolean,
+) {
+  const pending = requests
+    .filter((request) => request.status === "pending")
+    .toSorted(
+      (a, b) =>
+        Number(a.kind === "user_input") - Number(b.kind === "user_input") ||
+        DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
+    )[0];
+  if (pending?.kind === "user_input") return "input";
+  if (pending && pending.kind !== "auth_refresh") return "approval";
+  return active ? "working" : null;
+}
+
 export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   session: Session,
   request: Parameters<typeof prepareLaunch>[1],
@@ -244,6 +261,7 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
   const run = result.projection.runs.at(-1);
   const active =
     run && ["preparing", "queued", "starting", "running", "waiting"].includes(run.status);
+  const titleStatus = launchWindowStatus(result.projection.runtimeRequests, Boolean(active));
   return {
     sequence: result.sequence,
     thread: {
@@ -270,7 +288,7 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
             : active
               ? "working"
               : "ready",
-      ...(active && { title_status: m(THREAD_STATUS_TEXT.working) }),
+      ...(titleStatus && { title_status: m(THREAD_STATUS_TEXT[titleStatus]) }),
       status_at: active
         ? DateTime.toEpochMillis(run.startedAt ?? run.requestedAt)
         : DateTime.toEpochMillis(run?.completedAt ?? thread.updatedAt),

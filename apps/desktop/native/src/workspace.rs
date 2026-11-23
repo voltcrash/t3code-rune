@@ -647,7 +647,7 @@ impl Desktop {
             .as_ref()
             .is_none_or(|previous| *previous != parts)
         {
-            tx.set_title(parts.concat());
+            tx.set_title(parts.concat().replace('\0', "�"));
             self.window_title = Some(parts.map(str::to_owned));
         }
     }

@@ -1253,8 +1253,8 @@ async function handleWorkspaceRequest(request, reply) {
         ? await host.connect(lifetime.signal, openVisitDatabase)
         : await pairWithEnvironment(request.link, lifetime.signal, openVisitDatabase);
       try {
-        initialWorkspace = await readWorkspace(connected);
         await clientSettingsWrites;
+        initialWorkspace = await readWorkspace(connected);
         if (host && server !== host) throw new Error("Local server stopped");
       } catch (error) {
         connected.legacyVisits?.close();
