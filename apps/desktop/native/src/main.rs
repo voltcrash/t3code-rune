@@ -69,7 +69,9 @@ enum Reply {
         open: Option<bool>,
         error: Option<String>,
     },
-    ClientAppearance {
+    ClientSettings {
+        settings_labels: appearance::SettingsLabels,
+        slash_skills: bool,
         sans: String,
         code: String,
         smoothing: bool,
@@ -469,6 +471,9 @@ enum Request<'a> {
     SetContrast {
         value: u8,
     },
+    SetSlashSkills {
+        enabled: bool,
+    },
     SetChatWidth {
         width: appearance::ChatWidth,
     },
@@ -699,15 +704,19 @@ struct Desktop {
     appearance: appearance::Mode,
     system_dark: Option<bool>,
     font_smoothing: Option<bool>,
-    saving_client_appearance: bool,
+    saving_client_settings: bool,
     chat_width: appearance::ChatWidth,
     chat_width_menu: bool,
     contrast: appearance::Contrast,
     font_families: appearance::FontFamilies,
     typography_advanced: bool,
     settings_open: bool,
+    settings_page: appearance::SettingsPage,
+    settings_labels: Option<appearance::SettingsLabels>,
+    slash_skills: bool,
+    composer_advanced: bool,
     update: updates::Panel,
-    appearance_error: Option<String>,
+    settings_error: Option<String>,
     output: Option<std::process::ChildStdin>,
     image_jobs: Option<image_decode::LocalQueue>,
     answer_advance: Option<questions::Advance>,
@@ -758,15 +767,19 @@ impl Desktop {
             appearance: Default::default(),
             system_dark: cfg!(target_os = "linux").then_some(false),
             font_smoothing: None,
-            saving_client_appearance: false,
+            saving_client_settings: false,
             chat_width: Default::default(),
             chat_width_menu: false,
             contrast: Default::default(),
             font_families: Default::default(),
             typography_advanced: false,
             settings_open: false,
+            settings_page: Default::default(),
+            settings_labels: None,
+            slash_skills: true,
+            composer_advanced: false,
             update: Default::default(),
-            appearance_error: None,
+            settings_error: None,
             link: TextEdit::new("").secure(),
             pairing_offers: Default::default(),
             pairing: false,
@@ -818,7 +831,9 @@ impl Desktop {
             appearance: self.appearance,
             system_dark: self.system_dark,
             font_smoothing: self.font_smoothing,
-            saving_client_appearance: self.saving_client_appearance,
+            saving_client_settings: self.saving_client_settings,
+            settings_labels: self.settings_labels.take(),
+            slash_skills: self.slash_skills,
             chat_width: self.chat_width,
             contrast: self.contrast,
             font_families: std::mem::take(&mut self.font_families),
@@ -1089,7 +1104,7 @@ impl Desktop {
         }
         if let Reply::Appearance { mode, error } = message.reply {
             self.appearance = mode;
-            self.appearance_error = error;
+            self.settings_error = error;
             return;
         }
         if let Reply::ThreadEdited { watch, error } = message.reply {
@@ -1489,7 +1504,7 @@ impl Desktop {
             | Reply::EditorOpened { .. }
             | Reply::DetailsSaveError { .. }
             | Reply::SidebarLayout { .. }
-            | Reply::ClientAppearance { .. }
+            | Reply::ClientSettings { .. }
             | Reply::RestartUpdated { .. }
             | Reply::PairingOffer { .. }
             | Reply::ReleaseCheck { .. }
@@ -2259,7 +2274,9 @@ fn start() -> io::Result<()> {
                     }
                     return;
                 }
-                if let Reply::ClientAppearance {
+                if let Reply::ClientSettings {
+                    settings_labels,
+                    slash_skills,
                     sans,
                     code,
                     smoothing,
@@ -2268,11 +2285,13 @@ fn start() -> io::Result<()> {
                     error,
                 } = reply.reply
                 {
+                    s.settings_labels = Some(settings_labels);
+                    s.slash_skills = slash_skills;
                     s.chat_width = chat_width;
                     s.font_smoothing = Some(smoothing);
-                    if s.saving_client_appearance {
-                        s.appearance_error = error;
-                        s.saving_client_appearance = false;
+                    if s.saving_client_settings {
+                        s.settings_error = error;
+                        s.saving_client_settings = false;
                     }
                     s.receive_contrast(contrast);
                     appearance::apply_fonts(tx, &sans, &code, smoothing);

@@ -40,9 +40,8 @@ impl ChatWidth {
     fn choose(self, s: &mut Desktop, tx: &mut Tx) {
         s.chat_width_menu = false;
         tx.focus_when_shown("chat-width-trigger", true);
-        if !s.saving_client_appearance && self != s.chat_width {
-            s.saving_client_appearance =
-                s.write_request(None, Request::SetChatWidth { width: self });
+        if !s.saving_client_settings && self != s.chat_width {
+            s.saving_client_settings = s.write_request(None, Request::SetChatWidth { width: self });
         }
     }
 }
@@ -54,7 +53,7 @@ pub(super) fn setting(
     dark: bool,
     popups: &mut Vec<El>,
 ) -> El {
-    let disabled = s.font_smoothing.is_none() || s.saving_client_appearance;
+    let disabled = s.font_smoothing.is_none() || s.saving_client_settings;
     let options = ["Comfortable (default)", "Wide", "Full"];
     let current = if s.chat_width_menu && s.chat_width == ChatWidth::Comfortable {
         options[0]

@@ -192,5 +192,15 @@
   "0e83c3bf28f8958e": "Commandes",
   "df02c1d51d158d32": "Changer le modèle de réponse de ce fil",
   "75bc6a7e61897051": "Le texte collé est trop long pour être joint",
-  "a70abf17e99c2d6d": "Retirez du texte ou une pièce jointe, puis collez à nouveau."
+  "a70abf17e99c2d6d": "Retirez du texte ou une pièce jointe, puis collez à nouveau.",
+  "0a75e464d833bca8": "Paramètres",
+  "fa19046edd6cfbd4": "Apparence",
+  "afda415d2d75a5d3": "Discussion",
+  "a7384e7d2952afad": "Zone de saisie",
+  "2757a250104b4b7e": "Avancé",
+  "4b46043fd3700c17": "Afficher les skills dans le menu slash",
+  "4a1201bd18283940": "Inclut aussi les skills dans le menu de commandes /. Les skills apparaissent toujours quand vous tapez $.",
+  "950712602a01125d": "Réinitialiser les skills dans le menu slash à la valeur par défaut",
+  "54ec29e2adae5d93": "Fermer les paramètres",
+  "dcc1969a12fc311b": "Impossible d’enregistrer ce paramètre sur cet ordinateur."
 }

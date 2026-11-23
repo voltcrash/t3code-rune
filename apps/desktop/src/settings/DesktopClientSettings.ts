@@ -165,12 +165,17 @@ function withSettingsWriteLock<A, E, R>(
   });
 }
 
-export const patchClientAppearance = Effect.fn("desktop.clientSettings.setTypography")(function (
+export const patchClientSettings = Effect.fn("desktop.clientSettings.setTypography")(function (
   settingsPath: string,
   changes: Partial<
     Pick<
       ClientSettings,
-      "fontSmoothing" | "fontFamilySans" | "fontFamilyCode" | "chatWidth" | "appearanceContrast"
+      | "fontSmoothing"
+      | "fontFamilySans"
+      | "fontFamilyCode"
+      | "chatWidth"
+      | "appearanceContrast"
+      | "showSkillsInSlashMenu"
     >
   >,
 ) {

@@ -119,7 +119,7 @@ pub(super) fn row(
     };
     let kit = s.contrast.kit(dark);
     let field_label = format!("{title} family");
-    let disabled = s.font_smoothing.is_none() || s.saving_client_appearance;
+    let disabled = s.font_smoothing.is_none() || s.saving_client_settings;
     let trigger = Select::new::<&str>(key, &[])
         .label(&field_label)
         .current(Some(if name.is_empty() { default } else { name }))
@@ -148,14 +148,14 @@ pub(super) fn row(
         if matches!(slot, FontSlot::Code) && !family.is_empty() {
             let style = TextStyle::new(32., 400.).family(Family::Named(&font.id));
             if !contains_code_glyphs(&font.label) || !crate::terminal::fits_grid(style) {
-                s.appearance_error = Some(format!(
+                s.settings_error = Some(format!(
                     "“{}” isn’t monospace. Choose a fixed-width font.",
                     font.label
                 ));
                 return;
             }
         }
-        s.saving_client_appearance = s.write_request(
+        s.saving_client_settings = s.write_request(
             None,
             Request::SetFontFamily {
                 slot,

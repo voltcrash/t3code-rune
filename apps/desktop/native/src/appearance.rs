@@ -1,5 +1,7 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
+mod chat;
+pub(crate) use chat::{SettingsLabels, SettingsPage};
 mod chat_width;
 mod contrast;
 pub(crate) use contrast::Contrast;
@@ -77,7 +79,8 @@ impl Desktop {
         self.chat_width_menu = false;
         self.settings_open = true;
         self.typography_advanced = false;
-        self.appearance_error = None;
+        self.composer_advanced = false;
+        self.settings_error = None;
         tx.focus("settings-panel", true);
     }
 
@@ -87,10 +90,10 @@ impl Desktop {
     }
 
     fn set_font_smoothing(&mut self, smoothing: bool) {
-        if !self.saving_client_appearance
+        if !self.saving_client_settings
             && self.font_smoothing.is_some_and(|value| value != smoothing)
         {
-            self.saving_client_appearance =
+            self.saving_client_settings =
                 self.write_request(None, Request::SetFontSmoothing { smoothing });
         }
     }
@@ -292,7 +295,7 @@ fn typography(
     }
     if cfg!(target_os = "macos") && s.typography_advanced {
         let checked = s.font_smoothing.unwrap_or(true);
-        let enabled = s.font_smoothing.is_some() && !s.saving_client_appearance;
+        let enabled = s.font_smoothing.is_some() && !s.saving_client_settings;
         let thumb = if narrow { 20. } else { 16. };
         let toggle = el()
             .key("font-smoothing")
@@ -360,6 +363,50 @@ fn typography(
         .child(group)
 }
 
+fn appearance_body(
+    s: &Desktop,
+    cx: &Cx<Desktop>,
+    content: f32,
+    narrow: bool,
+    theme: &tok::Theme,
+    popups: &mut Vec<El>,
+) -> El {
+    let mut body = col()
+        .w_full()
+        .gap(12.)
+        .child(label("Color scheme", 16., 600., theme.text).pl(12.))
+        .child(
+            row()
+                .role("radiogroup")
+                .focus_group()
+                .label("Appearance mode")
+                .w_full()
+                .gap(12.)
+                .children(
+                    [Mode::System, Mode::Light, Mode::Dark]
+                        .into_iter()
+                        .map(|mode| tile(mode, s.appearance == mode, (content - 24.) / 3., theme)),
+                ),
+        );
+    let interface = col()
+        .w_full()
+        .radius(12.)
+        .border(1., theme.separator)
+        .child(contrast::setting(s, narrow, theme, s.dark(cx)))
+        .child(el().w_full().h(1.).fill(theme.separator))
+        .child(chat_width::setting(s, narrow, theme, s.dark(cx), popups));
+    body = body.child(
+        col()
+            .w_full()
+            .pt(16.)
+            .gap(8.)
+            .child(label("Interface", 16., 600., theme.text).pl(12.))
+            .child(interface),
+    );
+    body = body.child(typography(s, narrow, theme, s.dark(cx), popups));
+    body
+}
+
 pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlays: &mut Vec<El>) {
     if !s.settings_open {
         return;
@@ -380,10 +427,12 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let height = (h - top - margin).min(960.);
     let nav = if w >= 720. { 192. } else { 0. };
     let content = (width - nav - 50.).clamp(90., 960.);
+    let labels = s.settings_labels.as_ref();
+    let settings_title = labels.map_or("Settings", |l| l.settings.as_str());
     let close = el()
         .key("settings-close")
         .role("button")
-        .label("Close settings")
+        .label(labels.map_or("Close settings", |l| l.close.as_str()))
         .help("Close (Esc)")
         .focusable(true)
         .size(32., 32.)
@@ -399,55 +448,20 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .pr(8.)
         .center_y()
         .gap(8.)
-        .child(label("Settings", 14., 500., theme.text_secondary))
+        .child(label(settings_title, 14., 500., theme.text_secondary))
         .child(label("/", 14., 400., theme.text_secondary))
-        .child(label("Appearance", 14., 500., theme.text))
+        .child(label(s.settings_page.title(labels), 14., 500., theme.text))
         .child(spacer())
         .child(close);
-    let mut body = col()
-        .w(content)
-        .max_w(960.)
-        .gap(12.)
-        .pt(24.)
-        .child(label("Color scheme", 16., 600., theme.text).pl(12.))
-        .child(
-            row()
-                .role("radiogroup")
-                .focus_group()
-                .label("Appearance mode")
-                .w_full()
-                .gap(12.)
-                .children(
-                    [Mode::System, Mode::Light, Mode::Dark]
-                        .into_iter()
-                        .map(|mode| tile(mode, s.appearance == mode, (content - 24.) / 3., theme)),
-                ),
-        );
     let mut popups = Vec::new();
-    let narrow = w < 640.;
-    let interface = col()
-        .w_full()
-        .radius(12.)
-        .border(1., theme.separator)
-        .child(contrast::setting(s, narrow, theme, s.dark(cx)))
-        .child(el().w_full().h(1.).fill(theme.separator))
-        .child(chat_width::setting(
-            s,
-            narrow,
-            theme,
-            s.dark(cx),
-            &mut popups,
-        ));
-    body = body.child(
-        col()
-            .w_full()
-            .pt(16.)
-            .gap(8.)
-            .child(label("Interface", 16., 600., theme.text).pl(12.))
-            .child(interface),
-    );
-    body = body.child(typography(s, w < 640., theme, s.dark(cx), &mut popups));
-    if let Some(err) = &s.appearance_error {
+    let mut body = match (s.settings_page, labels) {
+        (SettingsPage::Chat, Some(labels)) => chat::composer(s, labels, w < 640., theme),
+        _ => appearance_body(s, cx, content, w < 640., theme, &mut popups),
+    }
+    .w(content)
+    .max_w(960.)
+    .pt(24.);
+    if let Some(err) = &s.settings_error {
         body = body.child(label(err, 13., 400., theme.text).wrap());
     }
     let mut panel = row()
@@ -461,33 +475,40 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .border(1., theme.separator)
         .fill(theme.bg);
     if nav > 0. {
-        panel = panel.child(
-            col()
-                .w(nav)
-                .h_full()
-                .padding(12.)
-                .gap(12.)
-                .fill(theme.text.alpha(0.025))
-                .child(label("Settings", 15., 600., theme.text).padding(8.))
-                .child(
-                    label("Appearance", 14., 500., theme.text)
-                        .padding(8.)
-                        .radius(6.)
-                        .fill(theme.separator),
-                ),
+        let mut links = col()
+            .w(nav)
+            .h_full()
+            .padding(12.)
+            .gap(4.)
+            .fill(theme.text.alpha(0.025))
+            .child(label(settings_title, 15., 600., theme.text).padding(8.))
+            .child(SettingsPage::Appearance.button(s, theme));
+        if labels.is_some() {
+            links = links.child(SettingsPage::Chat.button(s, theme));
+        }
+        panel = panel.child(links);
+    }
+    let mut column = col().grow(1.).min_w(0.).h_full().child(header);
+    if nav == 0. && labels.is_some() {
+        column = column.child(
+            row()
+                .w_full()
+                .px(12.)
+                .gap(4.)
+                .child(SettingsPage::Appearance.button(s, theme))
+                .child(SettingsPage::Chat.button(s, theme)),
         );
     }
     panel = panel
         .child(
-            col()
-                .grow(1.)
-                .min_w(0.)
-                .h_full()
-                .child(header)
+            column
                 .child(el().w_full().h(1.).fill(theme.separator))
                 .child(
                     col()
-                        .key("appearance-scroll")
+                        .key(match s.settings_page {
+                            SettingsPage::Appearance => "appearance-scroll",
+                            SettingsPage::Chat => "chat-settings-scroll",
+                        })
                         .w_full()
                         .grow(1.)
                         .min_h(0.)
