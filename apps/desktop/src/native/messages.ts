@@ -9,6 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
 import {
+  bindAttachments,
   committedAttachments,
   prepareAttachments,
   retryAttachments,
@@ -76,7 +77,7 @@ export const sendThreadMessage = Effect.fn("nativeDesktop.sendThreadMessage")(fu
     createdBy: "user",
     creationSource: "web",
     text: input.text,
-    attachments,
+    ...bindAttachments(input.files, attachments),
     ...(modelSelection ? { modelSelection } : {}),
     deliveryIntent: "auto",
     dispatchMode: { type: "start_immediately" },

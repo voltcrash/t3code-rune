@@ -36,9 +36,6 @@ impl Default for Draft {
 }
 
 impl Draft {
-    pub(super) fn retained_input_units(&self) -> usize {
-        super::attachments::retained_input_units(&self.editor)
-    }
     pub(super) fn set_model(
         &mut self,
         pick: Option<crate::models::Handoff>,
@@ -81,9 +78,9 @@ impl Draft {
         });
         self.operation = None;
     }
-    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>)) {
+    pub(super) fn edit_files(&mut self, change: impl FnOnce(&mut Vec<Attachment>, &mut TextEdit)) {
         let before = self.files.len();
-        change(&mut self.files);
+        change(&mut self.files, &mut self.editor);
         if self.files.len() != before {
             self.operation = None;
         }
@@ -94,7 +91,9 @@ impl Draft {
         instance: &str,
         model: &str,
     ) -> Option<Request<'static>> {
-        if self.editor.text.trim().is_empty() && self.files.is_empty() {
+        if self.editor.text.trim().is_empty()
+            && !self.files.iter().any(|f| f.selected(&self.editor))
+        {
             return None;
         }
         let text = crate::mentions::prompt(&self.editor);
@@ -125,7 +124,12 @@ impl Draft {
             permission: self.permission.clone(),
             model: self.model.clone(),
             text,
-            files: self.files.clone(),
+            files: self
+                .files
+                .iter()
+                .filter(|f| f.selected(&self.editor))
+                .cloned()
+                .collect(),
             operation,
         })
     }
@@ -296,7 +300,8 @@ pub(super) fn view(
         .as_ref()
         .expect("composer has a conversation");
     let guarded = matches!(pane.stop_feedback, Some(StopFeedback::Landed(_)));
-    let empty = draft.editor.text.trim().is_empty() && draft.files.is_empty();
+    let empty = draft.editor.text.trim().is_empty()
+        && !draft.files.iter().any(|f| f.selected(&draft.editor));
     let send = s.send_button(
         cx,
         theme,
@@ -370,7 +375,14 @@ pub(super) fn view(
     let list = if asking {
         None
     } else {
-        target.list(&draft.files, theme, s.pending, s, draft_preview)
+        target.list(
+            &draft.files,
+            &draft.editor,
+            theme,
+            s.pending,
+            s,
+            draft_preview,
+        )
     };
     target.drop_area(
         surface(
@@ -544,7 +556,7 @@ mod tests {
     fn a_retry_reuses_the_operation_until_the_matching_send_is_confirmed() {
         let mut ws = Workspace::new();
         let draft = ws.drafts.entry("thread".into()).or_default();
-        draft.edit_files(|files| files.push(Attachment::local("document.pdf")));
+        draft.edit_files(|files, _| files.push(Attachment::local("document.pdf")));
         let Request::SendMessage { operation, .. } =
             draft.submission("thread", "codex", "original").unwrap()
         else {

@@ -19,7 +19,12 @@ import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
-import { prepareAttachments, retryAttachments, type SelectedFile } from "./attachments.ts";
+import {
+  bindAttachments,
+  prepareAttachments,
+  retryAttachments,
+  type SelectedFile,
+} from "./attachments.ts";
 import { draftModelCatalog, draftModelReply } from "./draftModels.ts";
 import { permissionLabel } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
@@ -166,7 +171,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     initialMessage: {
       messageId: MessageId.make(request.operation),
       text: request.text,
-      attachments,
+      ...bindAttachments(request.files, attachments),
     },
   } satisfies OrchestrationV2ThreadLaunchInput;
 });
@@ -183,14 +188,17 @@ export const launchThread = Effect.fn("nativeDesktop.launchThread")(function* (
         ...original,
         initialMessage: {
           ...original.initialMessage,
-          attachments: yield* retryAttachments(
-            session,
-            rpc,
-            original.initialMessage.attachments,
+          ...bindAttachments(
             request.files,
-            request.operation,
-            request.operation,
-            () => pending.delete(request.operation),
+            yield* retryAttachments(
+              session,
+              rpc,
+              original.initialMessage.attachments,
+              request.files,
+              request.operation,
+              request.operation,
+              () => pending.delete(request.operation),
+            ),
           ),
         },
       }

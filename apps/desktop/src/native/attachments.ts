@@ -16,6 +16,7 @@ import {
   type AttachmentCreateUploadUrlInput,
   type ChatAttachment,
 } from "@t3tools/contracts";
+import { attachmentContextRecord } from "@t3tools/shared/composerContextReferences";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import { FetchHttpClient, HttpBody, HttpClient } from "effect/http";
@@ -36,7 +37,26 @@ type EnvironmentRpc = Effect.Success<ReturnType<typeof openEnvironmentRpc>>;
 
 const unavailable = (message: string) => new AttachmentUnavailable({ message });
 
-export type SelectedFile = string | { readonly path: string; readonly pasted: string };
+export type SelectedFile =
+  | string
+  | { readonly path: string; readonly pasted: string; readonly id: string };
+
+export function bindAttachments(
+  files: readonly SelectedFile[],
+  attachments: readonly ChatAttachment[],
+) {
+  const records = attachments.flatMap((attachment, index) => {
+    const file = files[index];
+    if (!file || typeof file === "string" || attachment.type !== "file") return [];
+    return [
+      attachmentContextRecord({
+        attachment: { ...attachment, id: file.id },
+        attachmentId: attachment.id,
+      }),
+    ];
+  });
+  return { attachments, ...(records.length ? { context: { version: 1 as const, records } } : {}) };
+}
 
 export function textPasteLimits(session: Session) {
   return {

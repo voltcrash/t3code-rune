@@ -68,23 +68,68 @@ pub(super) struct TextPasteLimits {
 #[derive(Clone)]
 pub(super) struct Selection {
     pub(super) path: String,
-    pasted: Option<String>,
+    pasted: Option<Rc<PastedText>>,
     clipboard_file: Option<Rc<TempPath>>,
     thumbnail: Option<preview::Thumbnail>,
 }
 
-pub(super) fn retained_input_units(edit: &rune::TextEdit) -> usize {
+struct PastedText {
+    id: String,
+    name: String,
+    link: String,
+    pill: String,
+}
+
+impl PastedText {
+    fn new(name: String) -> Self {
+        let id = uuid::Uuid::new_v4().to_string();
+        let link = format!("[{name}](t3-context://v1/file/file_{id})");
+        let pill = format!("t3-attachment:{link}");
+        Self {
+            id,
+            name,
+            link,
+            pill,
+        }
+    }
+    fn ranges(&self, edit: &rune::TextEdit) -> Vec<std::ops::Range<usize>> {
+        let mut ranges: Vec<_> = edit
+            .pills()
+            .filter(|(_, id)| *id == self.pill)
+            .map(|(range, _)| range)
+            .collect();
+        ranges.extend(
+            edit.text
+                .match_indices(&self.link)
+                .map(|(at, text)| at..at + text.len()),
+        );
+        ranges.sort_by_key(|range| range.start);
+        ranges
+    }
+}
+
+fn retained_input_units(edit: &rune::TextEdit) -> usize {
     let (start, end) = edit.range();
-    edit.text[..start].encode_utf16().count() + edit.text[end..].encode_utf16().count()
+    [0..start, end..edit.text.len()]
+        .into_iter()
+        .map(|range| {
+            crate::mentions::serialized_selection(edit, range.clone())
+                .as_deref()
+                .unwrap_or(&edit.text[range])
+                .encode_utf16()
+                .count()
+        })
+        .sum()
 }
 
 impl serde::Serialize for Selection {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if let Some(name) = &self.pasted {
+        if let Some(paste) = &self.pasted {
             use serde::ser::SerializeStruct;
-            let mut file = serializer.serialize_struct("PastedText", 2)?;
+            let mut file = serializer.serialize_struct("PastedText", 3)?;
             file.serialize_field("path", &self.path)?;
-            file.serialize_field("pasted", name)?;
+            file.serialize_field("pasted", &paste.name)?;
+            file.serialize_field("id", &paste.id)?;
             file.end()
         } else {
             serializer.serialize_str(&self.path)
@@ -102,9 +147,16 @@ impl Selection {
         }
     }
 
+    pub(super) fn selected(&self, edit: &rune::TextEdit) -> bool {
+        self.pasted.as_ref().is_none_or(|paste| {
+            edit.pills().any(|(_, id)| id == paste.pill) || edit.text.contains(&paste.link)
+        })
+    }
+
     fn name(&self) -> &str {
         self.pasted
-            .as_deref()
+            .as_ref()
+            .map(|paste| paste.name.as_str())
             .or_else(|| Path::new(&self.path).file_name()?.to_str())
             .unwrap_or(&self.path)
     }
@@ -278,14 +330,18 @@ impl Target {
             })
     }
 
-    fn edit(&self, app: &mut Desktop, change: impl FnOnce(&mut Vec<Selection>)) {
+    fn edit(
+        &self,
+        app: &mut Desktop,
+        change: impl FnOnce(&mut Vec<Selection>, &mut rune::TextEdit),
+    ) {
         if app.pending || !app.can_operate || !self.active(app) {
             return;
         }
         match self {
             Self::Project(_) => {
-                if let Some(files) = app.new_threads.editable_files() {
-                    change(files)
+                if let Some((files, edit)) = app.new_threads.editable_files() {
+                    change(files, edit)
                 }
             }
             Self::Thread(id) => {
@@ -298,7 +354,7 @@ impl Target {
 
     fn add(&self, app: &mut Desktop, paths: &[PathBuf]) {
         let mut error = None;
-        self.edit(app, |files| {
+        self.edit(app, |files, edit| {
             for path in paths {
                 let Some(path) = path.to_str() else {
                     error = Some("Choose a file whose name can be displayed as text.");
@@ -307,7 +363,7 @@ impl Target {
                 if files.iter().any(|existing| existing.path == path) {
                     continue;
                 }
-                if files.len() >= FILE_LIMIT {
+                if files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT {
                     error = Some(TOO_MANY);
                     break;
                 }
@@ -329,17 +385,20 @@ impl Target {
         {
             return false;
         }
-        let retained = match self {
-            Self::Project(_) => app.new_threads.retained_input_units(),
-            Self::Thread(id) => app
-                .workspace
-                .drafts
-                .get(id)
-                .map(|draft| draft.retained_input_units()),
+        let editor = match self {
+            Self::Project(id) => app.new_threads.prompt(id),
+            Self::Thread(id) => app.workspace.drafts.get(id).map(|draft| &draft.editor),
         };
-        let Some(retained) = retained else {
+        let Some(edit) = editor else {
             return false;
         };
+        if text.len() < limits.threshold
+            && edit.pills().next().is_none()
+            && text.len().saturating_add(edit.text.len()) <= limits.input
+        {
+            return false;
+        }
+        let retained = retained_input_units(edit);
         let exceeds_input = text.len() + retained > limits.input
             && text.encode_utf16().count() + retained > limits.input;
         if !exceeds_input && text.len() < limits.threshold {
@@ -350,8 +409,11 @@ impl Target {
         let labels = &app.workspace.attachment_labels;
         let too_large = labels.too_large.clone();
         let remove_some = labels.remove_some.clone();
-        self.edit(app, |files| {
-            if limits.file == 0 || text.len() > limits.file || files.len() >= FILE_LIMIT {
+        self.edit(app, |files, edit| {
+            if limits.file == 0
+                || text.len() > limits.file
+                || files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT
+            {
                 if exceeds_input {
                     error = Some(if limits.file > 0 && text.len() > limits.file {
                         too_large
@@ -373,7 +435,17 @@ impl Target {
                         number += 1;
                         name = format!("pasted-text-{number}.txt");
                     }
-                    selection.pasted = Some(name);
+                    let paste = Rc::new(PastedText::new(name));
+                    if retained + paste.link.len() + 1 > limits.input {
+                        error = Some(remove_some);
+                        consumed = true;
+                        return;
+                    }
+                    edit.undo_group(|edit| {
+                        edit.insert_pill(&paste.pill, &paste.name);
+                        edit.insert(" ");
+                    });
+                    selection.pasted = Some(paste);
                     files.push(selection);
                     consumed = true;
                 }
@@ -412,8 +484,8 @@ impl Target {
             return self.fold_text(app, content.text());
         };
         let mut error = None;
-        self.edit(app, |files| {
-            if files.len() >= FILE_LIMIT {
+        self.edit(app, |files, edit| {
+            if files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT {
                 error = Some(TOO_MANY.to_owned());
             } else {
                 match Selection::png(image.png()) {
@@ -474,6 +546,7 @@ impl Target {
     pub(super) fn list(
         &self,
         files: &[Selection],
+        edit: &rune::TextEdit,
         theme: &tok::Theme,
         locked: bool,
         app: &Desktop,
@@ -496,7 +569,9 @@ impl Target {
             .gap(8.);
         let mut rows = col().key("composer-file-rows").w_full();
         let mut documents = 0;
-        for file in files {
+        let mut total = 0;
+        for file in files.iter().filter(|file| file.selected(edit)) {
+            total += 1;
             let path = &file.path;
             let name = file.name();
             let caption = workspace.attachment_labels.remove.replace("{name}", name);
@@ -515,7 +590,23 @@ impl Target {
                 .disabled(locked)
                 .focusable(!locked)
                 .on_press(move |app: &mut Desktop| {
-                    target.edit(app, |files| files.retain(|f| f.path != remove_path))
+                    target.edit(app, |files, edit| {
+                        if let Some(paste) = files
+                            .iter()
+                            .find(|f| f.path == remove_path)
+                            .and_then(|f| f.pasted.as_ref())
+                        {
+                            let ranges = paste.ranges(edit);
+                            edit.undo_group(|edit| {
+                                for range in ranges.into_iter().rev() {
+                                    edit.set_selection(range.start, range.end);
+                                    edit.insert("");
+                                }
+                            });
+                        } else {
+                            files.retain(|f| f.path != remove_path);
+                        }
+                    })
                 });
             if let Some(thumb) = &file.thumbnail {
                 tiles = tiles.child(thumb.tile(path, name, theme, app, remove));
@@ -540,16 +631,19 @@ impl Target {
                 );
             }
         }
+        if total == 0 {
+            return None;
+        }
         let mut list = col()
             .key("composer-files")
             .drawn_rect_into(&workspace.attachment_viewport)
             .w_full()
-            .max_h(if documents == files.len() { 112. } else { 136. })
+            .max_h(if documents == total { 112. } else { 136. })
             .gap(4.)
             .scroll(rune::ScrollSpec {
                 stick_bottom: false,
             });
-        if documents < files.len() {
+        if documents < total {
             list = list.child(tiles);
         }
         if documents > 0 {
@@ -614,9 +708,20 @@ mod tests {
         let raw = "🎨".repeat(8192);
         let large = ClipboardContent::new(raw.clone());
         assert!(!target.paste(&mut app, &ClipboardContent::new(raw[4..].to_string())));
+        let (_, edit) = app.new_threads.editable_files().unwrap();
+        edit.replace_text("replace me");
+        edit.set_selection(0, edit.text.len());
         assert!(target.paste(&mut app, &large));
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        let paste = files[0].pasted.as_ref().unwrap();
+        assert_eq!(crate::mentions::prompt(edit), format!("{} ", paste.link));
+        edit.undo();
+        assert_eq!(edit.text, "replace me");
+        assert!(!files[0].selected(edit));
+        edit.redo();
+        assert!(files[0].selected(edit));
         assert!(target.paste(&mut app, &large));
-        let files = app.new_threads.editable_files().unwrap();
+        let (files, _) = app.new_threads.editable_files().unwrap();
         assert_eq!(files[0].name(), "pasted-text.txt");
         assert_eq!(files[1].name(), "pasted-text-2.txt");
         assert_eq!(std::fs::read(&files[0].path).unwrap(), raw.as_bytes());
@@ -632,13 +737,13 @@ mod tests {
         assert!(app.error.take().is_some());
         let mixed = ClipboardContent::new("share this").with_files([PathBuf::from("notes.txt")]);
         assert!(!target.paste(&mut app, &mixed));
-        assert!(app.new_threads.editable_files().unwrap().is_empty());
+        assert!(app.new_threads.editable_files().unwrap().0.is_empty());
 
         let pdf = std::env::temp_dir().join("copied report.pdf");
         let uri = url::Url::from_file_path(&pdf).unwrap();
         let copied = ClipboardContent::new(format!("{uri}\r\n")).with_files([pdf.clone()]);
         assert!(target.paste(&mut app, &copied));
-        let files = app.new_threads.editable_files().unwrap();
+        let (files, _) = app.new_threads.editable_files().unwrap();
         assert_eq!(files[0].path, pdf.to_str().unwrap());
         files.clear();
 
@@ -650,14 +755,14 @@ mod tests {
         let image = rune::ClipboardImage::from_png(bytes.clone()).unwrap();
         let with_text = ClipboardContent::new("editable cell contents").with_image(image.clone());
         assert!(!target.paste(&mut app, &with_text));
-        assert!(app.new_threads.editable_files().unwrap().is_empty());
+        assert!(app.new_threads.editable_files().unwrap().0.is_empty());
         let clipboard = ClipboardContent::new("").with_image(image);
         app.can_operate = false;
         target.paste(&mut app, &clipboard);
-        assert!(app.new_threads.editable_files().unwrap().is_empty());
+        assert!(app.new_threads.editable_files().unwrap().0.is_empty());
         app.can_operate = true;
         assert!(target.paste(&mut app, &clipboard));
-        let files = app.new_threads.editable_files().unwrap();
+        let (files, _) = app.new_threads.editable_files().unwrap();
         let path = PathBuf::from(&files[0].path);
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         files.clear();
@@ -677,7 +782,7 @@ mod tests {
             .configure("project".into(), vec![], Default::default(), false, "main");
         let file = Selection::png(b"staged clipboard bytes").unwrap();
         let path = PathBuf::from(&file.path);
-        let files = app.new_threads.editable_files().unwrap();
+        let (files, _) = app.new_threads.editable_files().unwrap();
         files.push(file);
         let request = crate::Request::LaunchThread {
             project: "project".into(),

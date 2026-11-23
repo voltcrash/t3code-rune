@@ -128,7 +128,7 @@ fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, Kind)> {
     Some((range, query, kind))
 }
 
-fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<String> {
+pub(super) fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<String> {
     let mut from = selection.start;
     let mut body = None;
     for (range, id) in edit.pills() {
@@ -139,6 +139,7 @@ fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<Stri
             .strip_prefix("t3-file:")
             .or_else(|| id.strip_prefix("t3-folder:"))
             .or_else(|| id.strip_prefix("t3-skill:"))
+            .or_else(|| id.strip_prefix("t3-attachment:"))
         {
             let body = body.get_or_insert_with(String::new);
             body.push_str(&edit.text[from..range.start]);
