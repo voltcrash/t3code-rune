@@ -47,6 +47,13 @@ export function browserLabels() {
     retry: m(msg("Try again")),
     downloaded: m(msg("Downloaded {fileName}", { fileName: "{fileName}" })),
     save: m(msg("Save", { $context: "verb, saves a downloaded file" })),
+    fileDownload: m(msg("Download")),
+    downloadSource: m(
+      msg("{fileName} from {host} was downloaded instead.", {
+        fileName: "{fileName}",
+        host: "{host}",
+      }),
+    ),
     fileNotShown: m(msg("This file can’t be shown here")),
     openExternal: m(msg("Open in browser")),
     dialog: m(msg("Browser dialog")),

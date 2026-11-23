@@ -379,5 +379,6 @@
   "44a0347dbc93ba80": "Ändra storlek på webbläsarens visningsyta från nedre högra hörnet",
   "bbcd3776bcd3e2c5": "Laddade ned {fileName}",
   "da52805f1f7bae35": "Spara",
-  "0161b531abf44cba": "Den här filen kan inte visas här"
+  "0161b531abf44cba": "Den här filen kan inte visas här",
+  "9c6c2c0feb32db39": "{fileName} från {host} laddades ned i stället."
 }

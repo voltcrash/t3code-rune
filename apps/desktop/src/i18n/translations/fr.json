@@ -379,5 +379,6 @@
   "44a0347dbc93ba80": "Redimensionner la fenêtre d’affichage depuis le coin inférieur droit",
   "bbcd3776bcd3e2c5": "{fileName} téléchargé",
   "da52805f1f7bae35": "Enregistrer",
-  "0161b531abf44cba": "Ce fichier ne peut pas être affiché ici"
+  "0161b531abf44cba": "Ce fichier ne peut pas être affiché ici",
+  "9c6c2c0feb32db39": "{fileName} de {host} a été téléchargé à la place."
 }

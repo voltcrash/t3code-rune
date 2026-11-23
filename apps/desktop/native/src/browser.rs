@@ -38,6 +38,8 @@ pub(crate) struct Labels {
     downloaded: String,
     save: String,
     file_not_shown: String,
+    file_download: String,
+    download_source: String,
     open_external: String,
     accept: String,
     take_to_respond: String,
