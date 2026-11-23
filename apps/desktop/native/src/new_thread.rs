@@ -389,6 +389,7 @@ pub(super) fn view(
             item
         })
         .collect::<Vec<_>>();
+    let selected = draft.displayed_choice();
     let model = Combobox::new(
         "launch-model",
         &draft.picker,
@@ -400,8 +401,8 @@ pub(super) fn view(
     .current(draft.model.as_deref())
     .trigger(crate::models::trigger(
         s,
-        draft
-            .displayed_choice()
+        selected.map(|c| c.instance.as_str()),
+        selected
             .map(|c| c.name.as_str())
             .unwrap_or("Choose a model"),
         theme,
