@@ -21,6 +21,7 @@ enum Action {
     ToggleSidebar,
     ToggleTerminal,
     GoToFile,
+    ToggleBrowser,
     ToggleFiles,
     ToggleDetails,
     OpenEditor,
@@ -55,6 +56,7 @@ impl Action {
             Self::Refresh => "refresh".into(),
             Self::ToggleTerminal => "toggle-terminal".into(),
             Self::GoToFile => "go-to-file".into(),
+            Self::ToggleBrowser => "toggle-browser".into(),
             Self::ToggleFiles => "toggle-files".into(),
             Self::ToggleDetails => "toggle-thread-details".into(),
             Self::OpenEditor => "open-editor".into(),
@@ -81,6 +83,14 @@ impl Action {
             Self::Settings => "Settings",
             Self::Usage => return ws.usage.title().into(),
             Self::GoToFile => "Go to file",
+            Self::ToggleBrowser => {
+                return ws
+                    .browser
+                    .labels
+                    .as_ref()
+                    .map_or("Browser", |l| l.title.as_str())
+                    .into();
+            }
             Self::ToggleFiles => "Toggle right panel",
             Self::OpenEditor => {
                 return ws
@@ -131,6 +141,8 @@ impl Action {
             Self::OpenEditor => "Ctrl+O",
             Self::ToggleDetails if cfg!(target_os = "macos") => "⇧⌘B",
             Self::ToggleDetails => "Ctrl+Shift+B",
+            Self::ToggleBrowser if cfg!(target_os = "macos") => "⇧⌘J",
+            Self::ToggleBrowser => "Ctrl+Shift+J",
             Self::ToggleFiles if cfg!(target_os = "macos") => "⌥⌘B",
             Self::ToggleFiles => "Ctrl+Alt+B",
             Self::Thread(i) => ws.project(&ws.threads[i].project).map_or("", |p| &p.title),
@@ -144,6 +156,7 @@ impl Action {
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
+            Self::ToggleBrowser => &crate::browser::ICON,
             Self::ToggleFiles => &PANEL_ICON,
             Self::ToggleDetails => &DETAILS_ICON,
             Self::OpenEditor => &super::thread_details::editor::OPEN,
@@ -189,6 +202,7 @@ enum Page {
 }
 
 struct Available {
+    browser: bool,
     terminal: bool,
     files: bool,
     details: bool,
@@ -301,6 +315,9 @@ impl Palette {
                 }
                 if available.details {
                     command(Action::ToggleDetails);
+                }
+                if available.browser {
+                    command(Action::ToggleBrowser);
                 }
                 if available.files {
                     command(Action::GoToFile);
@@ -533,6 +550,7 @@ impl Desktop {
                 .map(|&i| self.workspace.threads[i].project.as_str())
         });
         let available = Available {
+            browser: self.browser_available(),
             terminal: self.terminal_available(),
             files: self.file_location().is_some(),
             details: self.can_show_details(),
@@ -598,6 +616,7 @@ impl Desktop {
             Action::Forward => self.navigate_history(true, tx),
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::ToggleTerminal => self.toggle_terminal(tx),
+            Action::ToggleBrowser => self.toggle_browser(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
             Action::ToggleDetails => self.toggle_details(tx),
             Action::OpenEditor => self.open_editor(),

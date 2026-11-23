@@ -43,6 +43,7 @@ impl Desktop {
     }
 
     pub(crate) fn close_conversation_inspectors(&mut self) {
+        self.close_browser();
         self.permission_menu = None;
         self.models.close();
         self.close_terminal();

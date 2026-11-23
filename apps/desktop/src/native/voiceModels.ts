@@ -1,8 +1,4 @@
 import {
-  BearerConnectionTarget,
-  type PreparedConnection,
-} from "@t3tools/client-runtime/connection";
-import {
   cancelEnvironmentSpeechModelDownload,
   downloadEnvironmentSpeechModel,
   getEnvironmentSpeechModels,
@@ -15,26 +11,13 @@ import { formatBytes } from "@t3tools/shared/formatBytes";
 import * as Effect from "effect/Effect";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
+import { preparedConnection } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
 
 type SpeechSession = Pick<
   Session,
   "environmentId" | "label" | "httpBaseUrl" | "token" | "canWriteSettings" | "http"
 >;
-
-export function speechConnection(session: SpeechSession): PreparedConnection {
-  const { environmentId, label, httpBaseUrl, token } = session;
-  const socket = new URL("/ws", httpBaseUrl);
-  socket.protocol = socket.protocol === "https:" ? "wss:" : "ws:";
-  return {
-    environmentId,
-    label,
-    httpBaseUrl,
-    socketUrl: socket.href,
-    target: new BearerConnectionTarget({ environmentId, label, connectionId: environmentId }),
-    httpAuthorization: { _tag: "Bearer", token },
-  };
-}
 
 const operations = {
   download: downloadEnvironmentSpeechModel,
@@ -98,7 +81,7 @@ export function watchVoiceModels(
   signal: AbortSignal,
   publish: (view: View) => void,
 ) {
-  const connection = speechConnection(session);
+  const connection = preparedConnection(session);
   let models: readonly EnvironmentSpeechModel[] = [];
   let visible = false;
   let progress: AbortController | undefined;

@@ -281,6 +281,7 @@ pub(super) struct Workspace {
     pub(super) refresh_after_edit: Option<u64>,
     pub(crate) details: thread_details::Details,
     actions: thread_actions::Actions,
+    pub(crate) browser: crate::browser::Browser,
     pub(crate) issues: crate::issues::Issues,
     pub(crate) usage: crate::usage::Panel,
     row_clock: sidebar_status::Clock,
@@ -359,6 +360,7 @@ impl Workspace {
             details: Default::default(),
             actions: Default::default(),
             usage: Default::default(),
+            browser: Default::default(),
             issues: Default::default(),
             row_clock: Default::default(),
             paused: false,
@@ -766,6 +768,7 @@ impl Desktop {
             return;
         }
         self.close_sidebar_drawer();
+        self.close_browser();
         let opened = self.workspace.show_projects
             || self.new_threads.active.is_some()
             || !self.history.on_thread(id)
@@ -1950,8 +1953,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && s.project_path.is_none()
         && !s.pending;
     let diff_open = s.workspace.diff.visible(s);
-    let panel_open =
-        diff_open || s.workspace.file_preview.is_some() || s.workspace.explorer.is_some();
+    let panel_open = s.workspace.browser.panel.is_some()
+        || diff_open
+        || s.workspace.file_preview.is_some()
+        || s.workspace.explorer.is_some();
     let split_panel = panel_open
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
@@ -2086,6 +2091,20 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         &mut overlays,
         &layout,
     ));
+    if s.browser_available()
+        && let Some(labels) = &s.workspace.browser.labels
+    {
+        controls.push(
+            panel_control(
+                "toggle-browser",
+                &labels.title,
+                &crate::browser::ICON,
+                s.workspace.browser.panel.is_some(),
+                theme,
+            )
+            .on_press_tx(Desktop::toggle_browser),
+        );
+    }
     if s.terminal_available() {
         controls.push(crate::terminal::button(s.terminal.is_some(), theme));
     }
@@ -2095,7 +2114,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && s.workspace.terminal_watch().is_some()
         && s.thread_workspace_root().is_some()
     {
-        controls.push(workspace_tree::toggle_button(panel_open, theme));
+        controls.push(workspace_tree::toggle_button(
+            panel_open && s.workspace.browser.panel.is_none(),
+            theme,
+        ));
     }
     let refreshing_projects = s.workspace.refresh_request.is_some()
         && composing.is_none()
@@ -2306,7 +2328,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             leading: if split_panel { 0. } else { bar.leading },
             ..bar
         };
-        let panel = if diff_open {
+        let panel = if s.workspace.browser.panel.is_some() {
+            crate::browser::view(s, theme, bar.height, bar.leading, bar.trailing)
+        } else if diff_open {
             file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {
             let width = if split_panel {

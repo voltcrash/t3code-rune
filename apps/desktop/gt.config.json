@@ -7,6 +7,7 @@
     "scripts/rune-editors.mjs",
     "scripts/rune-dictation.mjs",
     "../../packages/client-runtime/src/issuePresentation.ts",
+    "../../packages/client-runtime/src/preview/serverBrowserStream.ts",
     "../../packages/client-runtime/src/state/providerStatus.ts",
     "../../packages/client-runtime/src/state/threadActivityAnnouncement.ts",
     "../../packages/shared/src/usageLimitsCopy.ts",

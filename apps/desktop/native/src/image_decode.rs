@@ -86,6 +86,7 @@ fn badge(bytes: &[u8]) -> Option<image::RgbaImage> {
 }
 
 pub(crate) enum Kind {
+    Browser { operation: u64, sequence: u64 },
     Registry,
     Preview,
     Thumbnail,
@@ -181,6 +182,7 @@ pub(crate) fn start(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receive
                 .data
                 .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
                 .and_then(|bytes| match job.kind {
+                    Kind::Browser { .. } => thumbnail(&bytes, 1600).map(cache_pixels),
                     Kind::Preview => Some(cache.load(bytes)),
                     Kind::Thumbnail => thumbnail(&bytes, 512).map(cache_pixels),
                     Kind::Project { .. } => badge(&bytes).map(cache_pixels),
@@ -192,6 +194,13 @@ pub(crate) fn start(handle: rune::AppHandle<super::Desktop>, recv: mpsc::Receive
             let image = image.filter(|image| image.wait().is_ok());
             handle.update(move |s, _| {
                 match job.kind {
+                    Kind::Browser {
+                        operation,
+                        sequence,
+                    } => {
+                        s.browser_frame(job.watch, operation, &job.key, sequence, image);
+                        return;
+                    }
                     Kind::Registry => {
                         s.registry_icon_result(job.watch, &job.key, &job.operation, mask)
                     }

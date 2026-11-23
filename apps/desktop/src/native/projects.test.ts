@@ -18,7 +18,7 @@ it("restricts the pairing credential exchange to the confirmed endpoint", async 
           label: "Fixture",
           platform: { os: "linux", arch: "x64" },
           serverVersion: "1.0.0",
-          capabilities: { repositoryIdentity: true },
+          capabilities: { repositoryIdentity: true, serverBrowser: true },
         }),
       );
     }
@@ -38,6 +38,8 @@ it("restricts the pairing credential exchange to the confirmed endpoint", async 
     new AbortController().signal,
     http,
   );
+  expect(session.browserAvailable).toBe(true);
+  expect(session.browserWritable).toBe(false);
   expect(session.canWriteGit).toBe(false);
   expect(session.canWriteSettings).toBe(false);
   expect(exchange).toEqual({ url: origin + "/oauth/token", redirect: "error" });

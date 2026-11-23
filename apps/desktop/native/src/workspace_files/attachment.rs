@@ -51,6 +51,7 @@ impl Desktop {
             size: details.size.clone(),
             kind: details.kind.clone(),
         };
+        self.close_browser();
         self.close_diff();
         self.close_file_preview();
         let operation = self.next_request_id();

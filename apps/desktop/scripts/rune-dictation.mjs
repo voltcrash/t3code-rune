@@ -10,7 +10,7 @@ import { effectiveSpeechLanguage } from "@t3tools/shared/speech";
 import * as Effect from "effect/Effect";
 import { msg } from "gt-i18n";
 import { m } from "../src/i18n/catalog.ts";
-import { speechConnection } from "../src/native/voiceModels.ts";
+import { preparedConnection } from "../src/native/environmentRpc.ts";
 
 const preference = "desktop-dictation-grant";
 let pendingRevocation;
@@ -88,7 +88,7 @@ export function workspaceDictation({
 }) {
   const origin = local ? "local" : new URL(owner.httpBaseUrl).origin;
   const available = owner.voiceTranscription && owner.canOperate;
-  const connection = speechConnection(owner);
+  const connection = preparedConnection(owner);
   let active;
   let completed;
   function retryRevoke() {

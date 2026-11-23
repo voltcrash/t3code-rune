@@ -169,6 +169,7 @@ impl Desktop {
         {
             return;
         }
+        self.close_browser();
         self.close_files_panel();
         let operation = Uuid::new_v4().to_string();
         self.workspace.diff = Panel {
