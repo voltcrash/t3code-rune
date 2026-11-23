@@ -131,13 +131,14 @@ impl Model {
         theme: &tok::Theme,
     ) -> El {
         let enabled = catalog.manage && !catalog.busy;
+        let named = |action: &str| format!("{action} · {}", self.name);
         let mut actions = row().gap(6.).center_y().flex_wrap();
         let primary = match self.state {
             ModelState::Downloading | ModelState::Verifying => self.action(
                 watch,
                 "cancel",
                 &labels.cancel,
-                &labels.cancel,
+                &named(&labels.cancel),
                 catalog.manage && catalog.can_cancel,
                 theme,
             ),
@@ -145,7 +146,7 @@ impl Model {
                 watch,
                 "download",
                 &labels.download,
-                &labels.download,
+                &named(&labels.download),
                 enabled,
                 theme,
             ),
@@ -153,14 +154,14 @@ impl Model {
                 watch,
                 "select",
                 &labels.select,
-                &labels.select,
+                &named(&labels.select),
                 enabled,
                 theme,
             ),
             ModelState::Installed => button(
                 &format!("voice-selected-{}", self.id),
                 &labels.selected,
-                &labels.selected,
+                &named(&labels.selected),
                 false,
                 theme,
             ),

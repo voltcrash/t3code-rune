@@ -104,6 +104,8 @@ export function watchVoiceModels(
   let progress: AbortController | undefined;
   let reading: AbortController | undefined;
   let actionError: string | null = null;
+  let nextMutation = 0;
+  let appliedMutation = 0;
   let busy = false;
   let cancelling = false;
   let download = false;
@@ -181,14 +183,20 @@ export function watchVoiceModels(
       busy = true;
       download = action === "download";
     }
+    const mutation = ++nextMutation;
     actionError = null;
     emit();
     if (action === "download") scheduleProgress();
     try {
-      await Effect.runPromise(
+      const result = await Effect.runPromise(
         operations[action](connection, id).pipe(Effect.provide(session.http)),
         { signal },
       );
+      if (mutation > appliedMutation) {
+        appliedMutation = mutation;
+        models = result.models;
+        emit();
+      }
     } catch {
       actionError = m(
         {

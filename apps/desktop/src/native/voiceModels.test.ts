@@ -47,7 +47,9 @@ it("keeps a late catalog out of a reopened page and restricts changes to managea
     canWriteSettings: false,
     http: layerRemoteHttpClient(async (input, init) => {
       const path = new URL(String(input)).pathname;
-      if (path.endsWith("/status")) return Response.json(status);
+      if (path.endsWith("/status")) {
+        return active ? new Response(null, { status: 403 }) : Response.json(status);
+      }
       if (!requested) {
         requested = true;
         pending.resolve();
@@ -76,7 +78,11 @@ it("keeps a late catalog out of a reopened page and restricts changes to managea
   await page.change("select", "missing");
   expect(mutations).toEqual([]);
   await page.change("select", "local");
-  expect(publish.mock.lastCall?.[0]).toMatchObject({ models: [{ active: true }], busy: false });
+  expect(publish.mock.lastCall?.[0]).toMatchObject({
+    models: [{ active: true }],
+    message: "Could not load transcription models",
+    busy: false,
+  });
   owner.abort();
   await page.change("remove", "local");
   expect(mutations).toEqual(["/api/voice/models/select"]);
