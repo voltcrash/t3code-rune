@@ -3,7 +3,7 @@ use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text_input, tok
 
 /// What the nav search can find: each page's title and the settings it shows.
 fn index(labels: &SettingsLabels) -> Vec<(SettingsPage, &str)> {
-    let mut items = vec![
+    vec![
         (SettingsPage::Appearance, labels.appearance.as_str()),
         (SettingsPage::Appearance, "Color scheme"),
         (SettingsPage::Appearance, "Contrast"),
@@ -17,16 +17,19 @@ fn index(labels: &SettingsLabels) -> Vec<(SettingsPage, &str)> {
         (SettingsPage::Voice, labels.voice.microphone_title()),
         (SettingsPage::Voice, labels.voice.models.as_str()),
         (SettingsPage::Archive, labels.archive.title.as_str()),
-    ];
-    items.dedup();
-    items
+    ]
 }
 
 fn matches<'a>(labels: &'a SettingsLabels, query: &str) -> Vec<(SettingsPage, &'a str)> {
-    let query = query.trim().to_lowercase();
+    // Like the web search, every word must appear in the setting or its page's name.
+    let query = query.to_lowercase();
+    let words: Vec<&str> = query.split_whitespace().collect();
     index(labels)
         .into_iter()
-        .filter(|(_, title)| title.to_lowercase().contains(&query))
+        .filter(|(page, title)| {
+            let text = format!("{title} {}", page.title(Some(labels))).to_lowercase();
+            words.iter().all(|word| text.contains(word))
+        })
         .collect()
 }
 
@@ -41,7 +44,11 @@ impl Desktop {
 
     /// "/" jumps to the search field, as on the web, unless a text field has focus.
     pub(crate) fn settings_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if matches!(&ev.key, Key::Text(t) if t == "/") && !ev.mods.cmd && !ev.mods.ctrl {
+        if self.settings_labels.is_some()
+            && matches!(&ev.key, Key::Text(t) if t == "/")
+            && !ev.mods.cmd
+            && !ev.mods.ctrl
+        {
             tx.focus("settings-search", true);
             return true;
         }
