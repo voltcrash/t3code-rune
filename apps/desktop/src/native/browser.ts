@@ -170,6 +170,7 @@ export function openBrowserPanel(
   let service: Rpc | undefined;
   let tabs: PreviewSessionSnapshot[] = [];
   let selected: string | null = null;
+  let selectionVersion = 0;
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
   let checking: AbortController | undefined;
@@ -233,6 +234,7 @@ export function openBrowserPanel(
   }
   async function select(id: string | null, refreshTicket = true) {
     detach();
+    if (selected !== id) selectionVersion++;
     selected = id;
     error = null;
     emit();
@@ -396,6 +398,7 @@ export function openBrowserPanel(
       Effect.sync(() => {
         service = undefined;
         detach();
+        selectionVersion++;
         selected = null;
         emit();
       }),
@@ -543,7 +546,7 @@ export function openBrowserPanel(
           );
           if (!viewport || viewport === current) return;
           const before = revision;
-          const selection = attaching?.signal;
+          const selection = selectionVersion;
           const updated = await Effect.runPromise(
             rpc[WS_METHODS.previewResize]({ threadId, tabId: tab.tabId, viewport }),
             { signal: lifetime },
@@ -552,7 +555,7 @@ export function openBrowserPanel(
           if (revision === before)
             tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
           const device = updated.viewport;
-          if (selected === tab.tabId && !selection?.aborted && device && device._tag !== "fill") {
+          if (selection === selectionVersion && device && device._tag !== "fill") {
             emit(
               request.change.kind === "rotate"
                 ? "rotate"
