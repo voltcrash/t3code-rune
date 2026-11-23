@@ -1959,10 +1959,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && s.project_path.is_none()
         && !s.pending;
     let diff_open = s.workspace.diff.visible(s);
-    let panel_open = s.workspace.browser.panel.is_some()
-        || diff_open
-        || s.workspace.file_preview.is_some()
-        || s.workspace.explorer.is_some();
+    let panel_open = s.right_panel_open();
     let mut bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
     let sidebar_cap = panel_width::sidebar_cap(viewport[0]);
     let inline_panel = panel_open

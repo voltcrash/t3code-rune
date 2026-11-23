@@ -42,6 +42,27 @@ impl Workspace {
 }
 
 impl Desktop {
+    pub(crate) fn right_panel_open(&self) -> bool {
+        self.workspace.browser.panel.is_some()
+            || self.workspace.diff.visible(self)
+            || self.workspace.file_preview.is_some()
+            || self.workspace.explorer.is_some()
+    }
+
+    pub(crate) fn reveal_terminal_drawer(&mut self) -> bool {
+        if !self.right_panel_open() {
+            return false;
+        }
+        if !self.workspace.panel_width.presentation.available.get() {
+            self.dismiss_right_panel();
+        } else if self.workspace.panel_maximized() {
+            self.set_panel_maximized(false);
+        } else {
+            return false;
+        }
+        true
+    }
+
     pub(crate) fn set_panel_maximized(&mut self, maximized: bool) {
         if self.workspace.panel_maximized() == maximized {
             return;

@@ -168,6 +168,10 @@ impl Desktop {
     }
     pub(crate) fn toggle_terminal(&mut self, tx: &mut Tx) {
         if self.terminal.is_some() {
+            if self.reveal_terminal_drawer() {
+                tx.focus_when_shown("thread-terminal-grid", true);
+                return;
+            }
             self.close_terminal();
             return;
         }
@@ -185,7 +189,7 @@ impl Desktop {
         let Some(watch) = self.workspace.terminal_watch() else {
             return;
         };
-        self.set_panel_maximized(false);
+        self.reveal_terminal_drawer();
         let sessions = self
             .terminal
             .as_mut()
