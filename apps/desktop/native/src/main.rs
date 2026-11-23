@@ -354,6 +354,12 @@ enum Reply {
         rows: Vec<workspace::thread_details::scripts::Script>,
         imports: Vec<workspace::thread_details::scripts::Stored>,
     },
+    BrowserClipboard {
+        watch: u64,
+        operation: u64,
+        tab: String,
+        text: String,
+    },
     TerminalCopy {
         watch: u64,
         operation: String,
@@ -1767,6 +1773,7 @@ impl Desktop {
             | Reply::TerminalSessions { .. }
             | Reply::ProjectScriptSaved { .. }
             | Reply::ProjectScripts { .. }
+            | Reply::BrowserClipboard { .. }
             | Reply::TerminalCopy { .. }
             | Reply::Terminal { .. }
             | Reply::CommandOutput { .. }
@@ -2655,6 +2662,16 @@ fn start() -> io::Result<()> {
                 } = reply.reply
                 {
                     s.receive_permissions(watch, &operation, &instance, options, error, tx);
+                    return;
+                }
+                if let Reply::BrowserClipboard {
+                    watch,
+                    operation,
+                    tab,
+                    text,
+                } = reply.reply
+                {
+                    s.receive_browser_clipboard(watch, operation, &tab, text, tx);
                     return;
                 }
                 if let Reply::TerminalCopy {

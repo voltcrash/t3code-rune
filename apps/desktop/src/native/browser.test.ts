@@ -81,6 +81,7 @@ effectIt.effect("keeps a retryable download and advances past an expired one", (
         openError = page.downloadOpenError;
       },
       () => {},
+      () => {},
     );
     try {
       const events = yield* Effect.promise(() => attached.promise);
@@ -105,6 +106,64 @@ effectIt.effect("keeps a retryable download and advances past an expired one", (
       }
       expect(offered).toBe("next");
       expect(panel.download("a", "expired")).toBeUndefined();
+    } finally {
+      panel.stop();
+    }
+  }),
+);
+
+effectIt.effect("copies page text only from the stream the viewer controls", () =>
+  Effect.gen(function* () {
+    const attached = Promise.withResolvers<PreviewStreamEvents>();
+    vi.mocked(createPreviewStreamClient).mockImplementationOnce((_, events) => {
+      attached.resolve(events);
+      return { send: () => false, stop: () => {} };
+    });
+    vi.mocked(resolveDeviceHubAccess).mockReturnValueOnce(
+      Effect.succeed({
+        httpBase: "https://example.test/api/preview",
+        wsBase: "wss://example.test/api/preview",
+        query: {},
+        credentials: true,
+      }),
+    );
+    openRpc.mockReturnValue(
+      Effect.succeed({
+        [WS_METHODS.subscribePreviewEvents]: () => Stream.never,
+        [WS_METHODS.previewList]: () =>
+          Effect.succeed({
+            revision: 1,
+            sessions: [{ tabId: "a", runtime: "server", navStatus: { _tag: "Idle" } }],
+          }),
+      }),
+    );
+    const copy = vi.fn();
+    const panel = openBrowserPanel(
+      {
+        environmentId: EnvironmentId.make("browser"),
+        httpBaseUrl: "https://example.test",
+        http: layerRemoteHttpClient(globalThis.fetch),
+        label: "Browser",
+        token: "fixture",
+        browserWritable: true,
+      },
+      "thread",
+      yield* Effect.abortSignal,
+      () => {},
+      () => {},
+      copy,
+    );
+    try {
+      const events = yield* Effect.promise(() => attached.promise);
+      events.onClipboard?.("before control");
+      events.onControl({ canOperate: true, controller: "you", generation: 1, dialog: null });
+      events.onClipboard?.("selected page text");
+      events.onControl({ canOperate: true, controller: "agent", generation: 2, dialog: null });
+      events.onClipboard?.("after losing control");
+      panel.stop();
+      events.onControl({ canOperate: true, controller: "you", generation: 3, dialog: null });
+      events.onClipboard?.("after closing the tab");
+      expect(copy.mock.calls).toEqual([["a", "selected page text"]]);
     } finally {
       panel.stop();
     }
@@ -158,6 +217,7 @@ it.each(["switch away and back", "close the tab", "revoke write access"])(
       (state) => {
         if (state.selected === "a") ready.resolve();
       },
+      () => {},
       () => {},
     );
     try {
@@ -238,6 +298,7 @@ it.each(["reconnect", "switch away and back"])(
         if (page.deviceChange === "rotate" && page.selected) rotations.push(page.selected);
         if (page.selected === "a") ready.resolve();
       },
+      () => {},
       () => {},
     );
     try {

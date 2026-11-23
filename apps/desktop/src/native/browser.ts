@@ -186,6 +186,7 @@ export function openBrowserPanel(
   signal: AbortSignal,
   publish: (page: Page) => void,
   paint: (tab: string, sequence: number, jpeg: ArrayBuffer) => void,
+  copy: (tab: string, text: string) => void,
   address: (input: string) => string = resolveAddressBarInput,
   initialViewport: () => PreviewViewportSetting = () => FILL_PREVIEW_VIEWPORT,
 ) {
@@ -292,6 +293,10 @@ export function openBrowserPanel(
       stream = createPreviewStreamClient(target, {
         onFrame(jpeg) {
           if (!lease.aborted) frame(jpeg);
+        },
+        onClipboard(text) {
+          if (!lease.aborted && session.browserWritable && control?.controller === "you" && text)
+            copy(id, text);
         },
         onDownload({ id: downloadId, fileName, sizeBytes }) {
           if (lease.aborted || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) return;
