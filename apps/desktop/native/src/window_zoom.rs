@@ -4,7 +4,7 @@ use rune::{App, MenuItem};
 use rune::{Key, KeyEvent, PhysicalKeyCode, Tx};
 
 #[derive(Clone, Copy)]
-enum Direction {
+pub(crate) enum Direction {
     In,
     Out,
     Actual,
@@ -52,14 +52,37 @@ impl Desktop {
         self.write_request(None, Request::SetWindowZoom { factor });
     }
 
+    fn apply_zoom(&mut self, direction: Direction, tx: &Tx) {
+        if !self.zoom_browser(direction.browser_setting(), tx) {
+            self.zoom_window(direction);
+        }
+    }
+
     pub(crate) fn zoom_key(&mut self, event: &KeyEvent, tx: &Tx) -> bool {
+        let Some(direction) = Direction::from_key(event, tx) else {
+            return false;
+        };
+        self.apply_zoom(direction, tx);
+        true
+    }
+}
+
+impl Direction {
+    pub(crate) fn browser_setting(self) -> &'static str {
+        match self {
+            Self::In => "zoomIn",
+            Self::Out => "zoomOut",
+            Self::Actual => "resetZoom",
+        }
+    }
+    pub(crate) fn from_key(event: &KeyEvent, tx: &Tx) -> Option<Self> {
         if event.key == Key::Insert
             || !event.mods.cmd
             || event.mods.alt
             || (cfg!(target_os = "macos") && event.mods.ctrl)
             || (!cfg!(target_os = "macos") && event.mods.logo)
         {
-            return false;
+            return None;
         }
         let typed = match &event.key {
             Key::Command(c) => Some(*c),
@@ -75,10 +98,9 @@ impl Desktop {
                 Direction::Out
             }
             (Some('0'), _, false) | (_, Some(PhysicalKeyCode::Numpad0), false) => Direction::Actual,
-            _ => return false,
+            _ => return None,
         };
-        self.zoom_window(direction);
-        true
+        Some(direction)
     }
 }
 
@@ -90,13 +112,13 @@ pub(crate) fn view_menu(app: App<Desktop>) -> App<Desktop> {
             .key_equivalent(shortcut.parse().expect("valid window zoom shortcut"))
             .menu("View")
     };
-    app.menu_item(item("actual-size", "Actual Size", "mod+0", |s, _| {
-        s.zoom_window(Direction::Actual)
+    app.menu_item(item("actual-size", "Actual Size", "mod+0", |s, tx| {
+        s.apply_zoom(Direction::Actual, tx)
     }))
-    .menu_item(item("zoom-in", "Zoom In", "mod+=", |s, _| {
-        s.zoom_window(Direction::In)
+    .menu_item(item("zoom-in", "Zoom In", "mod+=", |s, tx| {
+        s.apply_zoom(Direction::In, tx)
     }))
-    .menu_item(item("zoom-out", "Zoom Out", "mod+-", |s, _| {
-        s.zoom_window(Direction::Out)
+    .menu_item(item("zoom-out", "Zoom Out", "mod+-", |s, tx| {
+        s.apply_zoom(Direction::Out, tx)
     }))
 }

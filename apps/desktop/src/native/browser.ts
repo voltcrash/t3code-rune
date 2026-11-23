@@ -7,7 +7,15 @@ import {
   type PreviewStreamInput,
 } from "@t3tools/client-runtime/preview/server-browser-stream";
 import { resolveDeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubAccess";
-import { type PreviewSessionSnapshot, ThreadId, WS_METHODS } from "@t3tools/contracts";
+import {
+  DEFAULT_PREVIEW_APPEARANCE,
+  DEFAULT_PREVIEW_ZOOM_FACTOR,
+  PREVIEW_ZOOM_LEVELS,
+  type PreviewAdjustInput,
+  type PreviewSessionSnapshot,
+  ThreadId,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import { resolveAddressBarInput } from "@t3tools/shared/preview";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -37,6 +45,20 @@ export function browserLabels() {
     accept: m(msg("Accept")),
     recheckDialog: m(msg("Check pending dialog")),
     takeToRespond: m(msg("Take control to respond.")),
+    menu: {
+      title: m(msg("Preview menu")),
+      reload: m(msg("Hard reload")),
+      zoom: m(msg("Zoom")),
+      zoomIn: m(msg("Zoom in")),
+      zoomOut: m(msg("Zoom out")),
+      reset: m(msg("Reset zoom")),
+      appearance: m(msg("Appearance")),
+      system: m(msg("System", { $context: "color scheme" })),
+      light: m(msg("Light", { $context: "color scheme" })),
+      dark: m(msg("Dark", { $context: "color scheme" })),
+      cookies: m(msg("Clear cookies")),
+      cache: m(msg("Clear cache")),
+    },
   };
 }
 
@@ -48,8 +70,51 @@ type BrowserRequest =
   | { action: "input"; tab: string; input: PreviewStreamInput }
   | { action: "recheckDialog"; tab: string; dialogId: number }
   | { action: "dialog"; tab: string; dialogId: number; accept: boolean; promptText?: string }
+  | {
+      action: "adjust";
+      tab: string;
+      setting:
+        | "hardReload"
+        | "zoomIn"
+        | "zoomOut"
+        | "resetZoom"
+        | "system"
+        | "light"
+        | "dark"
+        | "cookies"
+        | "cache";
+    }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
+
+function tabAdjustment(
+  tab: PreviewSessionSnapshot,
+  setting: Extract<BrowserRequest, { action: "adjust" }>["setting"],
+): Omit<PreviewAdjustInput, "tabId" | "threadId"> | undefined {
+  switch (setting) {
+    case "hardReload":
+      return { hardReload: true };
+    case "cookies":
+    case "cache":
+      return { clear: setting };
+    case "system":
+    case "light":
+    case "dark":
+      return { colorScheme: setting };
+    case "zoomIn":
+    case "zoomOut":
+    case "resetZoom": {
+      const current = tab.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR;
+      const next =
+        setting === "resetZoom"
+          ? DEFAULT_PREVIEW_ZOOM_FACTOR
+          : PREVIEW_ZOOM_LEVELS[
+              PREVIEW_ZOOM_LEVELS.indexOf(current) + (setting === "zoomIn" ? 1 : -1)
+            ];
+      return next !== undefined && current !== next ? { zoomFactor: next } : undefined;
+    }
+  }
+}
 
 function tabView(tab: PreviewSessionSnapshot) {
   const nav = tab.navStatus;
@@ -57,6 +122,10 @@ function tabView(tab: PreviewSessionSnapshot) {
     id: tab.tabId,
     url: nav._tag === "Idle" ? "" : nav.url,
     title: nav._tag === "Idle" ? m(msg("New tab")) : nav.title || nav.url,
+    zoom: Math.round(100 * (tab.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR)),
+    scheme: tab.colorScheme ?? DEFAULT_PREVIEW_APPEARANCE,
+    can_zoom_in: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS.at(-1),
+    can_zoom_out: tab.zoomFactor !== PREVIEW_ZOOM_LEVELS[0],
     back: tab.canGoBack,
     forward: tab.canGoForward,
     failure: nav._tag === "LoadFailed" ? nav.description : null,
@@ -93,6 +162,7 @@ export function openBrowserPanel(
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
   let checking: AbortController | undefined;
+  let adjustments = Promise.resolve();
   let control: PreviewStreamControl | null = null;
   const dialogs = new BrowserDialog();
   let viewport: readonly [number, number] = [0, 0];
@@ -416,6 +486,33 @@ export function openBrowserPanel(
       )
         return;
       const rpc = service;
+      if (request.action === "adjust") {
+        const apply = async () => {
+          if (lifetime.aborted || rpc !== service || request.tab !== selected) return;
+          const tab = tabs.find((t) => t.tabId === request.tab);
+          const change = tab && tabAdjustment(tab, request.setting);
+          if (!change) return;
+          error = null;
+          const before = revision;
+          const updated = await Effect.runPromise(
+            rpc[WS_METHODS.previewAdjust]({ threadId, tabId: request.tab, ...change }),
+            { signal: lifetime },
+          );
+          if (rpc !== service || lifetime.aborted) return;
+          if (before === revision) {
+            tabs = tabs.map((t) => (t.tabId === updated.tabId ? updated : t));
+            emit();
+          }
+          await refresh();
+        };
+        adjustments = adjustments.then(apply).catch(() => {
+          if (rpc === service && selected === request.tab && !lifetime.aborted) {
+            error = m(msg("Could not update the browser tab."));
+            emit();
+          }
+        });
+        return adjustments;
+      }
       busy = true;
       error = null;
       emit();

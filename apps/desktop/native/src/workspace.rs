@@ -1919,10 +1919,10 @@ fn timeline(
 }
 
 #[derive(Clone, Copy)]
-struct Topbar {
-    height: f32,
-    leading: f32,
-    trailing: f32,
+pub(crate) struct Topbar {
+    pub(crate) height: f32,
+    pub(crate) leading: f32,
+    pub(crate) trailing: f32,
 }
 
 pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El {
@@ -2376,7 +2376,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             ..bar
         };
         let panel = if s.workspace.browser.panel.is_some() {
-            crate::browser::view(s, theme, bar.height, bar.leading, bar.trailing)
+            crate::browser::view(s, theme, bar, &kit, &mut overlays)
         } else if diff_open {
             file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {
