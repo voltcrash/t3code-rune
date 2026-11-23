@@ -156,7 +156,9 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx, down: bool) -> bool {
         }
         return true;
     }
-    if ev.mods.shift && ev.is_command('j') {
+    if (ev.mods.shift && ev.is_command('j'))
+        || (s.terminal_toggle_key(ev) && s.right_panel_covers_chat())
+    {
         return false;
     }
     let (key, code_num) = match &ev.key {

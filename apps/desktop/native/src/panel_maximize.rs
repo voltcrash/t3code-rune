@@ -49,16 +49,20 @@ impl Desktop {
             || self.workspace.explorer.is_some()
     }
 
+    pub(crate) fn right_panel_covers_chat(&self) -> bool {
+        self.right_panel_open()
+            && (!self.workspace.panel_width.presentation.available.get()
+                || self.workspace.panel_maximized())
+    }
+
     pub(crate) fn reveal_terminal_drawer(&mut self) -> bool {
-        if !self.right_panel_open() {
+        if !self.right_panel_covers_chat() {
             return false;
         }
-        if !self.workspace.panel_width.presentation.available.get() {
-            self.dismiss_right_panel();
-        } else if self.workspace.panel_maximized() {
+        if self.workspace.panel_width.presentation.available.get() {
             self.set_panel_maximized(false);
         } else {
-            return false;
+            self.dismiss_right_panel();
         }
         true
     }

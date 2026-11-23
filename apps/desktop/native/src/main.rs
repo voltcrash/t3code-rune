@@ -2333,7 +2333,7 @@ fn start() -> io::Result<()> {
                 s.toggle_browser(tx);
                 return true;
             }
-            if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
+            if s.terminal_toggle_key(ev) {
                 if !tx.key_repeat() {
                     s.toggle_terminal(tx);
                 }

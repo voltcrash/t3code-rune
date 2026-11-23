@@ -159,6 +159,10 @@ fn color(value: u32) -> Color {
 }
 
 impl Desktop {
+    pub(crate) fn terminal_toggle_key(&self, ev: &KeyEvent) -> bool {
+        !ev.mods.alt && !ev.mods.shift && ev.is_command('j') && self.terminal_available()
+    }
+
     pub(crate) fn terminal_available(&self) -> bool {
         self.terminal_read
             && (!self.pending || self.terminal.is_some())
@@ -340,6 +344,9 @@ impl Desktop {
     }
 }
 fn input(s: &mut Desktop, e: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.terminal_toggle_key(e) {
+        return false;
+    }
     if s.zoom_key(e, tx) {
         return true;
     }
