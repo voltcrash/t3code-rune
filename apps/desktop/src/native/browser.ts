@@ -1,10 +1,13 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Node’s file-backed Blob streams the chosen file without buffering it.
 import {
   createPreviewStreamClient,
   PREVIEW_STREAM_BASE_PATH,
   previewStreamControlLabel,
   previewStreamDownloadUrl,
+  uploadPreviewStreamFiles,
   type PreviewStreamClient,
   type PreviewStreamControl,
+  type PreviewStreamFileChooser,
   type PreviewStreamInput,
 } from "@t3tools/client-runtime/preview/server-browser-stream";
 import { resolveDeviceHubAccess } from "@t3tools/client-runtime/state/deviceHubAccess";
@@ -25,6 +28,9 @@ import * as Fiber from "effect/Fiber";
 import { HttpClientError } from "effect/http";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
+import { lookup } from "mrmime";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 import { m } from "../i18n/catalog.ts";
 import { browserDeviceLabels, deviceViewport, type DeviceChange } from "./browserViewport.ts";
 import { downloadFile } from "./downloadAttachment.ts";
@@ -62,6 +68,14 @@ export function browserLabels() {
     accept: m(msg("Accept")),
     recheckDialog: m(msg("Check pending dialog")),
     takeToRespond: m(msg("Take control to respond.")),
+    chooser: {
+      title: m(msg("Choose files for the page")),
+      asksFiles: m(msg("The page asks for files.")),
+      asksFile: m(msg("The page asks for a file.")),
+      cancel: m(msg("Cancel")),
+      chooseFiles: m(msg("Choose files")),
+      chooseFile: m(msg("Choose file")),
+    },
     device: browserDeviceLabels(),
     menu: {
       title: m(msg("Preview menu")),
@@ -88,6 +102,7 @@ type BrowserRequest =
   | { action: "close"; tab: string }
   | { action: "input"; tab: string; input: PreviewStreamInput }
   | { action: "recheckDialog"; tab: string; dialogId: number }
+  | { action: "fileChooser"; tab: string; id: number; paths: string[] }
   | { action: "dialog"; tab: string; dialogId: number; accept: boolean; promptText?: string }
   | {
       action: "adjust";
@@ -168,6 +183,7 @@ type Page = {
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
   dialog: BrowserDialog["current"];
+  fileChooser: { id: number; multiple: boolean; accept: string } | null;
   canWrite: boolean;
   controlled: boolean;
   canControl: boolean;
@@ -202,6 +218,8 @@ export function openBrowserPanel(
   let checking: AbortController | undefined;
   let adjustments = Promise.resolve();
   let control: PreviewStreamControl | null = null;
+  let chooser: (PreviewStreamFileChooser & { id: number }) | null = null;
+  let choosers = 0;
   const dialogs = new BrowserDialog();
   const downloads = new Map<string, Download[]>();
   let failedOpen: string | undefined;
@@ -228,6 +246,11 @@ export function openBrowserPanel(
       tabs: tabs.map(tabView),
       selected,
       dialog: dialogs.current,
+      fileChooser: chooser && {
+        id: chooser.id,
+        multiple: chooser.multiple,
+        accept: chooser.accept,
+      },
       canWrite: !!service && session.browserWritable,
       canControl: control?.canOperate === true,
       controlled: control?.controller === "you",
@@ -255,6 +278,7 @@ export function openBrowserPanel(
     stream = undefined;
     waiting = null;
     control = null;
+    chooser = null;
     dialogs.update(null);
     viewport = [0, 0];
   }
@@ -305,6 +329,11 @@ export function openBrowserPanel(
           offers.push({ id: downloadId, fileName, sizeBytes });
           // The server retains its newest twenty downloads per tab.
           downloads.set(id, offers.slice(-20));
+          emit();
+        },
+        onFileChooser(next) {
+          if (lease.aborted) return;
+          chooser = next && { ...next, id: ++choosers };
           emit();
         },
         onViewport(size) {
@@ -609,6 +638,29 @@ export function openBrowserPanel(
                   : {}),
               }) === true,
           );
+          emit();
+        }
+        return;
+      }
+      if (request.action === "fileChooser") {
+        const current = chooser;
+        if (request.tab !== selected || !session.browserWritable || current?.id !== request.id)
+          return;
+        chooser = null;
+        emit();
+        try {
+          const files = await Promise.all(
+            request.paths.map(
+              async (path) =>
+                new File([await NodeFS.openAsBlob(path)], NodePath.basename(path), {
+                  type: lookup(path) ?? "",
+                }),
+            ),
+          );
+          await uploadPreviewStreamFiles(current, files);
+        } catch {
+          if (lifetime.aborted) return;
+          error = m(msg("Could not send the files to the page"));
           emit();
         }
         return;
