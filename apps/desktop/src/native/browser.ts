@@ -35,6 +35,7 @@ export function browserLabels() {
     response: m(msg("Dialog response")),
     dismiss: m(msg("Dismiss")),
     accept: m(msg("Accept")),
+    recheckDialog: m(msg("Check pending dialog")),
     takeToRespond: m(msg("Take control to respond.")),
   };
 }
@@ -45,6 +46,7 @@ type BrowserRequest =
   | { action: "select"; tab: string }
   | { action: "close"; tab: string }
   | { action: "input"; tab: string; input: PreviewStreamInput }
+  | { action: "recheckDialog"; tab: string; dialogId: number }
   | { action: "dialog"; tab: string; dialogId: number; accept: boolean; promptText?: string }
   | { action: "retry" }
   | { action: "painted"; sequence: number };
@@ -64,7 +66,7 @@ function tabView(tab: PreviewSessionSnapshot) {
 type Page = {
   tabs: ReturnType<typeof tabView>[];
   selected: string | null;
-  dialog: (NonNullable<PreviewStreamControl["dialog"]> & { id: number }) | null;
+  dialog: BrowserDialog["current"];
   canWrite: boolean;
   controlled: boolean;
   canControl: boolean;
@@ -90,6 +92,7 @@ export function openBrowserPanel(
   let selected: string | null = null;
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
+  let checking: AbortController | undefined;
   let control: PreviewStreamControl | null = null;
   const dialogs = new BrowserDialog();
   let viewport: readonly [number, number] = [0, 0];
@@ -126,6 +129,8 @@ export function openBrowserPanel(
     paint(selected, painting, jpeg);
   }
   function detach() {
+    checking?.abort();
+    checking = undefined;
     attaching?.abort();
     attaching = undefined;
     stream?.stop();
@@ -134,6 +139,15 @@ export function openBrowserPanel(
     control = null;
     dialogs.update(null);
     viewport = [0, 0];
+  }
+  function streamAccess(signal: AbortSignal) {
+    return Effect.runPromise(
+      resolveDeviceHubAccess({
+        prepared: preparedConnection(session),
+        hubBasePath: PREVIEW_STREAM_BASE_PATH,
+      }).pipe(Effect.provide(session.http)),
+      { signal },
+    );
   }
   async function select(id: string | null, refreshTicket = true) {
     detach();
@@ -144,70 +158,113 @@ export function openBrowserPanel(
     attaching = new AbortController();
     const lease = AbortSignal.any([attaching.signal, lifetime]);
     try {
-      const access = await Effect.runPromise(
-        resolveDeviceHubAccess({
-          prepared: preparedConnection(session),
-          hubBasePath: PREVIEW_STREAM_BASE_PATH,
-        }).pipe(Effect.provide(session.http)),
-        { signal: lease },
-      );
+      const access = await streamAccess(lease);
       if (lease.aborted) return;
-      stream = createPreviewStreamClient(
-        {
-          threadId,
-          tabId: id,
-          access,
-          maxWidth: 1600,
-          maxHeight: 1200,
-          interactive: session.browserWritable,
+      const target = {
+        threadId,
+        tabId: id,
+        access,
+        maxWidth: 1600,
+        maxHeight: 1200,
+        interactive: session.browserWritable,
+      };
+      stream = createPreviewStreamClient(target, {
+        onFrame(jpeg) {
+          if (!lease.aborted) frame(jpeg);
         },
-        {
-          onFrame(jpeg) {
-            if (!lease.aborted) frame(jpeg);
-          },
-          onViewport(size) {
-            viewport = [size.width, size.height];
-            emit();
-          },
-          onControl(next) {
-            if (lease.aborted) return;
-            dialogs.update(next);
-            control = next;
-            emit();
-          },
-          onConnectedChange(connected) {
-            if (lease.aborted) return;
-            if (!connected) {
-              control = null;
-              dialogs.update(null);
-            }
-            emit();
-          },
-          onUnauthorized() {
-            if (lease.aborted) return;
-            if (refreshTicket) void select(id, false);
-            else {
-              error = m(msg("Could not connect to the browser."));
-              emit();
-            }
-          },
-          onGone() {
-            if (lease.aborted) return;
+        onViewport(size) {
+          viewport = [size.width, size.height];
+          emit();
+        },
+        onControl(next) {
+          if (lease.aborted) return;
+          dialogs.update(next);
+          control = next;
+          emit();
+        },
+        onConnectedChange(connected) {
+          if (lease.aborted) return;
+          if (!connected) {
+            control = null;
+            dialogs.update(null);
+          }
+          emit();
+        },
+        onUnauthorized() {
+          if (lease.aborted) return;
+          if (refreshTicket) void select(id, false);
+          else {
             error = m(msg("Could not connect to the browser."));
             emit();
-            void refresh();
-          },
-          onHostSetup(setup) {
-            error = m(msg("Browser setup required")) + ": " + setup.command;
-            emit();
-          },
+          }
         },
-      );
+        onGone() {
+          if (lease.aborted) return;
+          error = m(msg("Could not connect to the browser."));
+          emit();
+          void refresh();
+        },
+        onHostSetup(setup) {
+          error = m(msg("Browser setup required")) + ": " + setup.command;
+          emit();
+        },
+      });
     } catch {
       if (!lease.aborted) {
         error = m(msg("Could not connect to the browser."));
         emit();
       }
+    }
+  }
+
+  async function checkDialog(id: number, tabId: string) {
+    if (checking) return;
+    const check = new AbortController();
+    checking = check;
+    error = null;
+    emit();
+    const timeout = AbortSignal.timeout(10_000);
+    const signal = AbortSignal.any([check.signal, lifetime, timeout]);
+    let observer: PreviewStreamClient | undefined;
+    signal.addEventListener(
+      "abort",
+      () => {
+        observer?.stop();
+        if (checking === check) checking = undefined;
+        if (timeout.aborted && !lifetime.aborted) {
+          error = m(msg("Could not connect to the browser."));
+          emit();
+        }
+      },
+      { once: true },
+    );
+    const failed = () => {
+      if (signal.aborted) return;
+      error = m(msg("Could not connect to the browser."));
+      check.abort();
+      emit();
+    };
+    try {
+      const access = await streamAccess(signal);
+      if (signal.aborted) return;
+      observer = createPreviewStreamClient(
+        { threadId, tabId, access, interactive: false, maxWidth: 1, maxHeight: 1 },
+        {
+          onControl(next) {
+            if (signal.aborted) return;
+            dialogs.rechecked(id, next.dialog);
+            check.abort();
+            emit();
+          },
+          onFrame() {},
+          onConnectedChange() {},
+          onUnauthorized: failed,
+          onGone: failed,
+          onHostSetup: failed,
+        },
+      );
+    } catch {
+      failed();
     }
   }
 
@@ -316,6 +373,18 @@ export function openBrowserPanel(
       if (request.action === "select") {
         if (request.tab !== selected && tabs.some((t) => t.tabId === request.tab))
           void select(request.tab);
+        return;
+      }
+      if (request.action === "recheckDialog") {
+        const pending = dialogs.current;
+        if (
+          request.tab === selected &&
+          pending?.id === request.dialogId &&
+          pending.recheck &&
+          control?.controller === "you"
+        ) {
+          await checkDialog(request.dialogId, request.tab);
+        }
         return;
       }
       if (request.action === "dialog") {

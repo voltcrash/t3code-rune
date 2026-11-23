@@ -30,6 +30,51 @@ impl Desktop {
         }));
     }
 
+    fn browser_pointer(
+        &mut self,
+        local: [f32; 2],
+        phase: rune::PointerPhase,
+        button: rune::PointerButton,
+        clicks: u32,
+        modifiers: rune::Mods,
+        tx: &mut Tx,
+    ) {
+        let Some(point) = self.browser_coords(local[0], local[1]) else {
+            return;
+        };
+        let Some(panel) = &mut self.workspace.browser.panel else {
+            return;
+        };
+        let (name, mask) = match button {
+            rune::PointerButton::Primary => ("left", 1),
+            rune::PointerButton::Secondary => ("right", 2),
+            rune::PointerButton::Middle => ("middle", 4),
+            _ => return,
+        };
+        let action = match phase {
+            rune::PointerPhase::Down => {
+                tx.focus("browser-page", false);
+                panel.input.caret = local;
+                panel.buttons |= mask;
+                "down"
+            }
+            rune::PointerPhase::Move if panel.buttons & mask != 0 => {
+                // The held primary or middle drag also reports motion during a secondary press.
+                if mask == 2 && panel.buttons != 2 {
+                    return;
+                }
+                "move"
+            }
+            rune::PointerPhase::Up | rune::PointerPhase::Cancel if panel.buttons & mask != 0 => {
+                panel.buttons &= !mask;
+                "up"
+            }
+            _ => return,
+        };
+        let buttons = panel.buttons;
+        self.browser_mouse(point, action, name, buttons, clicks, modifiers);
+    }
+
     pub(super) fn sync_browser_input(&mut self, tx: &mut Tx) -> bool {
         let Some(p) = &mut self.workspace.browser.panel else {
             return false;
@@ -40,7 +85,9 @@ impl Desktop {
             && let Some(dialog) = &p.page.dialog
         {
             tx.focus_when_shown(
-                if dialog.prompt() {
+                if dialog.recheck {
+                    "browser-recheck"
+                } else if dialog.prompt() {
                     "browser-response"
                 } else {
                     "browser-dismiss"
@@ -176,7 +223,17 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
     }
     frame
         .focusable(true)
-        .pointer_buttons([rune::PointerButton::Middle, rune::PointerButton::Secondary])
+        .pointer_buttons([rune::PointerButton::Middle])
+        .on_secondary_pointer(|s: &mut Desktop, phase, e, tx| {
+            s.browser_pointer(
+                [e.x, e.y],
+                phase,
+                rune::PointerButton::Secondary,
+                1,
+                tx.mods(),
+                tx,
+            );
+        })
         .on_secondary_press_local(|s: &mut Desktop, e, tx| {
             if let Some(point) = s.browser_coords(e.x, e.y) {
                 tx.focus("browser-page", false);
@@ -189,7 +246,7 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
                 .browser
                 .panel
                 .as_ref()
-                .is_some_and(|p| !p.dragging)
+                .is_some_and(|p| p.buttons == 0)
                 && let Some(point) = s.browser_coords(e.x, e.y)
             {
                 s.browser_mouse(point, "move", "none", 0, 0, tx.mods());
@@ -197,32 +254,13 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
             tx.live_only();
         })
         .on_drag(|s: &mut Desktop, d, tx| {
-            let Some(point) = s.browser_coords(d.x, d.y) else {
-                return;
+            let phase = match d.phase {
+                rune::Phase::Down => rune::PointerPhase::Down,
+                rune::Phase::Move => rune::PointerPhase::Move,
+                rune::Phase::Up if d.cancelled() => rune::PointerPhase::Cancel,
+                rune::Phase::Up => rune::PointerPhase::Up,
             };
-            let Some(panel) = &mut s.workspace.browser.panel else {
-                return;
-            };
-            let (button, mask) = match tx.button() {
-                rune::PointerButton::Middle => ("middle", 4),
-                rune::PointerButton::Secondary => ("right", 2),
-                _ => ("left", 1),
-            };
-            let (action, buttons) = match d.phase {
-                rune::Phase::Down => {
-                    tx.focus("browser-page", false);
-                    panel.input.caret = [d.x, d.y];
-                    panel.dragging = true;
-                    ("down", mask)
-                }
-                rune::Phase::Move if panel.dragging => ("move", mask),
-                rune::Phase::Up if panel.dragging => {
-                    panel.dragging = false;
-                    ("up", 0)
-                }
-                _ => return,
-            };
-            s.browser_mouse(point, action, button, buttons, d.clicks, d.mods);
+            s.browser_pointer([d.x, d.y], phase, tx.button(), d.clicks, d.mods, tx);
         })
         .on_wheel(|s: &mut Desktop, e, _| {
             let Some([x, y]) = s.browser_coords(e.x, e.y) else {

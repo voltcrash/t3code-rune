@@ -31,6 +31,7 @@ pub(crate) struct Labels {
     dismiss: String,
     accept: String,
     take_to_respond: String,
+    recheck_dialog: String,
 }
 #[derive(Deserialize)]
 pub(crate) struct Tab {
@@ -72,7 +73,7 @@ pub(crate) struct Panel {
     image: Option<rune::Image>,
     size: [f32; 2],
     requested_size: Option<[u32; 2]>,
-    dragging: bool,
+    buttons: u8,
     input: input::Input,
     answer: TextEdit,
     focus_dialog: bool,
@@ -88,7 +89,7 @@ impl Panel {
             image: None,
             size: [0., 0.],
             requested_size: None,
-            dragging: false,
+            buttons: 0,
             input: input::Input::default(),
             answer: TextEdit::new(""),
             focus_dialog: false,
@@ -173,7 +174,7 @@ impl Desktop {
             if !page.controlled || page.dialog.is_some() || page.selected != p.page.selected {
                 p.input.reset();
                 p.requested_size = None;
-                p.dragging = false;
+                p.buttons = 0;
             }
             p.page = page;
             self.resize_browser();
@@ -276,7 +277,7 @@ impl Desktop {
             (x - (w - vw * scale) / 2.) / scale,
             (y - (h - vh * scale) / 2.) / scale,
         ];
-        (p.dragging || ((0.0..vw).contains(&xy[0]) && (0.0..vh).contains(&xy[1])))
+        (p.buttons != 0 || ((0.0..vw).contains(&xy[0]) && (0.0..vh).contains(&xy[1])))
             .then(|| [xy[0].clamp(0., vw - 1.), xy[1].clamp(0., vh - 1.)])
     }
 }

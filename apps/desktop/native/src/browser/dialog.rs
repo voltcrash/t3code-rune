@@ -4,6 +4,7 @@ use super::*;
 #[serde(rename_all = "camelCase")]
 pub(super) struct Dialog {
     pub id: u64,
+    pub recheck: bool,
     #[serde(rename = "type")]
     kind: String,
     message: String,
@@ -21,7 +22,12 @@ impl Desktop {
         let Some(p) = &self.workspace.browser.panel else {
             return;
         };
-        if p.page.controlled && p.page.dialog.as_ref().is_some_and(|d| d.id == id) {
+        if p.page.controlled
+            && p.page
+                .dialog
+                .as_ref()
+                .is_some_and(|d| d.id == id && !d.recheck)
+        {
             self.browser_request(
                 json!({"action":"dialog", "tab":p.page.selected, "dialogId":id,
                 "accept":accept, "promptText":p.answer.text}),
@@ -52,7 +58,23 @@ pub(super) fn view(p: &Panel, d: &Dialog, labels: &Labels, theme: &tok::Theme) -
                 })
                 .child(label(&d.message).wrap()),
         );
-    if p.page.controlled {
+    if p.page.controlled && d.recheck {
+        let tab = p.page.selected.clone();
+        card = card.child(
+            button(
+                &labels.recheck_dialog,
+                label(&labels.recheck_dialog),
+                true,
+                theme,
+                move |s, _| {
+                    s.browser_request(
+                        json!({"action": "recheckDialog", "tab": tab, "dialogId": id}),
+                    )
+                },
+            )
+            .key("browser-recheck"),
+        );
+    } else if p.page.controlled {
         if d.prompt() {
             card = card.child(
                 text_input(&p.answer, TextStyle::new(13., 400.))

@@ -4,7 +4,7 @@ type Dialog = NonNullable<PreviewStreamControl["dialog"]>;
 
 export class BrowserDialog {
   private id = 0;
-  private answered = false;
+  private state: "open" | "sent" | "check" = "open";
   private control: PreviewStreamControl | null = null;
 
   update(next: PreviewStreamControl | null) {
@@ -15,27 +15,38 @@ export class BrowserDialog {
       before?.message !== after?.message ||
       before?.defaultValue !== after?.defaultValue
     ) {
-      this.answered = false;
+      this.state = "open";
       this.id++;
-    } else if (this.control?.generation !== next?.generation) {
-      this.id++;
+    } else {
+      if (this.control?.generation !== next?.generation) this.id++;
+      // A compacted stream can replace one prompt with another bearing the same text.
+      if (after && this.state === "sent") this.state = "check";
     }
     this.control = next;
   }
 
   get current() {
     const dialog = this.control?.dialog;
-    return dialog && !this.answered ? { ...dialog, id: this.id } : null;
+    return dialog && this.state !== "sent"
+      ? { ...dialog, id: this.id, recheck: this.state === "check" }
+      : null;
+  }
+
+  rechecked(id: number, observed: PreviewStreamControl["dialog"]) {
+    if (this.id !== id || this.state !== "check" || this.control?.controller !== "you") return;
+    this.update({ ...this.control, dialog: observed });
+    this.id++;
+    this.state = "open";
   }
 
   answer(id: number, send: (dialog: Dialog) => boolean) {
     if (
       this.control?.controller === "you" &&
       this.control.dialog &&
-      !this.answered &&
+      this.state === "open" &&
       id === this.id
     ) {
-      this.answered = send(this.control.dialog);
+      if (send(this.control.dialog)) this.state = "sent";
     }
   }
 }
