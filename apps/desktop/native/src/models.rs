@@ -60,6 +60,23 @@ impl Desktop {
         }
     }
 
+    pub(super) fn can_pick_thread_model(&self, thread: &Thread) -> bool {
+        !self.pending
+            && self.can_operate
+            && self.workspace.terminal_watch().is_some()
+            && thread.permission.is_some()
+            && !self.workspace.questions.contains_key(&thread.id)
+    }
+
+    pub(super) fn open_composer_models(&mut self, tx: &mut Tx) {
+        if self.new_threads.active.is_some() {
+            self.permission_menu = None;
+            self.new_threads.toggle_models(tx);
+        } else {
+            self.show_thread_models(tx);
+        }
+    }
+
     fn show_thread_models(&mut self, tx: &mut Tx) {
         if self.pending || !self.can_operate {
             return;
@@ -106,14 +123,11 @@ impl Desktop {
         if tx.key_repeat() {
             return true;
         }
-        if self.new_threads.active.is_some() {
-            self.permission_menu = None;
-            self.new_threads.toggle_models(tx);
-        } else if self.models.combo.is_open() {
+        if self.new_threads.active.is_none() && self.models.combo.is_open() {
             self.models.close();
             tx.focus("thread-model-trigger", true);
         } else {
-            self.show_thread_models(tx);
+            self.open_composer_models(tx);
         }
         true
     }
@@ -279,10 +293,7 @@ pub(super) fn control(
     cx: &rune::Cx<Desktop>,
     overlays: &mut Vec<El>,
 ) -> El {
-    let available = !s.pending
-        && s.can_operate
-        && s.workspace.terminal_watch().is_some()
-        && thread.permission.is_some();
+    let available = s.can_pick_thread_model(thread);
     let Selected {
         instance,
         name,

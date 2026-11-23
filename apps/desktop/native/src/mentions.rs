@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 #[derive(Default, Deserialize)]
 pub(super) struct Labels {
     search: String,
+    commands: String,
+    switch_model: String,
     searching: String,
     skills: String,
     no_skills: String,
@@ -24,12 +26,36 @@ pub(super) struct Entry {
 }
 
 impl Entry {
+    fn model_command(query: &str, description: &str) -> Option<Self> {
+        let query = query.to_lowercase();
+        let mut name = "model".chars();
+        if !query.chars().all(|c| name.by_ref().any(|next| c == next))
+            && !description.to_lowercase().contains(&query)
+        {
+            return None;
+        }
+        Some(Self {
+            path: "/model".into(),
+            kind: "model".into(),
+            label: Some("/model".into()),
+            description: Some(description.into()),
+            link: String::new(),
+        })
+    }
+
     fn name(&self) -> &str {
         self.label
             .as_deref()
             .unwrap_or_else(|| self.path.rsplit(['/', '\\']).next().unwrap_or(&self.path))
     }
     fn choose(&self, edit: &mut TextEdit, mut range: Range<usize>) {
+        if self.kind == "model" {
+            edit.undo_group(|edit| {
+                edit.set_selection(range.start, range.end);
+                edit.insert("");
+            });
+            return;
+        }
         if edit.text[range.end..].starts_with(' ') {
             range.end += 1;
         }
@@ -45,24 +71,41 @@ impl Entry {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    File,
+    Skill,
+    Command,
+}
+
 #[derive(PartialEq)]
 struct Trigger {
     owner: Target,
     watch: u64,
     root: String,
     instance: Option<String>,
+    kind: Kind,
     range: Range<usize>,
     query: String,
 }
 
-fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, bool)> {
+fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, Kind)> {
     if edit.anchor != edit.focus || edit.is_composing() {
         return None;
     }
     let before = edit.text.get(..edit.focus)?;
     let token = before.rsplit([' ', '\n', '\t', '\r']).next()?;
-    let (query, skill) = if let Some(q) = token.strip_prefix('@') {
-        (q, false)
+    let (query, kind) = if let Some(q) = token.strip_prefix('@') {
+        (q, Kind::File)
+    } else if let Some(q) = token.strip_prefix('/') {
+        let tail = edit.text[edit.focus..]
+            .split([' ', '\t', '\n', '\r'])
+            .next()
+            .unwrap_or("");
+        if q.contains(['/', '\\']) || tail.contains(['/', '\\']) {
+            return None;
+        }
+        (q, Kind::Command)
     } else {
         static CURRENCY: std::sync::LazyLock<regex::Regex> =
             std::sync::LazyLock::new(|| regex::Regex::new(r"^\p{Sc}").unwrap());
@@ -73,7 +116,7 @@ fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, bool)> {
         if AMOUNT.is_match(q) {
             return None;
         }
-        (q, true)
+        (q, Kind::Skill)
     };
     let range = before.len() - token.len()..before.len();
     if edit
@@ -82,7 +125,7 @@ fn query(edit: &TextEdit) -> Option<(Range<usize>, &str, bool)> {
     {
         return None;
     }
-    Some((range, query, skill))
+    Some((range, query, kind))
 }
 
 fn serialized_selection(edit: &TextEdit, selection: Range<usize>) -> Option<String> {
@@ -188,6 +231,11 @@ impl Picker {
                 .strip_suffix(e.name())
                 .unwrap_or("")
                 .trim_end_matches(['/', '\\']);
+            let item = PopupItem::new(&e.path, e.name())
+                .description(e.description.as_deref().unwrap_or(parent));
+            if e.kind == "model" {
+                return item;
+            }
             let glyph = if e.kind == "skill" {
                 &glyphs::SPARKLE
             } else if e.kind == "directory" {
@@ -195,21 +243,19 @@ impl Picker {
             } else {
                 rune_kit::file_icon(&e.path)
             };
-            PopupItem::new(&e.path, e.name())
-                .description(e.description.as_deref().unwrap_or(parent))
-                .leading(rune::icon(glyph, 16.).color(kit.c.text_weak))
+            item.leading(rune::icon(glyph, 16.).color(kit.c.text_weak))
         });
         PopupList::<Desktop>::new("composer-file-mentions", key)
             .anchored(key, Side::Top, Align::Start, 6.)
             .width(cx.layout_size(key).map_or(320., |size| size[0]))
             .max_height(290.)
-            .label(if s.trigger.instance.is_some() {
-                &self.labels.skills
-            } else {
-                &self.labels.search
+            .label(match s.trigger.kind {
+                Kind::Skill => &self.labels.skills,
+                Kind::Command => &self.labels.commands,
+                Kind::File => &self.labels.search,
             })
             .empty_message(if s.loaded {
-                if s.trigger.instance.is_some() {
+                if s.trigger.kind != Kind::File {
                     &self.labels.no_skills
                 } else {
                     &self.labels.empty
@@ -246,10 +292,7 @@ impl Desktop {
         if self.pending || !self.can_operate {
             return None;
         }
-        let watch = self
-            .workspace
-            .feed
-            .filter(|w| Some(*w) == self.mentions.ready)?;
+        let watch = self.workspace.feed?;
         let (id, draft, root, edit) = match focus? {
             "message-input" => {
                 let id = &self.workspace.visible_thread()?.id;
@@ -271,13 +314,19 @@ impl Desktop {
             }
             _ => return None,
         };
-        let (range, q, skill) = query(edit)?;
-        let instance = if skill {
-            Some(self.status_target()?.2?.to_owned())
-        } else if self.can_read_files {
-            None
-        } else {
+        let (range, q, kind) = query(edit)?;
+        if kind != Kind::Command && Some(watch) != self.mentions.ready {
             return None;
+        }
+        let instance = match kind {
+            Kind::Skill => Some(self.status_target()?.2?.to_owned()),
+            Kind::File if !self.can_read_files => return None,
+            Kind::Command
+                if !draft && !self.can_pick_thread_model(self.workspace.visible_thread()?) =>
+            {
+                return None;
+            }
+            _ => None,
         };
         let target = if draft {
             Target::Project(id.into())
@@ -292,6 +341,7 @@ impl Desktop {
             watch,
             root: root.into(),
             instance,
+            kind,
             range,
             query: q.chars().take(256).collect(),
         })
@@ -308,17 +358,27 @@ impl Desktop {
                 self.send_mention_search(&s.trigger, s.operation, true);
             }
             if let Some(trigger) = trigger {
+                let local = trigger.kind == Kind::Command;
+                let entries = if local {
+                    Entry::model_command(&trigger.query, &self.mentions.labels.switch_model)
+                        .into_iter()
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 let delay = Duration::from_millis(120);
                 self.mentions.search = Some(Search {
                     trigger,
-                    due: Some(Instant::now() + delay),
+                    due: (!local).then(|| Instant::now() + delay),
                     operation: self.next_request_id(),
                     dismissed: false,
-                    loaded: false,
-                    entries: vec![],
+                    loaded: local,
+                    entries,
                     active: 0,
                 });
-                tx.wake_after(delay);
+                if !local {
+                    tx.wake_after(delay);
+                }
             }
             return true;
         }
@@ -372,10 +432,13 @@ impl Desktop {
             Target::Thread(id) => self.workspace.drafts.get_mut(id).map(|d| d.edit_mention()),
             Target::Project(id) => self.new_threads.edit_prompt(id),
         };
-        if let Some(edit) = edit {
-            entry.choose(edit, s.trigger.range.clone());
-        }
+        let Some(edit) = edit else { return };
+        let model = entry.kind == "model";
+        entry.choose(edit, s.trigger.range.clone());
         self.mentions.search = None;
+        if model {
+            self.open_composer_models(tx);
+        }
     }
 
     pub(super) fn mention_key(&mut self, owner: &Target, event: &KeyEvent, tx: &mut Tx) -> bool {
@@ -472,6 +535,24 @@ mod tests {
         assert_eq!(prompt(&edit), "Review @co here @dir");
     }
     #[test]
+    fn undoing_the_model_command_restores_its_original_caret() {
+        let mut edit = TextEdit::new("Review /mo tomorrow");
+        let caret = "Review /mo".len();
+        edit.set_caret(caret);
+        let (range, term, kind) = query(&edit).unwrap();
+        assert_eq!(kind, Kind::Command);
+        Entry::model_command(term, "Switch response model for this thread")
+            .unwrap()
+            .choose(&mut edit, range);
+        assert_eq!(edit.text, "Review  tomorrow");
+        edit.undo();
+        assert_eq!(edit.text, "Review /mo tomorrow");
+        assert_eq!((edit.anchor, edit.focus), (caret, caret));
+        edit.insert("d");
+        assert_eq!(edit.text, "Review /mod tomorrow");
+    }
+
+    #[test]
     fn enter_waits_for_a_highlighted_skill_to_refresh() {
         let mut app = Desktop::new();
         app.can_operate = true;
@@ -536,7 +617,7 @@ mod tests {
         let mut edit = TextEdit::new("Run £rev");
         edit.set_caret(edit.text.len());
         let (range, query, skill) = query(&edit).unwrap();
-        assert!(skill);
+        assert_eq!(skill, Kind::Skill);
         assert_eq!(query, "rev");
         Entry {
             path: "review-code".into(),
