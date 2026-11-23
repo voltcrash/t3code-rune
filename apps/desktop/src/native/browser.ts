@@ -14,6 +14,7 @@ import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
+import { BrowserDialog } from "./browserDialog.ts";
 import { openEnvironmentRpc, preparedConnection } from "./environmentRpc.ts";
 import type { Session } from "./projects.ts";
 
@@ -90,8 +91,7 @@ export function openBrowserPanel(
   let stream: PreviewStreamClient | undefined;
   let attaching: AbortController | undefined;
   let control: PreviewStreamControl | null = null;
-  let dialogId = 0;
-  let answeredDialog = false;
+  const dialogs = new BrowserDialog();
   let viewport: readonly [number, number] = [0, 0];
   let busy = false;
   let error: string | null = null;
@@ -106,7 +106,7 @@ export function openBrowserPanel(
     publish({
       tabs: tabs.map(tabView),
       selected,
-      dialog: control?.dialog && !answeredDialog ? { ...control.dialog, id: dialogId } : null,
+      dialog: dialogs.current,
       canWrite: !!service && session.browserWritable,
       canControl: control?.canOperate === true,
       controlled: control?.controller === "you",
@@ -132,6 +132,7 @@ export function openBrowserPanel(
     stream = undefined;
     waiting = null;
     control = null;
+    dialogs.update(null);
     viewport = [0, 0];
   }
   async function select(id: string | null, refreshTicket = true) {
@@ -169,21 +170,17 @@ export function openBrowserPanel(
             emit();
           },
           onControl(next) {
-            if (
-              answeredDialog ||
-              control?.dialog?.type !== next.dialog?.type ||
-              control?.dialog?.message !== next.dialog?.message ||
-              control?.dialog?.defaultValue !== next.dialog?.defaultValue ||
-              control?.generation !== next.generation
-            ) {
-              dialogId++;
-              answeredDialog = false;
-            }
+            if (lease.aborted) return;
+            dialogs.update(next);
             control = next;
             emit();
           },
           onConnectedChange(connected) {
-            if (!connected) control = null;
+            if (lease.aborted) return;
+            if (!connected) {
+              control = null;
+              dialogs.update(null);
+            }
             emit();
           },
           onUnauthorized() {
@@ -322,21 +319,18 @@ export function openBrowserPanel(
         return;
       }
       if (request.action === "dialog") {
-        if (
-          request.tab === selected &&
-          control?.dialog &&
-          session.browserWritable &&
-          !answeredDialog &&
-          request.dialogId === dialogId
-        ) {
-          answeredDialog =
-            stream?.send({
-              type: "dialog",
-              accept: request.accept,
-              ...(control.dialog.type === "prompt" && request.accept
-                ? { promptText: request.promptText }
-                : {}),
-            }) === true;
+        if (request.tab === selected && session.browserWritable) {
+          dialogs.answer(
+            request.dialogId,
+            (dialog) =>
+              stream?.send({
+                type: "dialog",
+                accept: request.accept,
+                ...(dialog.type === "prompt" && request.accept
+                  ? { promptText: request.promptText }
+                  : {}),
+              }) === true,
+          );
           emit();
         }
         return;

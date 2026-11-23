@@ -98,6 +98,7 @@ impl Panel {
 
 #[derive(Default)]
 pub(crate) struct Browser {
+    inactive: bool,
     pub labels: Option<Box<Labels>>,
     pub panel: Option<Panel>,
 }
@@ -148,14 +149,14 @@ impl Desktop {
             let url = page.tab().map_or("", |t| t.url.as_str());
             let previous = p.page.tab().map_or("", |t| t.url.as_str());
             if p.page.selected != page.selected {
-                p.address = TextEdit::new(url);
+                p.address.replace_text(url);
                 p.image = None;
                 p.submitted_address = None;
             } else if url != previous {
                 if p.address.text == previous
                     || p.submitted_address.as_ref() == Some(&p.address.text)
                 {
-                    p.address = TextEdit::new(url);
+                    p.address.replace_text(url);
                 }
                 p.submitted_address = None;
             }

@@ -2376,6 +2376,7 @@ fn start() -> io::Result<()> {
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
     let app = App::new(spec)
+        .on_focus(Desktop::browser_window_focus)
         .on_ime(Desktop::browser_ime)
         .on_open_url(|s, url, _| {
             s.write_request(None, Request::OpenUrl { url });

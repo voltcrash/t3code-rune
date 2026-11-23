@@ -48,8 +48,10 @@ impl Desktop {
                 true,
             );
         }
-        let focused =
-            tx.focused() == Some("browser-page") && p.page.controlled && p.page.dialog.is_none();
+        let focused = !self.workspace.browser.inactive
+            && tx.focused() == Some("browser-page")
+            && p.page.controlled
+            && p.page.dialog.is_none();
         if p.input.focused == focused {
             return false;
         }
@@ -58,11 +60,22 @@ impl Desktop {
         true
     }
 
+    pub(crate) fn browser_window_focus(&mut self, active: bool, _: &mut Tx) {
+        self.workspace.browser.inactive = !active;
+        if !active && let Some(p) = &mut self.workspace.browser.panel {
+            p.input.reset();
+        }
+    }
+
     pub(crate) fn browser_ime(&mut self, ev: &rune::Ime, tx: &mut Tx) -> bool {
         let Some(p) = &mut self.workspace.browser.panel else {
             return false;
         };
-        if tx.focused() != Some("browser-page") || !p.page.controlled || p.page.dialog.is_some() {
+        if self.workspace.browser.inactive
+            || tx.focused() != Some("browser-page")
+            || !p.page.controlled
+            || p.page.dialog.is_some()
+        {
             return false;
         }
         match ev {
@@ -163,7 +176,7 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
     }
     frame
         .focusable(true)
-        .pointer_buttons([rune::PointerButton::Middle])
+        .pointer_buttons([rune::PointerButton::Middle, rune::PointerButton::Secondary])
         .on_secondary_press_local(|s: &mut Desktop, e, tx| {
             if let Some(point) = s.browser_coords(e.x, e.y) {
                 tx.focus("browser-page", false);
@@ -192,6 +205,7 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
             };
             let (button, mask) = match tx.button() {
                 rune::PointerButton::Middle => ("middle", 4),
+                rune::PointerButton::Secondary => ("right", 2),
                 _ => ("left", 1),
             };
             let (action, buttons) = match d.phase {
@@ -208,7 +222,7 @@ pub(super) fn surface(mut frame: El, panel: &Panel, theme: &tok::Theme) -> El {
                 }
                 _ => return,
             };
-            s.browser_mouse(point, action, button, buttons, d.clicks, tx.mods());
+            s.browser_mouse(point, action, button, buttons, d.clicks, d.mods);
         })
         .on_wheel(|s: &mut Desktop, e, _| {
             let Some([x, y]) = s.browser_coords(e.x, e.y) else {
@@ -248,6 +262,7 @@ mod tests {
                 .child(el().key("toolbar").focusable(true).size(90., 36.))
         });
         let mut rt = rune::App::new(spec)
+            .on_focus(Desktop::browser_window_focus)
             .on_ime(Desktop::browser_ime)
             .headless_runtime(size, Default::default());
         rt.update(move |s, tx| {
@@ -263,6 +278,12 @@ mod tests {
         rt.frame(0.);
         rt.ime(rune::Ime::Commit("日本".into()));
         rt.frame(0.);
+        rt.window_focus(true);
+        rt.ime(rune::Ime::Preedit("unconfirmed".into(), None, Vec::new()));
+        rt.frame(0.);
+        rt.window_focus(false);
+        rt.frame(0.);
+        rt.window_focus(true);
         rt.update(|_, tx| tx.focus("toolbar", false));
         rt.frame(0.);
         rt.ime(rune::Ime::Commit("other control".into()));
