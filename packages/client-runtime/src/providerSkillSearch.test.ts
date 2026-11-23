@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ServerProviderSkill } from "@t3tools/contracts";
 
-import { searchProviderSkills } from "./providerSkillSearch";
+import { searchProviderSkills } from "./providerSkillSearch.ts";
 
 function makeSkill(input: Partial<ServerProviderSkill> & Pick<ServerProviderSkill, "name">) {
   return {
@@ -39,6 +39,7 @@ describe("searchProviderSkills", () => {
       makeSkill({ name: "branch-audit", path: "/Users/matt/.agents/skills/branch-audit/SKILL.md" }),
     ];
 
+    expect(searchProviderSkills(skills, "", 1)).toEqual([skills[0]]);
     expect(searchProviderSkills(skills, "").map((skill) => skill.path)).toEqual([
       "/Users/matt/.codex/skills/branch-audit/SKILL.md",
       "/tmp/browser/SKILL.md",

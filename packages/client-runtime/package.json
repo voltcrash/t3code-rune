@@ -178,6 +178,10 @@
       "types": "./src/platform/index.ts",
       "default": "./src/platform/index.ts"
     },
+    "./providerSkillSearch": {
+      "types": "./src/providerSkillSearch.ts",
+      "default": "./src/providerSkillSearch.ts"
+    },
     "./providerSkills": {
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"

@@ -1,3 +1,6 @@
+import * as Equal from "effect/Equal";
+import { providerWorkspaceSnapshotBasis } from "@t3tools/client-runtime/state/server-config-projection";
+import { composerSkillSearch } from "./composerSkills.ts";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { watchProjectFileActions } from "./projectFile.ts";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
@@ -7,9 +10,10 @@ import { watchProjectScripts } from "./projectScripts.ts";
 import { watchWorkspaceGit } from "./workspaceGit.ts";
 import { watchDraftModels } from "./draftModels.ts";
 import { visitInput, type trackVisibleThread } from "./visits.ts";
-import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type ServerConfig } from "@t3tools/contracts";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
@@ -86,6 +90,7 @@ export function watchWorkspace(
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
   onWorkspaceConfig: Parameters<typeof watchDraftModels>[3],
   onSynchronized: (ready: boolean) => void,
+  onSkillsChanged: (instance: string) => void,
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
@@ -133,6 +138,12 @@ export function watchWorkspace(
       (thread?.worktree ?? project.path) === target.cwd
     );
   });
+  const searchSkills = composerSkillSearch();
+  let skillScope: Scope.Scope | undefined;
+  let workspaceConfig: ServerConfig | undefined;
+  let skillInstance: string | null = null;
+  const skillProvider = (config: ServerConfig | undefined) =>
+    config?.providers.find((p) => p.instanceId === skillInstance);
   const draftModels = watchDraftModels(
     signal,
     (id) => projects.get(id),
@@ -143,6 +154,20 @@ export function watchWorkspace(
         scratchRoot = config.scratchWorkspaceRoot;
         git.reconcile();
       }
+      if (skillInstance && config) {
+        const before = skillProvider(workspaceConfig);
+        const after = skillProvider(config);
+        if (
+          before !== after &&
+          !Equal.equals(
+            providerWorkspaceSnapshotBasis(before),
+            providerWorkspaceSnapshotBasis(after),
+          )
+        ) {
+          onSkillsChanged(skillInstance);
+        }
+      }
+      workspaceConfig = config;
       scripts.configure(config?.settings);
       onWorkspaceConfig(config, rpc);
     },
@@ -247,6 +272,7 @@ export function watchWorkspace(
       needSnapshot = false;
     }
     const rpc = yield* openEnvironmentRpc(session);
+    skillScope = yield* Effect.scope;
     draftModels.connect(rpc);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -254,6 +280,7 @@ export function watchWorkspace(
         draftModels.connect(undefined);
         if (activeRpc && !signal.aborted) onSynchronized(false);
         activeRpc = undefined;
+        skillScope = undefined;
         fileActions.reconcile();
         retryFavicons = true;
       }),
@@ -418,11 +445,12 @@ export function watchWorkspace(
     pinCommitted(key: string, committed: number) {
       lastPin = { key, sequence: committed };
     },
-    searchComposerFiles: Effect.fn("nativeDesktop.searchComposerFiles")(function* (
+    searchComposerEntries: Effect.fn("nativeDesktop.searchComposerEntries")(function* (
       draft: boolean,
       id: string,
       root: string,
       query: string,
+      instance: string | null,
     ) {
       const checkout = () => {
         const thread = draft ? undefined : threads.get(id);
@@ -430,7 +458,15 @@ export function watchWorkspace(
         return project && !project.archived ? (thread?.worktree ?? project.path) : undefined;
       };
       const rpc = activeRpc;
-      if (!session.canBrowse || !session.canOperate || !rpc || checkout() !== root) return [];
+      if (!session.canOperate || !rpc || checkout() !== root) return [];
+      skillInstance = instance;
+      if (instance) {
+        if (!skillScope) return [];
+        const provider = skillProvider(workspaceConfig);
+        const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query);
+        return activeRpc === rpc && checkout() === root ? skills : [];
+      }
+      if (!session.canBrowse) return [];
       const { entries } = yield* rpc[WS_METHODS.projectsSearchEntries]({
         cwd: root,
         query: query

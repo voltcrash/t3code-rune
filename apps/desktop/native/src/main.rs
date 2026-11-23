@@ -105,6 +105,10 @@ enum Reply {
         truncated: bool,
         error: Option<String>,
     },
+    ComposerSkillsChanged {
+        watch: u64,
+        instance: String,
+    },
     ComposerFilesReady {
         watch: u64,
         ready: bool,
@@ -413,6 +417,7 @@ enum Request<'a> {
         draft: bool,
         target: &'a str,
         root: &'a str,
+        instance: Option<&'a str>,
         query: Option<&'a str>,
     },
     CheckUpdates,
@@ -984,6 +989,10 @@ impl Desktop {
             self.receive_draft_models(watch, &project, message.id, choices, permissions);
             return;
         }
+        if let Reply::ComposerSkillsChanged { watch, instance } = message.reply {
+            self.mentions.skills_changed(watch, &instance);
+            return;
+        }
         if let Reply::ComposerFilesReady { watch, ready } = message.reply {
             self.mentions.connection(watch, ready);
             return;
@@ -1447,6 +1456,7 @@ impl Desktop {
             | Reply::Downloaded { .. }
             | Reply::FileMatches { .. }
             | Reply::FileEntries { .. }
+            | Reply::ComposerSkillsChanged { .. }
             | Reply::ComposerFilesReady { .. }
             | Reply::ComposerFiles { .. }
             | Reply::FilteredFiles { .. }
