@@ -858,6 +858,33 @@ pub(super) fn label(value: &str, size: f32, weight: f32, color: rune::Color) -> 
     text(value).font(TextStyle::new(size, weight)).color(color)
 }
 
+pub(crate) fn panel_control(
+    key: &'static str,
+    name: &str,
+    glyph: &'static rune::Icon,
+    open: bool,
+    theme: &tok::Theme,
+) -> El {
+    let button = el()
+        .key(key)
+        .role("button")
+        .label(name)
+        .help(name)
+        .checked(open)
+        .focusable(true)
+        .no_window_drag()
+        .size(28., 28.)
+        .radius(8.)
+        .center()
+        .hover(theme.hover)
+        .child(icon(glyph, 16.).color(theme.text.alpha(0.8)));
+    if open {
+        button.fill(theme.hover)
+    } else {
+        button
+    }
+}
+
 pub(super) fn action(
     caption: &str,
     theme: &tok::Theme,
@@ -1905,7 +1932,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             header = header.child(label(status, 12.0, 400.0, theme.text_secondary));
         }
     }
-    header = header.children(thread_details::header(
+    let mut controls = row().gap(4.).center_y().children(thread_details::header(
         s,
         theme,
         &kit,
@@ -1913,7 +1940,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         &layout,
     ));
     if s.terminal_available() {
-        header = header.child(crate::terminal::button(theme));
+        controls = controls.child(crate::terminal::button(s.terminal.is_some(), theme));
     }
     if !s.pending
         && s.can_read_files
@@ -1921,8 +1948,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         && s.workspace.terminal_watch().is_some()
         && s.thread_workspace_root().is_some()
     {
-        header = header.child(workspace_tree::toggle_button(theme));
+        controls = controls.child(workspace_tree::toggle_button(panel_open, theme));
     }
+    header = header.child(controls);
     let refreshing_projects = s.workspace.refresh_request.is_some()
         && composing.is_none()
         && (s.workspace.show_projects || s.workspace.conversation.is_none());
@@ -1930,12 +1958,22 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         header = header.child(label("Loading…", 12.0, 400.0, theme.text_secondary));
     }
     let header_trailing = if split_panel { 0. } else { bar.trailing };
-    header = header.pr(header_trailing + 12.0).child(action(
-        "Refresh",
-        theme,
-        !s.pending && !refreshing_projects,
-        Desktop::refresh_visible,
-    ));
+    header = header.pr(header_trailing + 12.0);
+    if (composing.is_none() && (s.workspace.show_projects || s.workspace.conversation.is_none()))
+        || s.error.is_some()
+        || s.workspace.paused
+        || s.workspace
+            .conversation
+            .as_ref()
+            .is_some_and(|pane| pane.status == LiveStatus::Paused || pane.watch.is_none())
+    {
+        header = header.child(action(
+            "Refresh",
+            theme,
+            !s.pending && !refreshing_projects,
+            Desktop::refresh_visible,
+        ));
+    }
     let mut main = col().grow(1.0).min_w(0.0).h_full().child(header);
     if let Some(err) = &s.error {
         main = main.child(

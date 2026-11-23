@@ -539,21 +539,17 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit, preview_only
 pub(super) static PANEL_ICON: rune::Icon = rune::Icon {
     name: "panel-right",
     view: 24.,
-    body: r#"<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 3v18" fill="none" stroke="currentColor" stroke-width="1.7"/>"#,
+    body: r#"<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 3v18" fill="none" stroke="currentColor" stroke-width="2"/>"#,
 };
-pub(super) fn toggle_button(theme: &tok::Theme) -> El {
-    el().key("toggle-right-panel")
-        .label("Toggle right panel")
-        .help("Toggle right panel")
-        .role("button")
-        .focusable(true)
-        .no_window_drag()
-        .size(28., 28.)
-        .center()
-        .radius(6.)
-        .hover(theme.hover)
-        .child(icon(&PANEL_ICON, 16.).color(theme.text_secondary))
-        .on_press_tx(Desktop::toggle_files_panel)
+pub(super) fn toggle_button(open: bool, theme: &tok::Theme) -> El {
+    super::panel_control(
+        "toggle-right-panel",
+        "Toggle right panel",
+        &PANEL_ICON,
+        open,
+        theme,
+    )
+    .on_press_tx(Desktop::toggle_files_panel)
 }
 pub(super) fn panel(s: &Desktop, theme: &tok::Theme, kit: &Kit, bar: Topbar, width: f32) -> El {
     let preview_only = width < 416.;

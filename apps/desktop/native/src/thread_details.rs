@@ -352,7 +352,7 @@ pub(super) fn layout(
 pub(super) const DETAILS_ICON: Icon = Icon {
     name: "thread-details",
     view: 24.,
-    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h.01M10 8h7M7 12h.01M10 12h7M7 16h.01M10 16h7"/></g>"#,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h10"/></g>"#,
 };
 
 #[path = "thread_details/git.rs"]
@@ -541,20 +541,14 @@ pub(super) fn header(
     let settings = s.workspace.details.settings.as_ref()?;
     let popup_open = !s.workspace.details.inline.get() && s.workspace.details.popup.is_some();
     let open = layout.card || popup_open;
-    let trigger = el()
-        .key("toggle-thread-details")
-        .role("button")
-        .label(&settings.labels.toggle)
-        .help(&settings.labels.toggle)
-        .checked(open)
-        .no_window_drag()
-        .focusable(true)
-        .size(28., 28.)
-        .center()
-        .radius(6.)
-        .hover(theme.hover)
-        .child(icon(&DETAILS_ICON, 16.).color(theme.text_secondary))
-        .on_press_tx(Desktop::toggle_details);
+    let trigger = super::panel_control(
+        "toggle-thread-details",
+        &settings.labels.toggle,
+        &DETAILS_ICON,
+        open,
+        theme,
+    )
+    .on_press_tx(Desktop::toggle_details);
     if s.workspace.details.inline.get() {
         return Some(trigger);
     }
