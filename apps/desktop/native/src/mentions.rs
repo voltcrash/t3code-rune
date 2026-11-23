@@ -187,8 +187,13 @@ impl Search {
 
     fn hover(&mut self, index: usize) {
         if index < self.entries.len() && !self.waiting_for_selection() {
-            self.active = index;
+            self.select(index);
         }
+    }
+
+    fn select(&mut self, index: usize) {
+        self.active = index;
+        self.restore = Some(self.entries[index].path.clone());
     }
 }
 
@@ -307,7 +312,7 @@ impl Picker {
             })
             .items(items)
             .active((!s.entries.is_empty() && !s.waiting_for_selection()).then_some(s.active))
-            .on_active(move |app, index| {
+            .on_point(move |app, index| {
                 if let Some(s) = &mut app.mentions.search
                     && s.operation == operation
                 {
@@ -534,20 +539,20 @@ impl Desktop {
             Key::Enter if len == 0 && !s.loaded && s.trigger.kind == Kind::Skill => {}
             Key::Escape => s.dismissed = true,
             Key::Down if len > 0 => {
-                s.active = if s.waiting_for_selection() {
+                let index = if s.waiting_for_selection() {
                     0
                 } else {
                     (s.active + 1) % len
                 };
-                s.restore = None;
+                s.select(index);
             }
             Key::Up if len > 0 => {
-                s.active = if s.waiting_for_selection() {
+                let index = if s.waiting_for_selection() {
                     len - 1
                 } else {
                     (s.active + len - 1) % len
                 };
-                s.restore = None;
+                s.select(index);
             }
             Key::Tab | Key::Enter if len > 0 => {
                 let path = s.entries[s.active].path.clone();
@@ -743,6 +748,23 @@ mod tests {
             s.mentions.receive(fresh, Some(vec![model(), row()]));
             assert!(s.mention_key(&owner, &enter, tx));
             assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
+
+            let (_, edit) = s.new_threads.editable_files().unwrap();
+            *edit = TextEdit::new("/mo");
+            edit.set_caret(3);
+            assert!(s.mention_key(
+                &owner,
+                &KeyEvent {
+                    key: Key::Down,
+                    mods: Default::default()
+                },
+                tx
+            ));
+            let fresh = s.mentions.search.as_ref().unwrap().operation;
+            s.mentions.receive(fresh, Some(vec![row(), model()]));
+            assert!(s.mention_key(&owner, &tab, tx));
+            assert_eq!(s.new_threads.prompt("p").unwrap().text, "");
+            s.models.close();
 
             let (_, edit) = s.new_threads.editable_files().unwrap();
             *edit = TextEdit::new("/compact");
