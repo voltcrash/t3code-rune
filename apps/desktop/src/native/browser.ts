@@ -22,6 +22,7 @@ import {
 import { resolveAddressBarInput } from "@t3tools/shared/preview";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import { HttpClientError } from "effect/http";
 import * as Stream from "effect/Stream";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
@@ -485,16 +486,24 @@ export function openBrowserPanel(
             prepared: preparedConnection(session),
             hubBasePath: PREVIEW_STREAM_BASE_PATH,
           }).pipe(
+            Effect.timeout("5 minutes"),
             Effect.flatMap((access) =>
               downloadFile(
                 session.httpBaseUrl,
                 previewStreamDownloadUrl({ access, threadId, tabId }, id),
                 size,
                 path,
+              ).pipe(
+                Effect.tapError((error) =>
+                  HttpClientError.isHttpClientError(error) &&
+                  (error.response?.status === 404 || error.response?.status === 410)
+                    ? Effect.sync(() => dismissDownload(tabId, id))
+                    : Effect.void,
+                ),
               ),
             ),
+            Effect.tap(() => Effect.sync(() => dismissDownload(tabId, id))),
           ),
-        saved: () => dismissDownload(tabId, id),
       };
     },
     stop() {

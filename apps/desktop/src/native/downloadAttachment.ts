@@ -81,7 +81,9 @@ export const downloadFile = Effect.fn("nativeDesktop.downloadFile")(function* (
   destination: string,
 ) {
   const invalid = new AttachmentUnavailable({ message: "The attachment is unavailable." });
-  const response = yield* attachmentResponse(baseUrl, relativeUrl);
+  const response = yield* attachmentResponse(baseUrl, relativeUrl).pipe(
+    Effect.timeout("5 minutes"),
+  );
   const limit = typeof size === "number" ? size : size.maxBytes;
   const encoding = response.headers["content-encoding"];
   const length =
@@ -101,6 +103,7 @@ export const downloadFile = Effect.fn("nativeDesktop.downloadFile")(function* (
   });
   let bytes = 0;
   yield* response.stream.pipe(
+    Stream.timeoutOrElse({ duration: "5 minutes", orElse: () => Stream.fail(invalid) }),
     Stream.tap((chunk) => {
       bytes += chunk.byteLength;
       return bytes > limit ? Effect.fail(invalid) : Effect.void;

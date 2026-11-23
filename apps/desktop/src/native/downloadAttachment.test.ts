@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { FetchHttpClient } from "effect/http";
@@ -66,6 +68,50 @@ it.effect("replaces the chosen file only after receiving the complete attachment
     expect(yield* downloadQueueKey(second, [first])).toBe(sharesParent ? first : second);
     yield* save("pdf");
     expect(yield* fs.readFileString(path)).toBe("pdf");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("allows a progressing download and discards a stalled partial file", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* fs.makeTempDirectoryScoped();
+    const path = (yield* Path.Path).join(directory, "report");
+    yield* fs.writeFileString(path, "previous");
+    for (const stalled of [true, false]) {
+      const reads = Array.from({ length: 3 }, () =>
+        Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>(),
+      );
+      let next = 0;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            reads[next++]!.resolve(controller);
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const job = yield* downloadFile(
+        "https://paired.example.test",
+        "/report",
+        { maxBytes: 2 },
+        path,
+      ).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provideService(FetchHttpClient.Fetch, async () => new Response(stream)),
+        Effect.result,
+        Effect.forkChild,
+      );
+      for (const read of reads.slice(0, stalled ? 1 : 2)) {
+        const controller = yield* Effect.promise(() => read.promise);
+        yield* TestClock.adjust("4 minutes");
+        controller.enqueue(Uint8Array.of(65));
+      }
+      const controller = yield* Effect.promise(() => reads[stalled ? 1 : 2]!.promise);
+      if (stalled) yield* TestClock.adjust("6 minutes");
+      else controller.close();
+      expect((yield* Fiber.join(job))._tag).toBe(stalled ? "Failure" : "Success");
+      expect(yield* fs.readFileString(path)).toBe(stalled ? "previous" : "AA");
+    }
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

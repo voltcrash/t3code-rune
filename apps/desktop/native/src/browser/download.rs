@@ -109,13 +109,16 @@ pub(super) fn file_page(
     if let Ok(url) = url::Url::parse(&tab.url)
         && matches!(url.scheme(), "http" | "https")
     {
+        let destination = external_url(&url);
         actions = actions.child(button(
             &labels.open_external,
             label(&labels.open_external, 12., 500., theme.text),
             true,
             theme,
-            move |_, tx| {
-                let _ = tx.open_url(url.as_str());
+            move |s, tx| {
+                if let Err(error) = tx.open_url(&destination) {
+                    s.error = Some(error.to_string());
+                }
             },
         ));
     }
@@ -143,4 +146,37 @@ pub(super) fn file_page(
         )
         .child(el().grow(1.))
         .child(actions.child(save(s, p, file, labels, theme)))
+}
+
+fn external_url(url: &url::Url) -> String {
+    use url::Position::BeforePath;
+    let mut destination = url[..BeforePath].to_owned();
+    for c in url[BeforePath..].chars() {
+        match c {
+            '[' => destination.push_str("%5B"),
+            ']' => destination.push_str("%5D"),
+            '^' => destination.push_str("%5E"),
+            '{' => destination.push_str("%7B"),
+            '|' => destination.push_str("%7C"),
+            '}' => destination.push_str("%7D"),
+            '`' => destination.push_str("%60"),
+            '\\' => destination.push_str("%5C"),
+            _ => destination.push(c),
+        }
+    }
+    destination
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opens_downloads_with_query_brackets_and_an_ipv6_host() {
+        let url = url::Url::parse("https://[::1]/report.csv?columns[]=name&sort=%2B").unwrap();
+        assert_eq!(
+            external_url(&url),
+            "https://[::1]/report.csv?columns%5B%5D=name&sort=%2B"
+        );
+    }
 }

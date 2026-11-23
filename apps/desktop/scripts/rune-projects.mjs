@@ -106,6 +106,7 @@ let watching;
 let menuWindow;
 const pendingLaunches = new Map();
 const attachmentDownloads = Semaphore.makeUnsafe(3);
+const browserDownloads = Semaphore.makeUnsafe(3);
 const directoryReads = Semaphore.makeUnsafe(4);
 const imageReads = Semaphore.makeUnsafe(3);
 const sentImages = new Map();
@@ -1263,6 +1264,8 @@ function attachmentSave(request) {
         Effect.flatMap(({ relativeUrl }) =>
           downloadFile(owner.httpBaseUrl, relativeUrl, file.bytes, path),
         ),
+        Effect.timeout("5 minutes"),
+        attachmentDownloads.withPermits(1),
       ),
       reply,
     );
@@ -1280,9 +1283,8 @@ function browserFileSave(request) {
     return;
   const file = record.browser.panel.download(request.tab, request.download);
   if (!file) return;
-  return async ({ path }, reply) => {
-    if (await saveEnvironmentFile(record.owner, file.save(path), reply)) file.saved();
-  };
+  return ({ path }, reply) =>
+    saveEnvironmentFile(record.owner, file.save(path).pipe(browserDownloads.withPermits(1)), reply);
 }
 
 async function saveEnvironmentFile(owner, transfer, reply) {
@@ -1290,8 +1292,6 @@ async function saveEnvironmentFile(owner, transfer, reply) {
     await Effect.runPromise(
       transfer.pipe(
         Effect.scoped,
-        attachmentDownloads.withPermits(1),
-        Effect.timeout("5 minutes"),
         Effect.provide(owner.http),
         Effect.provide(NodeFileSystem.layer),
         Effect.provide(NodePathLayer.layer),
@@ -1299,10 +1299,8 @@ async function saveEnvironmentFile(owner, transfer, reply) {
       { signal: owner.signal },
     );
     reply({ type: "downloaded" });
-    return true;
   } catch {
     reply({ type: "downloaded", error: m(msg("Could not save file")) });
-    return false;
   }
 }
 
