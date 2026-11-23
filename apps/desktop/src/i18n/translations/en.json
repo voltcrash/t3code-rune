@@ -341,5 +341,11 @@
   "5001018045518f6c": "Couldn’t save the panel width.",
   "8381e38420ae57f3": "Maximize panel",
   "7e4b0afa9879fd43": "Restore panel size",
-  "94e4f10759a0446c": "Couldn’t save the panel layout."
+  "94e4f10759a0446c": "Couldn’t save the panel layout.",
+  "0d8761c57796fb94": "Find in thread",
+  "bac07cd397c7d1a8": "Next match",
+  "f67b82db6ff66321": "Previous match",
+  "add695e6e4871706": "Close find",
+  "bd5e110db33c9400": "Search failed",
+  "1c79d42e902ff431": "Retry"
 }

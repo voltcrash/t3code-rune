@@ -1,6 +1,6 @@
 use super::{Conversation, Desktop, MessageRow, images, label};
 use rune::{Color, El, TextStyle, col, el, icon, row, text, tok};
-use rune_kit::{Kit, Markdown, MarkdownStyle, glyphs};
+use rune_kit::{Kit, MarkdownStyle, glyphs};
 
 const DOWNLOAD: rune::Icon = rune::Icon {
     name: "download",
@@ -184,7 +184,7 @@ pub(super) fn prompt(
         .fill(surface);
     if !message.body.is_empty() {
         body = body.child(
-            text(&message.body)
+            super::thread_find::plain(s, message, &message.body, text(&message.body))
                 .font(TextStyle::new(14., 400.).lh(22.75))
                 .color(theme.text)
                 .exact_lines()
@@ -230,7 +230,7 @@ pub(super) fn reply(
     style: &MarkdownStyle,
 ) -> El {
     let mut body = col().w_full().gap(6.).child(
-        Markdown::new(&message.body)
+        super::thread_find::markdown(s, message, &message.body)
             .style(style.clone())
             .selectable(true)
             .build(kit),

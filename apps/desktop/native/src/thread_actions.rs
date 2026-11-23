@@ -480,6 +480,20 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
     if let Some(point) = open.and_then(|m| m.point) {
         menu = menu.at(point.0, point.1);
     }
+    if origin == Origin::Header
+        && s.can_find_thread()
+        && s.workspace
+            .visible_thread()
+            .is_some_and(|t| t.id == thread.id)
+        && let Some(labels) = &s.workspace.find_labels
+    {
+        menu = menu.item(
+            MenuItem::new(&labels.title).on_select_tx(|s: &mut Desktop, tx| {
+                s.workspace.actions.menu = None;
+                s.open_thread_find(tx);
+            }),
+        );
+    }
     if s.can_operate {
         let id = thread.id.clone();
         menu = menu.item(
