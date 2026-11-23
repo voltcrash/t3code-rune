@@ -185,6 +185,7 @@ impl Desktop {
         let Some(watch) = self.workspace.terminal_watch() else {
             return;
         };
+        self.set_panel_maximized(false);
         let sessions = self
             .terminal
             .as_mut()

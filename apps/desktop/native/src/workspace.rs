@@ -17,6 +17,8 @@ use turn_folds::VisibleRow;
 pub(crate) mod file_diff;
 #[path = "palette.rs"]
 pub(super) mod palette;
+#[path = "panel_maximize.rs"]
+mod panel_maximize;
 #[path = "workspace_panel_width.rs"]
 pub(crate) mod panel_width;
 #[path = "plan.rs"]
@@ -1963,11 +1965,17 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         || s.workspace.explorer.is_some();
     let mut bounds = crate::sidebar_layout::Bounds::new(viewport[0], bar.leading);
     let sidebar_cap = panel_width::sidebar_cap(viewport[0]);
-    let split_panel = panel_open
+    let inline_panel = panel_open
         && (!s.sidebar_layout.open || sidebar_cap >= bounds.min)
         && cx
             .layout_with("workspace", |rect| rect[2] >= 980.)
             .unwrap_or(false);
+    s.workspace
+        .panel_width
+        .presentation
+        .available
+        .set(inline_panel && thread.is_some());
+    let split_panel = inline_panel && !s.workspace.panel_maximized();
     let [measured_width, toolbar_height] = cx
         .layout_size("thread-titlebar")
         .unwrap_or([0., bar.height]);
@@ -2284,7 +2292,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(banner);
     }
     let mut root = row().key("workspace").w_full().h_full().fill(theme.bg);
-    let show_sidebar = drawer.is_none() && s.sidebar_layout.open && (!panel_open || split_panel);
+    let show_sidebar = drawer.is_none() && s.sidebar_layout.open && (!panel_open || inline_panel);
     if split_panel {
         bounds.max = bounds.max.min(sidebar_cap).max(bounds.min);
     }
@@ -2341,7 +2349,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     };
     let workspace = if panel_open {
         let bar = Topbar {
-            leading: if split_panel { 0. } else { bar.leading },
+            leading: if split_panel || show_sidebar {
+                0.
+            } else {
+                bar.leading
+            },
             ..bar
         };
         let panel = if s.workspace.browser.panel.is_some() {

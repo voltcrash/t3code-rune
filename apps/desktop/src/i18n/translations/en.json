@@ -338,5 +338,8 @@
   "255ae21697461ef6": "Take control to respond.",
   "eb32ab8473821e3f": "Check pending dialog",
   "2eba31001f8cbdba": "Resize right panel",
-  "5001018045518f6c": "Couldn’t save the panel width."
+  "5001018045518f6c": "Couldn’t save the panel width.",
+  "8381e38420ae57f3": "Maximize panel",
+  "7e4b0afa9879fd43": "Restore panel size",
+  "94e4f10759a0446c": "Couldn’t save the panel layout."
 }

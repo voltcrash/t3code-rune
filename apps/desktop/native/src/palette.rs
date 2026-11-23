@@ -22,6 +22,7 @@ enum Action {
     ToggleTerminal,
     GoToFile,
     ToggleBrowser,
+    TogglePanelMaximized,
     ToggleFiles,
     ToggleDetails,
     OpenEditor,
@@ -57,6 +58,7 @@ impl Action {
             Self::ToggleTerminal => "toggle-terminal".into(),
             Self::GoToFile => "go-to-file".into(),
             Self::ToggleBrowser => "toggle-browser".into(),
+            Self::TogglePanelMaximized => "maximize-workspace-panel".into(),
             Self::ToggleFiles => "toggle-files".into(),
             Self::ToggleDetails => "toggle-thread-details".into(),
             Self::OpenEditor => "open-editor".into(),
@@ -83,6 +85,7 @@ impl Action {
             Self::Settings => "Settings",
             Self::Usage => return ws.usage.title().into(),
             Self::GoToFile => "Go to file",
+            Self::TogglePanelMaximized => ws.maximize_label(),
             Self::ToggleBrowser => {
                 return ws
                     .browser
@@ -156,6 +159,7 @@ impl Action {
             Self::Thread(_) | Self::Scratch => &SCRATCH_ICON,
             Self::AddProject | Self::Project(_) | Self::Projects => &glyphs::FOLDER,
             Self::GoToFile | Self::OpenFile => &glyphs::SEARCH,
+            Self::TogglePanelMaximized => &super::panel_maximize::MAXIMIZE,
             Self::ToggleBrowser => &crate::browser::ICON,
             Self::ToggleFiles => &PANEL_ICON,
             Self::ToggleDetails => &DETAILS_ICON,
@@ -315,6 +319,9 @@ impl Palette {
                 }
                 if available.details {
                     command(Action::ToggleDetails);
+                }
+                if ws.panel_width.presentation.available.get() {
+                    command(Action::TogglePanelMaximized);
                 }
                 if available.browser {
                     command(Action::ToggleBrowser);
@@ -617,6 +624,7 @@ impl Desktop {
             Action::ToggleSidebar => self.toggle_sidebar(),
             Action::ToggleTerminal => self.toggle_terminal(tx),
             Action::ToggleBrowser => self.toggle_browser(tx),
+            Action::TogglePanelMaximized => self.toggle_panel_maximized(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
             Action::ToggleDetails => self.toggle_details(tx),
             Action::OpenEditor => self.open_editor(),

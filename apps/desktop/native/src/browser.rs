@@ -130,7 +130,7 @@ impl Desktop {
     }
     pub(crate) fn toggle_browser(&mut self, tx: &mut Tx) {
         if self.workspace.browser.panel.is_some() {
-            self.close_browser();
+            self.dismiss_right_panel();
             tx.focus_when_shown("toggle-browser", true);
         } else if self.browser_available()
             && let Some(watch) = self.workspace.terminal_watch()
@@ -379,6 +379,7 @@ pub(crate) fn view(
         .center_y()
         .window_drag()
         .child(tabs)
+        .children(s.maximize_control(theme))
         .child(button(
             &labels.close,
             glyph(&super::workspace::workspace_tree::PANEL_ICON),

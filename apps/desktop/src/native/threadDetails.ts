@@ -52,7 +52,8 @@ function withLayout<T>(
   try {
     db.exec(
       "CREATE TABLE IF NOT EXISTS hidden_details (environment TEXT, draft INTEGER, target TEXT, PRIMARY KEY(environment, draft, target));" +
-        "CREATE TABLE IF NOT EXISTS panel_widths (environment TEXT, thread TEXT, width INTEGER NOT NULL, PRIMARY KEY(environment, thread))",
+        "CREATE TABLE IF NOT EXISTS panel_widths (environment TEXT, thread TEXT, width INTEGER NOT NULL, PRIMARY KEY(environment, thread));" +
+        "CREATE TABLE IF NOT EXISTS maximized_panels (environment TEXT, thread TEXT, PRIMARY KEY(environment, thread))",
     );
     return run(db);
   } finally {
@@ -83,7 +84,13 @@ export function readThreadLayout(open: () => NodeSqlite.DatabaseSync, environmen
         widths.set(thread, width);
       }
     }
-    return { hidden: { threads, drafts }, widths: Object.fromEntries(widths) };
+    const maximized = [];
+    for (const { thread } of db
+      .prepare("SELECT thread FROM maximized_panels WHERE environment = ?")
+      .iterate(environment)) {
+      if (typeof thread === "string") maximized.push(thread);
+    }
+    return { hidden: { threads, drafts }, widths: Object.fromEntries(widths), maximized };
   });
 }
 
@@ -113,5 +120,20 @@ export function setThreadPanelWidth(
     db.prepare(
       "INSERT INTO panel_widths(environment, thread, width) VALUES (?, ?, ?) ON CONFLICT(environment, thread) DO UPDATE SET width = excluded.width",
     ).run(environment, thread, width);
+  });
+}
+
+export function setThreadPanelMaximized(
+  open: () => NodeSqlite.DatabaseSync,
+  environment: string,
+  thread: string,
+  maximized: boolean,
+) {
+  withLayout(open, (db) => {
+    db.prepare(
+      maximized
+        ? "INSERT OR IGNORE INTO maximized_panels(environment, thread) VALUES (?, ?)"
+        : "DELETE FROM maximized_panels WHERE environment = ? AND thread = ?",
+    ).run(environment, thread);
   });
 }

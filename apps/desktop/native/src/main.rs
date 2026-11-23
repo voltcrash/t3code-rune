@@ -539,6 +539,11 @@ enum Request<'a> {
         #[serde(flatten)]
         input: workspace::workspace_files::Input,
     },
+    SetPanelMaximized {
+        watch: u64,
+        thread: &'a str,
+        maximized: bool,
+    },
     SetPanelWidth {
         watch: u64,
         thread: &'a str,
@@ -2349,7 +2354,7 @@ fn start() -> io::Result<()> {
                 && s.workspace.explorer.is_some()
                 && s.workspace.file_preview.is_none()
             {
-                s.close_explorer();
+                s.dismiss_right_panel();
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.file_preview.is_some() {
@@ -2357,7 +2362,7 @@ fn start() -> io::Result<()> {
                 return true;
             }
             if ev.key == rune::Key::Escape && s.workspace.diff.visible(s) {
-                s.close_diff();
+                s.dismiss_right_panel();
                 return true;
             }
             if s.question_shortcut(ev, tx) {

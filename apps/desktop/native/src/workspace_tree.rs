@@ -184,8 +184,7 @@ impl Desktop {
             || self.workspace.file_preview.is_some()
             || self.workspace.diff.visible(self)
         {
-            self.close_diff();
-            self.close_files_panel();
+            self.dismiss_right_panel();
             return;
         }
         self.show_file_tree(tx);
@@ -577,11 +576,12 @@ pub(super) fn panel(s: &Desktop, theme: &tok::Theme, kit: &Kit, bar: Topbar, wid
                 .center_y()
                 .window_drag()
                 .child(label("Files", 14., 500., theme.text).grow(1.))
+                .children(s.maximize_control(theme))
                 .child(action(
                     "Close panel",
                     theme,
                     true,
-                    Desktop::close_files_panel,
+                    Desktop::dismiss_right_panel,
                 )),
         )
         .child(el().h(1.).w_full().fill(theme.separator))

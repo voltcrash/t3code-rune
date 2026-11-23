@@ -20,6 +20,8 @@ pub(crate) struct Widths {
     widths: HashMap<String, u32>,
     #[serde(default)]
     resize: String,
+    #[serde(flatten)]
+    pub(super) presentation: super::panel_maximize::State,
     #[serde(skip)]
     drag: Option<Drag>,
 }
