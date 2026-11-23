@@ -14,14 +14,7 @@ import {
   resolveCodexArtifactTemplate,
   type CodexArtifactTemplate,
 } from "./codexArtifactTemplates.ts";
-import { markdownFileParentSuffixes } from "./markdownFileLabels.ts";
-import { fileLinkLabel } from "./fileLinks.ts";
-import { resolveMarkdownFileLink } from "./markdownLinks.ts";
-import {
-  codexFileCitationMarkdown,
-  resolveCodexFileCitationLink,
-  type CodexFileCitationLink,
-} from "./codexFileCitations.ts";
+import { codexFileCitationMarkdown, resolveCodexFileCitationLink } from "./codexFileCitations.ts";
 
 const COLON = 58;
 const DASH = 45;
@@ -53,7 +46,7 @@ interface MarkdownAstNode {
   position?: MarkdownPosition;
   data?: {
     codexArtifactTemplate?: CodexArtifactTemplate;
-    codexFileCitation?: CodexFileCitationLink;
+    codexFileCitationMarkdown?: string;
     codexFollowUp?: true;
     hName?: string;
     hProperties?: Record<string, unknown>;
@@ -210,7 +203,7 @@ function renderFileCitation(node: MarkdownAstNode, source: string, insideLink: b
   node.type = "link";
   node.url = citation.href;
   node.children = [{ type: "text", value: citation.label }];
-  node.data = { codexFileCitation: citation };
+  node.data = { codexFileCitationMarkdown: codexFileCitationMarkdown(citation) };
   delete node.name;
   delete node.attributes;
   delete node.value;
@@ -298,7 +291,7 @@ function parseCodexMarkdown(markdown: string): MarkdownAstNode {
 interface DirectiveMatch {
   readonly start: number;
   readonly end: number;
-  readonly citation?: CodexFileCitationLink;
+  readonly markdown?: string;
   readonly template?: CodexArtifactTemplate;
   readonly labelRange?: readonly [start: number, end: number];
 }
@@ -307,8 +300,8 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
   if (start !== undefined && end !== undefined) {
-    if (node.data?.codexFileCitation !== undefined) {
-      matches.push({ start, end, citation: node.data.codexFileCitation });
+    if (node.data?.codexFileCitationMarkdown !== undefined) {
+      matches.push({ start, end, markdown: node.data.codexFileCitationMarkdown });
       return;
     }
     if (node.data?.codexArtifactTemplate !== undefined) {
@@ -328,42 +321,22 @@ function collectDirectiveMatches(node: MarkdownAstNode, matches: DirectiveMatch[
 function renderDirectiveMatches(
   markdown: string,
   replacementFor: (match: DirectiveMatch) => string | undefined,
-  display?: { readonly cwd: string | undefined },
 ): string {
   const matches: DirectiveMatch[] = [];
   collectDirectiveMatches(parseCodexMarkdown(markdown), matches);
-  const render = (suffixes?: ReadonlyMap<string, string>) => {
-    const parts: string[] = [];
-    let start = 0;
-    for (const match of matches) {
-      let replacement: string | undefined;
-      if (match.labelRange) replacement = markdown.slice(...match.labelRange);
-      else if (match.citation) {
-        const citation = match.citation;
-        const file = suffixes && resolveMarkdownFileLink(citation.href, display?.cwd);
-        replacement = codexFileCitationMarkdown(
-          file && suffixes
-            ? { ...citation, label: fileLinkLabel(file.position, suffixes) }
-            : citation,
-        );
-      } else replacement = replacementFor(match);
-      if (replacement === undefined) continue;
-      parts.push(markdown.slice(start, match.start), replacement);
-      start = match.end;
+  let rendered = markdown;
+  for (const match of matches.sort((left, right) => right.start - left.start)) {
+    const replacement = match.labelRange
+      ? markdown.slice(...match.labelRange)
+      : replacementFor(match);
+    if (replacement !== undefined) {
+      rendered = rendered.slice(0, match.start) + replacement + rendered.slice(match.end);
     }
-    parts.push(markdown.slice(start));
-    return parts.join("");
-  };
-  const rendered = render();
-  return display && matches.some((match) => match.citation)
-    ? render(markdownFileParentSuffixes(markdown, rendered, display.cwd))
-    : rendered;
+  }
+  return rendered;
 }
 
-export function renderCodexInlineDirectivesAsMarkdown(
-  markdown: string,
-  display?: { readonly cwd: string | undefined },
-): string {
+export function renderCodexInlineDirectivesAsMarkdown(markdown: string): string {
   if (
     !markdown.includes(`:${CODEX_FILE_CITATION_NAME}`) &&
     !markdown.includes(`:${CODEX_FOLLOW_UP_NAME}`)
@@ -371,7 +344,7 @@ export function renderCodexInlineDirectivesAsMarkdown(
     return markdown;
   }
 
-  return renderDirectiveMatches(markdown, () => undefined, display);
+  return renderDirectiveMatches(markdown, (match) => match.markdown);
 }
 
 export function renderCodexDirectivesForCopy(markdown: string): string {
@@ -384,6 +357,7 @@ export function renderCodexDirectivesForCopy(markdown: string): string {
   }
 
   return renderDirectiveMatches(markdown, (match) => {
+    if (match.markdown !== undefined) return match.markdown;
     if (match.template === undefined) return undefined;
     return `${match.template.displayName} (${codexArtifactTemplatePresentationLabel(match.template.artifactKind)})`;
   });

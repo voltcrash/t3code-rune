@@ -90,21 +90,38 @@ it("keeps the previous final reply copyable when the next run receives its promp
     "assistant",
     'See :codex-file-citation{path="src/main.rs" line_range_start="12"}, then L12. ![Diagram](docs/main.rs)',
   );
-  expect(state.rows.at(-1)?.body).toBe(
-    "See [main.rs · repo/src · L12](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",
+  const linked = state.rows.at(-1)!;
+  expect(linked.body).toBe(
+    "See [main.rs · repo/src · L12](<rune-file:4>), then L12. [main.rs · repo/docs](<rune-file:78>)",
   );
-  expect(state.rows.at(-1)?.copy_body).toBe(
+  expect(linked.file_links?.["rune-file:4"]).toEqual({
+    href: "src/main.rs#L12",
+    copy: "[main.rs](src/main.rs#L12)",
+  });
+  expect(linked.copy_body).toBe(
     "See [main.rs](<src/main.rs#L12>), then L12. ![Diagram](docs/main.rs)",
   );
   for (const example of ["```md\n[example](docs/main.rs)\n```", "[API [draft]](docs/main.rs)"]) {
     const text = ':codex-file-citation{path="src/main.rs" line_range_start="12"}\n\n' + example;
     message(1, "assistant", text);
+    const row = state.rows.at(-1)!;
     const indexed = searchableMessageSegments(
       { role: "assistant", streaming: false, text },
       "/repo",
     )!;
-    expect(state.rows.at(-1)?.body).toBe(`[${indexed[0]}](<src/main.rs#L12>)\n\n${example}`);
+    expect(row.body.split("\n\n")[0]).toBe(`[${indexed[0]}](<rune-file:0>)`);
+    if (example.startsWith("[")) {
+      expect(indexed[1]).toBe("API [draft] main.rs");
+      expect(row.body.split("\n\n")[1]).toBe("API \\[draft\\] [main.rs](<rune-file:64>)");
+      expect(row.file_links?.["rune-file:64"]).toEqual({
+        href: "docs/main.rs",
+        copy: example,
+        prefix: "API [draft] ",
+      });
+    } else expect(row.body.split("\n\n")[1]).toBe(example);
   }
+  message(1, "assistant", "[# Read **this**](docs/main.rs)");
+  expect(state.rows.at(-1)?.body).toBe("\\# Read **this** [main.rs](<rune-file:0>)");
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");

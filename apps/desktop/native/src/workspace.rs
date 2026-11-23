@@ -119,6 +119,13 @@ impl Thread {
 }
 
 #[derive(Deserialize)]
+struct AssistantFileLink {
+    href: String,
+    copy: String,
+    prefix: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct MessageRow {
     entry_id: Option<String>,
     #[serde(skip)]
@@ -127,6 +134,7 @@ pub(super) struct MessageRow {
     role: String,
     body: String,
     copy_body: Option<String>,
+    file_links: Option<std::sync::Arc<std::collections::HashMap<String, AssistantFileLink>>>,
     attachments: Vec<images::Attachment>,
     caption: Option<String>,
     file: Option<file_diff::Row>,
@@ -2476,6 +2484,7 @@ mod tests {
                 remove: 0,
                 rows: vec![MessageRow {
                     copy_body: None,
+                    file_links: None,
                     entry_id: None,
                     preview: Default::default(),
                     key: "msg".into(),
@@ -2643,6 +2652,7 @@ mod tests {
         let workspace = &mut desktop.workspace;
         let message = |key: &str| MessageRow {
             copy_body: None,
+            file_links: None,
             entry_id: None,
             preview: Default::default(),
             key: key.into(),

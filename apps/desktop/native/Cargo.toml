@@ -20,15 +20,15 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = { version = "1", default-features = false, features = ["std", "unicode-gencat"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tempfile = "3"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-rune = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe", features = [
+rune = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83", features = [
   "native-file-dialog",
 ] }
-rune-kit = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe", features = [
+rune-kit = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83", features = [
   "markdown",
 ] }
 
@@ -54,9 +54,9 @@ winsafe = { version = "0.0.29", features = ["kernel"] }
 
 # Cargo applies Rune's platform patches only from the root manifest.
 [patch.crates-io]
-accesskit_macos = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
-accesskit_windows = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
-parley_engine = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
-sctk-adwaita = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
-wgpu-hal = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
-winit = { git = "https://github.com/voltcrash/rune", rev = "2b5508f71d3472c0b3b8b64a9bf1f226ac123abe" }
+accesskit_macos = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }
+accesskit_windows = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }
+parley_engine = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }
+sctk-adwaita = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }
+wgpu-hal = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }
+winit = { git = "https://github.com/voltcrash/rune", rev = "c8b8a7c05f09981251553c0d3fd5d41e379a6c83" }

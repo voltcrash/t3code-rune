@@ -47,10 +47,8 @@ import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
 import * as NodeUtil from "node:util";
-import {
-  renderCodexDirectivesForCopy,
-  renderCodexInlineDirectivesAsMarkdown,
-} from "@t3tools/shared/codexMarkdownDirectives";
+import { renderCodexDirectivesForCopy } from "@t3tools/shared/codexMarkdownDirectives";
+import { assistantFileLinks, type AssistantFileLink } from "@t3tools/shared/assistantFileLinks";
 import { nativeTurnLayout } from "./turnFolds.ts";
 
 type Row = {
@@ -68,6 +66,7 @@ type Row = {
     | "assistant";
   body: string;
   copy_body?: string;
+  file_links?: Record<string, AssistantFileLink>;
   attachments: Array<{
     name: string;
     image?: string;
@@ -161,10 +160,10 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     return { key, role: "tasks", body, caption: taskListLabel(item.steps), attachments: [] };
   }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
-  const markdown =
+  const { body: markdown, links } =
     item.type === "assistant_message"
-      ? renderCodexInlineDirectivesAsMarkdown(item.text, { cwd: root })
-      : item.text;
+      ? assistantFileLinks(item.text, root)
+      : { body: item.text, links: undefined };
   const copy =
     item.type === "assistant_message" && !item.streaming
       ? renderCodexDirectivesForCopy(item.text)
@@ -172,6 +171,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   return {
     key,
     ...(copy === markdown ? {} : { copy_body: copy }),
+    ...(links ? { file_links: links } : {}),
     entry_id: item.messageId,
     role: item.type === "user_message" ? "user" : "assistant",
     body:
@@ -378,6 +378,7 @@ function sameRow(a: Row, b: Row) {
     a.role === b.role &&
     a.body === b.body &&
     a.copy_body === b.copy_body &&
+    NodeUtil.isDeepStrictEqual(a.file_links, b.file_links) &&
     a.caption === b.caption &&
     samePlan(a, b) &&
     a.exit_code === b.exit_code &&
@@ -432,6 +433,7 @@ function applyEvent(state: Window, event: OrchestrationV2DomainEvent): Update | 
         row.role !== "command" &&
         row.role === old.role &&
         row.copy_body === old.copy_body &&
+        NodeUtil.isDeepStrictEqual(row.file_links, old.file_links) &&
         row.caption === old.caption &&
         samePlan(old, row) &&
         row.attachments.length === 0 &&

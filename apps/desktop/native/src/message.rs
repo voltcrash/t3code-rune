@@ -281,10 +281,38 @@ pub(super) fn reply(
     style: &MarkdownStyle,
 ) -> El {
     let location = s.file_location();
+    let mut markdown = super::thread_find::markdown(s, message, &message.body);
+    if let Some(links) = &message.file_links {
+        let styling = links.clone();
+        let copying = links.clone();
+        let (ink, background, hover) = (theme.text, theme.card, theme.hover);
+        markdown = markdown
+            .link_style(move |href| {
+                styling.contains_key(href).then(|| {
+                    (
+                        rune::Span::new(0, 0).color(ink).bg(background, 1.),
+                        rune::LinkPaint::new().bg(hover),
+                    )
+                })
+            })
+            .link_copy_text(move |href| {
+                let link = copying.get(href)?;
+                let mut copy = rune::LinkCopy::new(&link.copy);
+                if let Some(prefix) = &link.prefix {
+                    copy = copy.including_prefix(prefix);
+                }
+                Some(copy)
+            });
+    }
+    let links = message.file_links.clone();
     let mut body = col().w_full().gap(6.).child(
-        super::thread_find::markdown(s, message, &message.body)
-            .on_link_tx(
-                move |s: &mut Desktop, href, tx| match url::Url::parse(href) {
+        markdown
+            .on_link_tx(move |s: &mut Desktop, href, tx| {
+                let href = links
+                    .as_ref()
+                    .and_then(|links| links.get(href))
+                    .map_or(href, |file| file.href.as_str());
+                match url::Url::parse(href) {
                     Ok(url) if matches!(url.scheme(), "https" | "http") => {
                         let _ = tx.open_url(url.as_str());
                     }
@@ -294,8 +322,8 @@ pub(super) fn reply(
                         }
                     }
                     _ => {}
-                },
-            )
+                }
+            })
             .style(style.clone())
             .selectable(true)
             .build(kit),
