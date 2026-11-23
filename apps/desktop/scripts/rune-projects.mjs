@@ -2176,6 +2176,7 @@ try {
                 sequence,
                 data: Buffer.from(jpeg).toString("base64"),
               }),
+            (tab, text) => write({ type: "browserclipboard", watch, operation, tab, text }),
             (input) => resolveAddressBarInput(input, resolveSearchUrlTemplate(clientSettings)),
             () => clientSettings.browserDefaultViewport,
           );

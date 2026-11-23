@@ -63,6 +63,7 @@ pub(super) fn shortcut(s: &mut Desktop, event: &KeyEvent, tx: &mut Tx) -> bool {
 impl Action {
     pub(super) fn activate(self, s: &mut Desktop, tx: &mut Tx) {
         let terminal = tx.focused() == Some("thread-terminal-grid");
+        let page = tx.focused() == Some("browser-page");
         let (key, shift) = match self {
             Self::CheckUpdates => return s.check_updates(tx),
             Self::Settings => return s.open_settings(tx),
@@ -79,6 +80,10 @@ impl Action {
             }
             Self::Undo => ('z', false),
             Self::Redo => ('z', true),
+            Self::Copy | Self::Cut if page => {
+                return s.copy_from_browser_menu(matches!(self, Self::Cut), tx);
+            }
+            Self::Paste | Self::PasteAsText if page => return s.paste_into_browser(tx),
             Self::Cut => ('x', false),
             Self::Copy => ('c', terminal),
             Self::PasteAsText

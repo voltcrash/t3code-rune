@@ -3,18 +3,75 @@ use super::*;
 #[derive(Default)]
 pub(super) struct Input {
     focused: bool,
+    revision: u64,
     caret: [f32; 2],
     preedit: String,
 }
 
 impl Input {
     pub(super) fn reset(&mut self) {
+        self.revision += 1;
         self.focused = false;
         self.preedit.clear();
     }
 }
 
 impl Desktop {
+    fn focused_browser_input(&self, tx: &Tx) -> Option<&Panel> {
+        self.workspace.browser.panel.as_ref().filter(|p| {
+            !self.workspace.browser.inactive
+                && tx.focused() == Some("browser-page")
+                && p.page.controlled
+                && p.page.can_write
+                && p.page.dialog.is_none()
+        })
+    }
+
+    pub(crate) fn paste_into_browser(&mut self, tx: &mut Tx) {
+        let Some(p) = self.focused_browser_input(tx) else {
+            return;
+        };
+        let target = (p.watch, p.operation, p.input.revision);
+        tx.read_clipboard(move |s: &mut Desktop, content, tx| {
+            if !content.text().is_empty()
+                && s.focused_browser_input(tx)
+                    .is_some_and(|p| (p.watch, p.operation, p.input.revision) == target)
+            {
+                s.browser_input(json!({"type":"text","text":content.text()}));
+            }
+        });
+    }
+
+    pub(crate) fn receive_browser_clipboard(
+        &self,
+        watch: u64,
+        operation: u64,
+        tab: &str,
+        text: String,
+        tx: &mut Tx,
+    ) {
+        if self.focused_browser_input(tx).is_some_and(|p| {
+            (p.watch, p.operation) == (watch, operation) && p.page.selected.as_deref() == Some(tab)
+        }) {
+            tx.copy(text);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn copy_from_browser_menu(&mut self, cut: bool, tx: &Tx) {
+        if self.focused_browser_input(tx).is_none() {
+            return;
+        }
+        let (key, code, key_code) = if cut {
+            ("x", "KeyX", 88)
+        } else {
+            ("c", "KeyC", 67)
+        };
+        for action in ["down", "up"] {
+            self.browser_input(json!({"type":"key","action":action,"key":key,"code":code,"keyCode":key_code,"modifiers":2}));
+        }
+    }
+
     fn browser_mouse(
         &mut self,
         [x, y]: [f32; 2],
@@ -102,6 +159,9 @@ impl Desktop {
         if p.input.focused == focused {
             return false;
         }
+        if !focused {
+            p.input.revision += 1;
+        }
         p.input.focused = focused;
         p.input.preedit.clear();
         true
@@ -149,6 +209,19 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx, down: bool) -> bool {
         .is_some_and(|p| p.page.controlled)
     {
         return false;
+    }
+    let paste = ev.is_command('v') && !ev.mods.alt
+        || ev.key == Key::Insert
+            && ev.mods
+                == (rune::Mods {
+                    shift: true,
+                    ..rune::Mods::default()
+                });
+    if paste {
+        if down {
+            s.paste_into_browser(tx);
+        }
+        return true;
     }
     if s.browser_page_shortcut(ev, tx, down) {
         return true;
