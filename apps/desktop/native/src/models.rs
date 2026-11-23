@@ -215,7 +215,23 @@ impl Desktop {
     }
 }
 
-pub(super) fn trigger(caption: &str, theme: &tok::Theme, available: bool, width: f32) -> El {
+pub(super) fn trigger(
+    s: &Desktop,
+    caption: &str,
+    theme: &tok::Theme,
+    available: bool,
+    cx: &rune::Cx<Desktop>,
+) -> El {
+    let width = cx.layout_size("thread-titlebar").map_or(840., |r| r[0]);
+    let mark = if width >= 404. {
+        s.status_target().and_then(|(_, _, instance)| {
+            s.workspace
+                .providers
+                .composer_mark(instance?, s.dark(cx), theme)
+        })
+    } else {
+        None
+    };
     row()
         .role("button")
         .label("Model")
@@ -228,9 +244,10 @@ pub(super) fn trigger(caption: &str, theme: &tok::Theme, available: bool, width:
         .h(28.)
         .px(4.)
         .center_y()
-        .gap(3.)
+        .gap(if mark.is_some() { 6. } else { 3. })
         .radius(5.)
         .hover(theme.text.alpha(0.07))
+        .children(mark)
         .child(
             label(caption, 13., 500., theme.text_secondary)
                 .min_w(0.)
@@ -265,12 +282,7 @@ pub(super) fn control(
                 .map(|m| m.name.as_str())
         })
         .unwrap_or(&thread.model);
-    let trigger = trigger(
-        name,
-        theme,
-        available,
-        cx.layout_size("thread-titlebar").map_or(840., |r| r[0]),
-    );
+    let trigger = trigger(s, name, theme, available, cx);
     if !s.models.combo.is_open() {
         return rune_kit::Popover::new("thread-model")
             .trigger(trigger.on_press_tx(Desktop::show_thread_models))

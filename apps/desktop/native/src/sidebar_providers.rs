@@ -70,6 +70,13 @@ pub(super) struct Colors {
     pub(super) hovered: Color,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Placement {
+    PreviousRun,
+    CurrentRun,
+    Composer,
+}
+
 #[derive(Deserialize)]
 pub(super) struct Instance {
     id: String,
@@ -276,12 +283,17 @@ impl Catalog {
     fn icon(
         &self,
         instance: &Instance,
-        previous: bool,
+        placement: Placement,
         dark: bool,
         colors: Colors,
         theme: &tok::Theme,
     ) -> El {
-        let size = if previous { 12. } else { 14. };
+        let previous = placement == Placement::PreviousRun;
+        let (size, opacity) = match placement {
+            Placement::PreviousRun => (12., 0.35),
+            Placement::CurrentRun => (14., 0.6),
+            Placement::Composer => (16., 1.),
+        };
         let tile = el().size(size, size).center();
         let compatible = instance.driver == "openaiCompatible";
         let remote = instance
@@ -314,21 +326,36 @@ impl Catalog {
             && matches!(remote, Some(RegistryIcon::Idle))
         {
             let url = url.clone();
-            logo.key(format!("registry-{watch}-{}-{url}", self.viewport_revision))
-                .on_drawn_layout_tx(move |s: &mut crate::Desktop, bounds, tx| {
-                    if s.workspace.sidebar_intersects(bounds) {
-                        s.load_registry_icon(watch, &url);
-                    } else {
-                        tx.live_only();
-                    }
-                })
+            if placement == Placement::Composer {
+                logo.key(format!("registry-{watch}-{url}")).on_visible(
+                    move |s: &mut crate::Desktop, visible, tx| {
+                        if visible {
+                            s.load_registry_icon(watch, &url);
+                        } else {
+                            tx.live_only();
+                        }
+                    },
+                )
+            } else {
+                logo.key(format!("registry-{watch}-{}-{url}", self.viewport_revision))
+                    .on_drawn_layout_tx(move |s: &mut crate::Desktop, bounds, tx| {
+                        if s.workspace.sidebar_intersects(bounds) {
+                            s.load_registry_icon(watch, &url);
+                        } else {
+                            tx.live_only();
+                        }
+                    })
+            }
         } else {
             logo
         };
-        let mut mark = el()
-            .size(size, size)
-            .child(logo.opacity(if previous { 0.35 } else { 0.6 }));
+        let mut mark = el().size(size, size).child(logo.opacity(opacity));
         if !previous && instance.badge {
+            let badge_offset = if placement == Placement::Composer {
+                -2.
+            } else {
+                -3.
+            };
             let bg = instance
                 .accent
                 .as_deref()
@@ -340,7 +367,7 @@ impl Catalog {
                 .and_then(rune::color::hex)
                 .unwrap_or(theme.text_secondary);
             mark = mark.child(
-                el().pin(None, None, Some(-3.), Some(-3.))
+                el().pin(None, None, Some(badge_offset), Some(badge_offset))
                     .h(12.)
                     .min_w(12.)
                     .px(2.)
@@ -356,6 +383,24 @@ impl Catalog {
             );
         }
         mark
+    }
+
+    pub(super) fn composer_mark(&self, id: &str, dark: bool, theme: &tok::Theme) -> Option<El> {
+        let ink = if dark { Color::WHITE } else { Color::BLACK };
+        let colors = Colors {
+            rest: ink,
+            hovered: ink,
+        };
+        Some(
+            self.icon(
+                self.instances.get(id)?,
+                Placement::Composer,
+                dark,
+                colors,
+                theme,
+            )
+            .a11y_hidden(),
+        )
     }
 
     pub(super) fn stack(
@@ -376,9 +421,11 @@ impl Catalog {
                     previous
                         .iter()
                         .filter_map(|id| self.instances.get(id))
-                        .map(|instance| self.icon(instance, true, dark, colors, theme)),
+                        .map(|instance| {
+                            self.icon(instance, Placement::PreviousRun, dark, colors, theme)
+                        }),
                 )
-                .child(self.icon(current, false, dark, colors, theme)),
+                .child(self.icon(current, Placement::CurrentRun, dark, colors, theme)),
         )
     }
 }
@@ -410,7 +457,7 @@ mod tests {
             let theme = tok::theme(false);
             let mark = ws.providers.icon(
                 &ws.providers.instances["agent"],
-                false,
+                super::Placement::CurrentRun,
                 false,
                 Colors {
                     rest: theme.text,

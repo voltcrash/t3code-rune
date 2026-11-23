@@ -399,13 +399,14 @@ pub(super) fn view(
     .label("Model")
     .current(draft.model.as_deref())
     .trigger(crate::models::trigger(
+        s,
         draft
             .displayed_choice()
             .map(|c| c.name.as_str())
             .unwrap_or("Choose a model"),
         theme,
         !locked,
-        width,
+        cx,
     ))
     .placeholder("Choose a model")
     .search_placeholder("Search models")
