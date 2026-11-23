@@ -1,5 +1,7 @@
+mod copied;
 mod preview;
 use crate::Desktop;
+pub(crate) use copied::{Clipboard, release_unreachable};
 pub(crate) use preview::Preview;
 use rune::{El, FileDialogOptions, Icon, TextStyle, col, el, icon, row, text, tok};
 use std::io::{self, Write};
@@ -74,6 +76,7 @@ pub(super) struct Selection {
 }
 
 struct PastedText {
+    bytes: usize,
     id: String,
     name: String,
     link: String,
@@ -81,7 +84,7 @@ struct PastedText {
 }
 
 impl PastedText {
-    fn new(name: String) -> Self {
+    fn new(name: String, bytes: usize) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let link = format!("[{name}](t3-context://v1/file/file_{id})");
         let pill = format!("t3-attachment:{link}");
@@ -90,6 +93,7 @@ impl PastedText {
             name,
             link,
             pill,
+            bytes,
         }
     }
     fn ranges(&self, edit: &rune::TextEdit) -> Vec<std::ops::Range<usize>> {
@@ -98,11 +102,6 @@ impl PastedText {
             .filter(|(_, id)| *id == self.pill)
             .map(|(range, _)| range)
             .collect();
-        ranges.extend(
-            edit.text
-                .match_indices(&self.link)
-                .map(|(at, text)| at..at + text.len()),
-        );
         ranges.sort_by_key(|range| range.start);
         ranges
     }
@@ -148,9 +147,9 @@ impl Selection {
     }
 
     pub(super) fn selected(&self, edit: &rune::TextEdit) -> bool {
-        self.pasted.as_ref().is_none_or(|paste| {
-            edit.pills().any(|(_, id)| id == paste.pill) || edit.text.contains(&paste.link)
-        })
+        self.pasted
+            .as_ref()
+            .is_none_or(|paste| edit.pills().any(|(_, id)| id == paste.pill))
     }
 
     fn name(&self) -> &str {
@@ -291,12 +290,18 @@ impl Target {
         }
     }
 
-    pub(super) fn input(&self, field: El) -> El {
+    pub(super) fn input(&self, field: El, clipboard: &Clipboard, files: &[Selection]) -> El {
+        let clipboard = clipboard.clone();
+        let selections: Vec<_> = files
+            .iter()
+            .filter(|f| f.pasted.is_some())
+            .cloned()
+            .collect();
         let paste = self.clone();
         let plain = self.clone();
         field
             .pill_style(crate::mentions::chip)
-            .input_copy_text(crate::mentions::copy_selection)
+            .input_copy_text_for(move |edit, dest| clipboard.copy(edit, dest, &selections))
             .on_input_paste(move |app: &mut Desktop, content, _| paste.paste(app, content))
             .on_input_key(move |app: &mut Desktop, key, tx| {
                 const PASTE_AS_TEXT: rune::Chord = rune::Chord::new(rune::ChordKey::Char('v'))
@@ -338,6 +343,11 @@ impl Target {
         if app.pending || !app.can_operate || !self.active(app) {
             return;
         }
+        let change = |files: &mut Vec<Selection>, edit: &mut rune::TextEdit| {
+            release_unreachable(files, edit);
+            change(files, edit);
+            release_unreachable(files, edit);
+        };
         match self {
             Self::Project(_) => {
                 if let Some((files, edit)) = app.new_threads.editable_files() {
@@ -354,7 +364,7 @@ impl Target {
 
     fn add(&self, app: &mut Desktop, paths: &[PathBuf]) {
         let mut error = None;
-        self.edit(app, |files, edit| {
+        self.edit(app, |files, _| {
             for path in paths {
                 let Some(path) = path.to_str() else {
                     error = Some("Choose a file whose name can be displayed as text.");
@@ -363,7 +373,7 @@ impl Target {
                 if files.iter().any(|existing| existing.path == path) {
                     continue;
                 }
-                if files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT {
+                if files.len() >= FILE_LIMIT {
                     error = Some(TOO_MANY);
                     break;
                 }
@@ -410,10 +420,7 @@ impl Target {
         let too_large = labels.too_large.clone();
         let remove_some = labels.remove_some.clone();
         self.edit(app, |files, edit| {
-            if limits.file == 0
-                || text.len() > limits.file
-                || files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT
-            {
+            if limits.file == 0 || text.len() > limits.file || files.len() >= FILE_LIMIT {
                 if exceeds_input {
                     error = Some(if limits.file > 0 && text.len() > limits.file {
                         too_large
@@ -435,7 +442,7 @@ impl Target {
                         number += 1;
                         name = format!("pasted-text-{number}.txt");
                     }
-                    let paste = Rc::new(PastedText::new(name));
+                    let paste = Rc::new(PastedText::new(name, text.len()));
                     if retained + paste.link.len() + 1 > limits.input {
                         error = Some(remove_some);
                         consumed = true;
@@ -462,6 +469,9 @@ impl Target {
     }
 
     pub(super) fn paste(&self, app: &mut Desktop, content: &rune::ClipboardContent) -> bool {
+        if !content.text().is_empty() && self.paste_copied(app, content.text()) {
+            return true;
+        }
         let paths = content.files();
         let image = content.image();
         if !paths.is_empty() {
@@ -484,8 +494,8 @@ impl Target {
             return self.fold_text(app, content.text());
         };
         let mut error = None;
-        self.edit(app, |files, edit| {
-            if files.iter().filter(|file| file.selected(edit)).count() >= FILE_LIMIT {
+        self.edit(app, |files, _| {
+            if files.len() >= FILE_LIMIT {
                 error = Some(TOO_MANY.to_owned());
             } else {
                 match Selection::png(image.png()) {
@@ -691,6 +701,78 @@ mod tests {
         assert!(app.submit_after_paste());
         assert_eq!(app.finish_plain_paste(new, false), None);
         assert!(!app.submit_after_paste());
+    }
+
+    #[test]
+    fn cutting_a_folded_file_restores_it_in_another_draft_until_its_last_owner_releases_it() {
+        let mut app = Desktop::new();
+        app.can_operate = true;
+        app.text_paste = TextPasteLimits {
+            threshold: 10,
+            input: 120_000,
+            file: 1000,
+        };
+        app.new_threads
+            .configure("source".into(), vec![], Default::default(), false, "main");
+        let source = Target::Project("source".into());
+        assert!(source.paste(&mut app, &ClipboardContent::new("a folded file")));
+        let clipboard = app.copied_files.clone();
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        let path = PathBuf::from(&files[0].path);
+        edit.set_selection(0, edit.text.len());
+        let wire = clipboard
+            .copy(edit, rune::CopyDestination::Clipboard, files)
+            .unwrap();
+        edit.insert("");
+        assert!(source.paste(&mut app, &ClipboardContent::new(&wire)));
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].selected(edit));
+        edit.clear();
+        release_unreachable(files, edit);
+        assert!(files.is_empty() && path.exists());
+
+        app.new_threads.configure(
+            "destination".into(),
+            vec![],
+            Default::default(),
+            false,
+            "main",
+        );
+        let destination = Target::Project("destination".into());
+        app.text_paste.input = wire.encode_utf16().count() - 1;
+        assert!(destination.paste(&mut app, &ClipboardContent::new(&wire)));
+        assert!(app.new_threads.editable_files().unwrap().0.is_empty());
+        app.text_paste.input += 1;
+        assert!(destination.paste(&mut app, &ClipboardContent::new(&wire)));
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        assert_eq!(crate::mentions::prompt(edit), wire);
+        assert!(files[0].selected(edit));
+        assert_eq!(
+            std::fs::read_to_string(&files[0].path).unwrap(),
+            "a folded file"
+        );
+        clipboard.copy(
+            &rune::TextEdit::new("other"),
+            rune::CopyDestination::Clipboard,
+            &[],
+        );
+        edit.undo();
+        files.extend((1..FILE_LIMIT).map(|i| Selection::local(&format!("{i}.txt"))));
+        destination.add(&mut app, &[PathBuf::from("one more.txt")]);
+        assert_eq!(app.error.as_deref(), Some(TOO_MANY));
+        let (files, edit) = app.new_threads.editable_files().unwrap();
+        assert_eq!(files.len(), FILE_LIMIT);
+        edit.redo();
+        assert!(files[0].selected(edit));
+        edit.set_selection(0, edit.text.len());
+        edit.insert("");
+        for _ in 0..150 {
+            edit.paste("x");
+        }
+        release_unreachable(files, edit);
+        assert_eq!(files.len(), FILE_LIMIT - 1);
+        assert!(!path.exists());
     }
 
     #[test]

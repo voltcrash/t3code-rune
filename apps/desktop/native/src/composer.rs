@@ -287,12 +287,13 @@ pub(super) fn view(
             .on_input_change(move |s: &mut Desktop, _| {
                 if let Some(draft) = s.workspace.drafts.get_mut(&edit_id) {
                     draft.operation = None;
+                    crate::attachments::release_unreachable(&mut draft.files, &draft.editor);
                 }
             })
             .on_submit(|s: &mut Desktop, _| s.send_message());
         s.mentions
             .view(&target, cx, &s.contrast.kit(dark), overlays);
-        target.input(field)
+        target.input(field, &s.copied_files, &draft.files)
     };
     let pane = s
         .workspace

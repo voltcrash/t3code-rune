@@ -383,9 +383,13 @@ pub(super) fn view(
         .placeholder("Ask anything...", theme.text_secondary)
         .disabled(locked)
         .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
+        .on_input_change(|s: &mut Desktop, _| {
+            let draft = s.new_threads.current();
+            crate::attachments::release_unreachable(&mut draft.files, &draft.prompt);
+        })
         .on_submit(|s: &mut Desktop, _| s.launch());
     s.mentions.view(&target, cx, kit, overlays);
-    let field = target.input(field);
+    let field = target.input(field, &s.copied_files, &draft.files);
     let options = draft
         .choices
         .iter()
