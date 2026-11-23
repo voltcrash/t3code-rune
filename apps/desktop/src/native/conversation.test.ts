@@ -7,11 +7,7 @@ import {
   type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
-import {
-  v2Now,
-  v2Projection,
-  v2ThreadId,
-} from "../../../../packages/client-runtime/src/state/orchestrationV2TestFixtures.ts";
+import { v2Now, v2Projection, v2ThreadId } from "@t3tools/client-runtime/testing/thread-projection";
 import { updateWindow } from "./conversation.ts";
 
 it("keeps the previous final reply copyable when the next run receives its prompt", () => {
@@ -76,7 +72,14 @@ it("keeps the previous final reply copyable when the next run receives its promp
     const item: OrchestrationV2TurnItem =
       role === "assistant"
         ? { ...base, type: "assistant_message", streaming: false }
-        : { ...base, type: "user_message", attachments: [], inputIntent: "prompt" };
+        : {
+            ...base,
+            type: "user_message",
+            attachments: [],
+            inputIntent: "turn_start",
+            createdBy: "user",
+            creationSource: "server",
+          };
     apply({ ...event, type: "turn-item.updated", payload: item });
   };
   apply({ ...event, type: "run.created", payload: run(1, "completed") });
