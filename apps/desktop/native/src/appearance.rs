@@ -1,5 +1,7 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
+mod archived;
+pub(crate) use archived::{Archived, Group as ArchivedGroup};
 mod chat;
 pub(crate) mod voice;
 pub(crate) use chat::{SettingsLabels, SettingsPage};
@@ -82,6 +84,9 @@ impl Desktop {
         if self.settings_page == SettingsPage::Voice {
             self.show_voice_models(true);
         }
+        if self.settings_page == SettingsPage::Archive {
+            self.load_archived();
+        }
         self.typography_advanced = false;
         self.composer_advanced = false;
         self.settings_error = None;
@@ -93,6 +98,7 @@ impl Desktop {
             self.show_voice_models(false);
         }
         self.settings_open = false;
+        self.archived.deleting = None;
         tx.focus("settings-trigger", true);
     }
 
@@ -464,6 +470,9 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let mut body = match (s.settings_page, labels) {
         (SettingsPage::Voice, Some(labels)) => voice::view(s, &labels.voice, w < 640., theme),
         (SettingsPage::Chat, Some(labels)) => chat::settings(s, labels, w < 640., theme),
+        (SettingsPage::Archive, Some(labels)) => {
+            archived::view(s, &labels.archive, w < 640., theme)
+        }
         _ => appearance_body(s, cx, content, w < 640., theme, &mut popups),
     }
     .w(content)
@@ -507,6 +516,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                             SettingsPage::Appearance => "appearance-scroll",
                             SettingsPage::Chat => "chat-settings-scroll",
                             SettingsPage::Voice => "voice-settings-scroll",
+                            SettingsPage::Archive => "archived-settings-scroll",
                         })
                         .w_full()
                         .grow(1.)
@@ -539,4 +549,5 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
             .child(panel),
     );
     overlays.extend(popups);
+    archived::delete_dialog(s, theme, overlays);
 }

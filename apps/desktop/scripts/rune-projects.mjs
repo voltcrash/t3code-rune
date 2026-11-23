@@ -1,5 +1,6 @@
 import { threadFindLabels, findInThread } from "../src/native/threadFind.ts";
-import { threadMenuLabels } from "../src/native/threadMenu.ts";
+import { archivedPageLabels, threadMenuLabels } from "../src/native/threadMenu.ts";
+import { archivedThreadGroups } from "../src/native/archivedThreads.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
@@ -856,10 +857,12 @@ function publishClientSettings(error) {
     reader_title: clientSettings.screenReaderWindowTitle,
     thread_labels: threadMenuLabels(),
     confirm_delete: clientSettings.confirmThreadDelete,
+    confirm_archive: clientSettings.confirmThreadArchive,
     settings_labels: {
       settings: m(msg("Settings")),
       appearance: m(msg("Appearance")),
       chat: m(msg("Chat")),
+      archive: archivedPageLabels(),
       voice: {
         title: m(msg("Voice")),
         dictation: {
@@ -1644,16 +1647,49 @@ async function handleWorkspaceRequest(request, reply) {
       if (request.advance && receipt.sequence !== undefined) feed.publishThrough(receipt.sequence);
       reply({ type: "settlementchanged", watch: request.watch, sequence: receipt.sequence });
       return;
-    } else if (request.type === "markunread" || request.type === "deletethread") {
+    } else if (request.type === "archivedthreads") {
+      reading = session;
+      try {
+        if (!reading) throw new Error("No connection");
+        const snapshot = await Effect.runPromise(
+          openEnvironmentRpc(reading).pipe(
+            Effect.flatMap((rpc) => rpc[ORCHESTRATION_V2_WS_METHODS.getArchivedShellSnapshot]({})),
+            Effect.scoped,
+            Effect.timeout("15 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        reply({
+          type: "archivedthreads",
+          operation: request.operation,
+          groups: archivedThreadGroups(snapshot),
+        });
+      } catch {
+        reply({
+          type: "archivedthreads",
+          operation: request.operation,
+          groups: [],
+          error: m(msg("Could not load archived threads")),
+        });
+      }
+      return;
+    } else if (
+      request.type === "markunread" ||
+      request.type === "deletethread" ||
+      request.type === "archivethread" ||
+      request.type === "unarchivethread"
+    ) {
       reading = session;
       const feed = workspaceFeed;
       const result = { type: "threadedited", watch: request.watch };
-      const remove = request.type === "deletethread";
+      // Archived threads have left the live feed, so they are checked by the server instead.
+      const live = request.type === "markunread" || request.type === "archivethread";
       if (
         !reading?.canOperate ||
         !feed ||
         feed.watch !== request.watch ||
-        !feed.hasThread(request.thread)
+        (live && !feed.hasThread(request.thread))
       ) {
         reply({ ...result, error: "This thread cannot be changed on this connection." });
         return;
@@ -1663,7 +1699,12 @@ async function handleWorkspaceRequest(request, reply) {
           openEnvironmentRpc(reading).pipe(
             Effect.flatMap((rpc) =>
               rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
-                type: remove ? "thread.delete" : "thread.mark-unread",
+                type: {
+                  markunread: "thread.mark-unread",
+                  deletethread: "thread.delete",
+                  archivethread: "thread.archive",
+                  unarchivethread: "thread.unarchive",
+                }[request.type],
                 threadId: ThreadId.make(request.thread),
                 commandId: CommandId.make(request.operation),
               }),
@@ -1677,7 +1718,12 @@ async function handleWorkspaceRequest(request, reply) {
         reply(result);
       } catch {
         // Like the web client, a failed mark-unread stays silent.
-        reply(remove ? { ...result, error: m(msg("Failed to delete thread")) } : result);
+        const failure = {
+          deletethread: m(msg("Failed to delete thread")),
+          archivethread: m(msg("Failed to archive thread")),
+          unarchivethread: m(msg("Failed to unarchive thread")),
+        }[request.type];
+        reply(failure ? { ...result, error: failure } : result);
       }
       return;
     } else if (request.type === "renamethread" || request.type === "setpin") {

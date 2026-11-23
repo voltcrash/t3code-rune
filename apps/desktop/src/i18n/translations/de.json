@@ -402,5 +402,22 @@
   "95184480a503090c": "Löschen",
   "2d1c111e1b4ae0b0": "Thread „{title}“ löschen?",
   "c568ab8dad798ec5": "Dadurch wird der Gesprächsverlauf dieses Threads dauerhaft gelöscht.",
-  "56e9fabcabc90c46": "Bestätigen"
+  "56e9fabcabc90c46": "Bestätigen",
+  "3ce9741f164fb944": "Archivierte Threads konnten nicht geladen werden",
+  "da43691fb8ad8006": "Thread konnte nicht archiviert werden",
+  "8e4a82fb94d107bb": "Thread konnte nicht aus dem Archiv geholt werden",
+  "70399412ec5a7026": "Thread archivieren",
+  "6c13d520b6601f65": "Thread „{title}“ archivieren?",
+  "2a546119bf3879ee": "Archivieren",
+  "ad25ae072f65b934": "Keine archivierten Threads",
+  "89d08a5be3347890": "Archivierte Threads erscheinen hier.",
+  "4568f63340b7a586": "Archivierte Threads werden geladen",
+  "4e690f420bcbdb5d": "Verbundene Umgebungen werden geprüft.",
+  "8e944f7583a727fd": "Aus dem Archiv holen",
+  "9e4e731164d1d283": "{title} aus dem Archiv holen",
+  "ea24f015d73520fd": "Löschen",
+  "d6b75f6c2f576a2c": "{title} löschen",
+  "30589efe06e4d26f": "gerade eben",
+  "2a364723e6e2978e": "Archiviert {archived} · Erstellt {created}",
+  "e2678700a48ee5a5": "vor {age}"
 }

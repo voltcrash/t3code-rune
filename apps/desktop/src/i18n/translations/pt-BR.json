@@ -402,5 +402,22 @@
   "95184480a503090c": "Excluir",
   "2d1c111e1b4ae0b0": "Excluir a thread \"{title}\"?",
   "c568ab8dad798ec5": "Isso apaga permanentemente o histórico de conversa desta thread.",
-  "56e9fabcabc90c46": "Confirmar"
+  "56e9fabcabc90c46": "Confirmar",
+  "3ce9741f164fb944": "Não foi possível carregar as threads arquivadas",
+  "da43691fb8ad8006": "Falha ao arquivar a thread",
+  "8e4a82fb94d107bb": "Falha ao desarquivar a thread",
+  "70399412ec5a7026": "Arquivar thread",
+  "6c13d520b6601f65": "Arquivar a thread \"{title}\"?",
+  "2a546119bf3879ee": "Arquivar",
+  "ad25ae072f65b934": "Nenhuma thread arquivada",
+  "89d08a5be3347890": "As threads arquivadas aparecerão aqui.",
+  "4568f63340b7a586": "Carregando as threads arquivadas",
+  "4e690f420bcbdb5d": "Verificando os ambientes conectados.",
+  "8e944f7583a727fd": "Desarquivar",
+  "9e4e731164d1d283": "Desarquivar {title}",
+  "ea24f015d73520fd": "Excluir",
+  "d6b75f6c2f576a2c": "Excluir {title}",
+  "30589efe06e4d26f": "agora mesmo",
+  "2a364723e6e2978e": "Arquivado {archived} · Criado {created}",
+  "e2678700a48ee5a5": "há {age}"
 }

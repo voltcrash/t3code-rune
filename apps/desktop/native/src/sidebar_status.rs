@@ -31,7 +31,7 @@ fn unix_millis() -> i64 {
         .as_millis() as i64
 }
 
-fn relative_age(seconds: i64) -> String {
+pub(crate) fn relative_age(seconds: i64) -> String {
     match seconds {
         0..60 => "now".into(),
         60..3600 => format!("{}m", seconds / 60),

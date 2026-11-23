@@ -25,7 +25,7 @@ fn button(key: String, caption: &str, color: Color) -> El {
 }
 
 /// The web client's `--destructive`: red-500, mixed 90% with white in dark mode.
-fn destructive(theme: &tok::Theme) -> Color {
+pub(crate) fn destructive(theme: &tok::Theme) -> Color {
     let dark = theme.bg.r + theme.bg.g + theme.bg.b < 1.5;
     rune::color::hex(if dark { "#fb414a" } else { "#fb2c36" }).unwrap()
 }

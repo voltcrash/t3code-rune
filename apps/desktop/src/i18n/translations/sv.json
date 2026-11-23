@@ -402,5 +402,22 @@
   "95184480a503090c": "Ta bort",
   "2d1c111e1b4ae0b0": "Ta bort tråden ”{title}”?",
   "c568ab8dad798ec5": "Det här rensar konversationshistoriken för den här tråden permanent.",
-  "56e9fabcabc90c46": "Bekräfta"
+  "56e9fabcabc90c46": "Bekräfta",
+  "3ce9741f164fb944": "Kunde inte läsa in arkiverade trådar",
+  "da43691fb8ad8006": "Det gick inte att arkivera tråden",
+  "8e4a82fb94d107bb": "Det gick inte att avarkivera tråden",
+  "70399412ec5a7026": "Arkivera tråd",
+  "6c13d520b6601f65": "Arkivera tråden ”{title}”?",
+  "2a546119bf3879ee": "Arkiv",
+  "ad25ae072f65b934": "Inga arkiverade trådar",
+  "89d08a5be3347890": "Arkiverade trådar visas här.",
+  "4568f63340b7a586": "Läser in arkiverade trådar",
+  "4e690f420bcbdb5d": "Kontrollerar anslutna miljöer.",
+  "8e944f7583a727fd": "Avarkivera",
+  "9e4e731164d1d283": "Avarkivera {title}",
+  "ea24f015d73520fd": "Ta bort",
+  "d6b75f6c2f576a2c": "Ta bort {title}",
+  "30589efe06e4d26f": "nyss",
+  "2a364723e6e2978e": "Arkiverad {archived} · Skapad {created}",
+  "e2678700a48ee5a5": "för {age} sedan"
 }

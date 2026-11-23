@@ -19,6 +19,7 @@ pub(crate) struct SettingsLabels {
     pub(super) settings: String,
     pub(super) appearance: String,
     pub(super) chat: String,
+    pub(super) archive: super::archived::Labels,
     pub(crate) voice: super::voice::Labels,
     composer: String,
     advanced: String,
@@ -38,6 +39,7 @@ pub(crate) enum SettingsPage {
     Appearance,
     Chat,
     Voice,
+    Archive,
 }
 
 impl SettingsPage {
@@ -46,6 +48,7 @@ impl SettingsPage {
             Self::Appearance => labels.map_or("Appearance", |l| &l.appearance),
             Self::Voice => labels.map_or("Voice", |l| &l.voice.title),
             Self::Chat => labels.map_or("Chat", |l| &l.chat),
+            Self::Archive => labels.map_or("Archive", |l| &l.archive.title),
         }
     }
 
@@ -66,6 +69,7 @@ impl SettingsPage {
         if s.settings_labels.is_some() {
             tabs.child(Self::Chat.tab(s, theme))
                 .child(Self::Voice.tab(s, theme))
+                .child(Self::Archive.tab(s, theme))
         } else {
             tabs
         }
@@ -78,6 +82,7 @@ impl SettingsPage {
             Self::Appearance => ("settings-appearance", &PALETTE),
             Self::Chat => ("settings-chat", &CHAT),
             Self::Voice => ("settings-voice", &super::voice::MIC),
+            Self::Archive => ("settings-archive", &super::archived::ARCHIVE),
         };
         let tab = row()
             .key(key)
@@ -105,6 +110,9 @@ impl SettingsPage {
                         s.show_voice_models(self == Self::Voice);
                     }
                     s.settings_page = self;
+                    if self == Self::Archive {
+                        s.load_archived();
+                    }
                 }
                 tx.focus(key, true);
             });

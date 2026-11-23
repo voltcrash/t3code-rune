@@ -76,6 +76,8 @@ pub(super) struct Thread {
     branch: Option<String>,
     worktree: Option<String>,
     status: sidebar_status::RowStatus,
+    #[serde(default = "can_archive")]
+    can_archive: bool,
     title_status: Option<String>,
     status_at: Option<i64>,
     #[serde(default)]
@@ -93,6 +95,10 @@ pub(super) struct Thread {
     #[serde(default)]
     pinned: bool,
     snoozed_until: Option<i64>,
+}
+
+fn can_archive() -> bool {
+    true
 }
 
 impl Thread {
@@ -2385,6 +2391,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     thread_details::menu(s, &kit, &mut overlays);
     thread_actions::delete_dialog(s, theme, &mut overlays);
+    thread_actions::archive_dialog(s, theme, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
     let available = viewport[0] - if show_sidebar { width } else { 0. };
     let max_panel_width = panel_width::max_width(viewport[0], available);
@@ -2556,6 +2563,7 @@ mod tests {
             branch: None,
             worktree: None,
             status: sidebar_status::RowStatus::Ready,
+            can_archive: true,
             title_status: None,
             status_at: None,
             recedes: false,

@@ -981,6 +981,7 @@ mod tests {
             branch: None,
             worktree: None,
             status: Default::default(),
+            can_archive: true,
             title_status: None,
             status_at: None,
             recedes: false,
