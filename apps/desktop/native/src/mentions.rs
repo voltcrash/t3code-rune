@@ -706,8 +706,9 @@ mod tests {
                 "choosing the skill removed the last redo reference"
             );
 
-            *s.new_threads.edit_prompt("p").unwrap() = TextEdit::new("/");
-            s.new_threads.edit_prompt("p").unwrap().set_caret(1);
+            let (_, edit) = s.new_threads.editable_files().unwrap();
+            *edit = TextEdit::new("/");
+            edit.set_caret(1);
             s.sync_mentions(tx);
             let operation = s.mentions.search.as_ref().unwrap().operation;
             let model = || Entry::model_command("", "Switch model").unwrap();
@@ -743,7 +744,7 @@ mod tests {
             assert!(s.mention_key(&owner, &enter, tx));
             assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
 
-            let edit = s.new_threads.edit_prompt("p").unwrap();
+            let (_, edit) = s.new_threads.editable_files().unwrap();
             *edit = TextEdit::new("/compact");
             edit.set_caret(edit.text.len());
             assert!(!s.mention_key(&owner, &enter, tx));
