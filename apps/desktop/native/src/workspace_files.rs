@@ -204,6 +204,7 @@ impl Desktop {
         if self.file_location().as_ref() != Some(&location) {
             return;
         }
+        self.close_browser();
         self.close_diff();
         self.close_file_preview();
         let operation = self.next_request_id();

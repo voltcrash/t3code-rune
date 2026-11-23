@@ -197,6 +197,7 @@ impl Desktop {
         let Some(location) = self.file_location() else {
             return;
         };
+        self.close_browser();
         let generation = self.next_request_id();
         self.workspace.explorer = Some(Explorer::new(location, generation));
         self.list_directory("");
@@ -536,7 +537,7 @@ pub(super) fn tree_view(s: &Desktop, theme: &tok::Theme, kit: &Kit, preview_only
         .child(list.child(viewport))
 }
 
-static PANEL_ICON: rune::Icon = rune::Icon {
+pub(crate) static PANEL_ICON: rune::Icon = rune::Icon {
     name: "panel-right",
     view: 24.,
     body: r#"<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 3v18" fill="none" stroke="currentColor" stroke-width="2"/>"#,

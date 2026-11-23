@@ -10,6 +10,7 @@ use std::io::{self, BufRead, BufReader, Write};
 mod appearance;
 mod approval;
 mod attachments;
+mod browser;
 mod composer;
 mod dictation;
 mod image_decode;
@@ -44,6 +45,18 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    BrowserPage {
+        watch: u64,
+        operation: u64,
+        page: Box<browser::Page>,
+    },
+    BrowserFrame {
+        watch: u64,
+        operation: u64,
+        tab: String,
+        sequence: u64,
+        data: String,
+    },
     IssueDetail {
         watch: u64,
         operation: u64,
@@ -217,6 +230,7 @@ enum Reply {
         #[serde(default)]
         attachment_labels: Box<attachments::Labels>,
         update_labels: Option<Box<updates::Labels>>,
+        browser_labels: Option<Box<browser::Labels>>,
         issues_labels: Option<Box<issues::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
         usage_preferences: Option<usage::summary::Preferences>,
@@ -446,6 +460,12 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    Browser {
+        watch: u64,
+        operation: u64,
+        #[serde(flatten)]
+        command: serde_json::Value,
+    },
     IssueDetail {
         watch: u64,
         operation: u64,
@@ -1098,6 +1118,15 @@ impl Desktop {
             }
             return;
         }
+        if let Reply::BrowserPage {
+            watch,
+            operation,
+            page,
+        } = message.reply
+        {
+            self.receive_browser(watch, operation, *page);
+            return;
+        }
         if let Reply::IssueDetail {
             watch,
             operation,
@@ -1481,6 +1510,7 @@ impl Desktop {
                 composer_hints,
                 attachment_labels,
                 update_labels,
+                browser_labels,
                 issues_labels,
                 usage_labels,
                 usage_preferences,
@@ -1515,6 +1545,7 @@ impl Desktop {
                 self.composer_hints = *composer_hints;
                 self.workspace.attachment_labels = *attachment_labels;
                 self.update.labels = update_labels.map(|labels| *labels);
+                self.workspace.browser.labels = browser_labels;
                 self.workspace.issues.labels = issues_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.workspace.usage.summary.restore(usage_preferences);
@@ -1654,6 +1685,8 @@ impl Desktop {
             | Reply::Dictation { .. }
             | Reply::VoiceModels { .. }
             | Reply::Issues { .. }
+            | Reply::BrowserPage { .. }
+            | Reply::BrowserFrame { .. }
             | Reply::IssueDetail { .. }
             | Reply::Usage { .. }
             | Reply::UsageTotals { .. }
@@ -2087,6 +2120,7 @@ fn start() -> io::Result<()> {
         poll: Some(|s: &mut Desktop, now, tx| {
             s.sync_window_title(tx);
             s.sync_draft_model_watch();
+            let browser = s.sync_browser(tx);
             let issues = s.sync_issues(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
@@ -2102,6 +2136,7 @@ fn start() -> io::Result<()> {
             let dictation = s.reconcile_dictation();
             let microphone = s.poll_microphone(tx);
             s.poll_answer(tx)
+                || browser
                 || issues
                 || microphone
                 || dictation
@@ -2272,6 +2307,16 @@ fn start() -> io::Result<()> {
             {
                 return true;
             }
+            if !ev.mods.alt && ev.mods.shift && ev.is_command('j') && s.browser_available() {
+                if !tx.key_repeat() {
+                    s.toggle_browser(tx);
+                }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.workspace.browser.panel.is_some() {
+                s.toggle_browser(tx);
+                return true;
+            }
             if s.terminal_available() && !ev.mods.alt && !ev.mods.shift && ev.is_command('j') {
                 if !tx.key_repeat() {
                     s.toggle_terminal(tx);
@@ -2330,9 +2375,12 @@ fn start() -> io::Result<()> {
         families: (appearance::SANS, appearance::MONO),
         ..AppSpec::new(product_name(), (1100.0, 780.0), Desktop::new, view)
     };
-    let app = App::new(spec).on_open_url(|s, url, _| {
-        s.write_request(None, Request::OpenUrl { url });
-    });
+    let app = App::new(spec)
+        .on_focus(Desktop::browser_window_focus)
+        .on_ime(Desktop::browser_ime)
+        .on_open_url(|s, url, _| {
+            s.write_request(None, Request::OpenUrl { url });
+        });
     #[cfg(target_os = "macos")]
     let app = app.font_smoothing(rune::FontSmoothing::Off);
     #[cfg(target_os = "macos")]
@@ -2387,6 +2435,31 @@ fn start() -> io::Result<()> {
                 break;
             };
             received_response |= reply.id.is_some();
+            if let Reply::BrowserFrame {
+                watch,
+                operation,
+                tab,
+                sequence,
+                data,
+            } = reply.reply
+            {
+                if images
+                    .send(image_decode::Job {
+                        watch,
+                        key: tab,
+                        operation: String::new(),
+                        data: Some(data),
+                        kind: image_decode::Kind::Browser {
+                            operation,
+                            sequence,
+                        },
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
             if let Reply::Image {
                 registry,
                 favicon,
@@ -2664,6 +2737,7 @@ mod tests {
                 composer_hints: Default::default(),
                 attachment_labels: Default::default(),
                 update_labels: None,
+                browser_labels: None,
                 issues_labels: None,
                 usage_labels: None,
                 usage_preferences: None,

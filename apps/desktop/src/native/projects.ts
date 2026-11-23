@@ -30,6 +30,7 @@ import {
 } from "@t3tools/client-runtime/rpc";
 import {
   resolveEnvironmentMachineKind,
+  AuthPreviewOperateScope,
   AuthDiagnosticsReadScope,
   AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
@@ -88,6 +89,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
   const session = yield* bootstrapRemoteBearerSession({
     ...target,
     scopes: [
+      ...(descriptor.capabilities.serverBrowser ? [AuthPreviewOperateScope] : []),
       AuthDiagnosticsReadScope,
       AuthOrchestrationReadScope,
       AuthOrchestrationOperateScope,
@@ -108,6 +110,9 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     serverVersion: descriptor.serverVersion,
     tracksClones: descriptor.capabilities.projectCloneTracking === true,
     vcsBranchStatus: descriptor.capabilities.vcsBranchStatus === true,
+    browserAvailable:
+      descriptor.capabilities.serverBrowser === true && scopes.includes(AuthOrchestrationReadScope),
+    browserWritable: scopes.includes(AuthPreviewOperateScope),
     canReadIssues:
       descriptor.capabilities.issues === true && scopes.includes(AuthOrchestrationReadScope),
     canPin: descriptor.capabilities.threadPinning === true,

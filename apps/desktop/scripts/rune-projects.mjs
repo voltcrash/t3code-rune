@@ -30,6 +30,8 @@ import { workspaceEditors } from "./rune-editors.mjs";
 import { openTerminal } from "./rune-terminal.mjs";
 import { readThreadModels, setThreadModel, ModelUnavailable } from "../src/native/models.ts";
 import { PermissionUnavailable, readThreadPermissions } from "../src/native/permissions.ts";
+import { resolveAddressBarInput, resolveSearchUrlTemplate } from "@t3tools/shared/preview";
+import { browserLabels, openBrowserPanel } from "../src/native/browser.ts";
 import { openEnvironmentRpc } from "../src/native/environmentRpc.ts";
 import { workspaceDictation } from "./rune-dictation.mjs";
 import { watchVoiceModels } from "../src/native/voiceModels.ts";
@@ -1393,6 +1395,7 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
+        browser_labels: session.browserAvailable ? browserLabels() : undefined,
         issues_labels: session.canReadIssues ? issueLabels() : undefined,
         usage_labels: usageLabels(),
         usage_preferences: usagePreferences(),
@@ -2037,6 +2040,39 @@ try {
         );
     } else if (request?.type === "workspacehandled") {
       if (workspaceFeed?.watch === request.watch) workspaceFeed.handled();
+    } else if (request?.type === "browser") {
+      const record = watching;
+      if (record && record.id === request.watch && record.owner.browserAvailable) {
+        const { watch, operation } = request;
+        if (request.action === "show") {
+          record.browser?.panel.stop();
+          const signal = AbortSignal.any([record.owner.signal, record.controller.signal]);
+          const panel = openBrowserPanel(
+            record.owner,
+            record.thread,
+            signal,
+            (page) => write({ type: "browserpage", watch, operation, page }),
+            (tab, sequence, jpeg) =>
+              write({
+                type: "browserframe",
+                watch,
+                operation,
+                tab,
+                sequence,
+                data: Buffer.from(jpeg).toString("base64"),
+              }),
+            (input) => resolveAddressBarInput(input, resolveSearchUrlTemplate(clientSettings)),
+          );
+          record.browser = { operation, panel };
+        } else if (record.browser?.operation === operation) {
+          if (request.action === "hide") {
+            record.browser.panel.stop();
+            record.browser = undefined;
+          } else {
+            void record.browser.panel.request(request);
+          }
+        }
+      }
     } else if (request?.type === "terminal") {
       const record = watching;
       if (record && record.id === request.watch) {

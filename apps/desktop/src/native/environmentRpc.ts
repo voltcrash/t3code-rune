@@ -1,3 +1,8 @@
+import {
+  BearerConnectionTarget,
+  type PreparedConnection,
+} from "@t3tools/client-runtime/connection";
+import type { Session } from "./projects.ts";
 import * as NodeWS from "@effect/platform-node/NodeWS";
 import { resolveRemoteWebSocketConnectionUrl } from "@t3tools/client-runtime/authorization";
 import { ORCHESTRATION_PROTOCOL_VERSION, WsRpcGroup } from "@t3tools/contracts";
@@ -31,3 +36,19 @@ export const openEnvironmentRpc = Effect.fn("nativeDesktop.openEnvironmentRpc")(
     return yield* RpcClient.make(WsRpcGroup).pipe(Effect.provideContext(protocol));
   },
 );
+
+export function preparedConnection(
+  session: Pick<Session, "environmentId" | "label" | "httpBaseUrl" | "token">,
+): PreparedConnection {
+  const { environmentId, label, httpBaseUrl, token } = session;
+  const socket = new URL("/ws", httpBaseUrl);
+  socket.protocol = socket.protocol === "https:" ? "wss:" : "ws:";
+  return {
+    environmentId,
+    label,
+    httpBaseUrl,
+    socketUrl: socket.href,
+    target: new BearerConnectionTarget({ environmentId, label, connectionId: environmentId }),
+    httpAuthorization: { _tag: "Bearer", token },
+  };
+}
