@@ -61,6 +61,8 @@ impl Desktop {
         self.workspace.file_preview = Some(Preview {
             rendered: file.kind == "markdown",
             origin: Origin::Attachment(file),
+            href: None,
+            reveal_line: None,
             operation,
             path,
             source: None,

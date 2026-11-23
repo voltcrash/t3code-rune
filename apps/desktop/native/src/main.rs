@@ -187,6 +187,7 @@ enum Reply {
     },
     FileSource {
         operation: u64,
+        link: Option<workspace::workspace_files::LinkTarget>,
         contents: Option<String>,
         #[serde(default)]
         truncated: bool,
@@ -1289,12 +1290,13 @@ impl Desktop {
         }
         if let Reply::FileSource {
             operation,
+            link,
             contents,
             truncated,
             error,
         } = message.reply
         {
-            self.receive_file_source(operation, contents, truncated, error);
+            self.receive_file_source(operation, contents, truncated, link, error);
             return;
         }
         if let Reply::PlanSaved { watch, error } = message.reply {

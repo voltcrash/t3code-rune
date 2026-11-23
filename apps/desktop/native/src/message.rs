@@ -280,8 +280,23 @@ pub(super) fn reply(
     kit: &Kit,
     style: &MarkdownStyle,
 ) -> El {
+    let location = s.file_location();
     let mut body = col().w_full().gap(6.).child(
         super::thread_find::markdown(s, message, &message.body)
+            .on_link_tx(
+                move |s: &mut Desktop, href, tx| match url::Url::parse(href) {
+                    Ok(url) if matches!(url.scheme(), "https" | "http") => {
+                        let _ = tx.open_url(url.as_str());
+                    }
+                    Ok(url) if url.scheme() != "file" && url.scheme().len() != 1 => {}
+                    _ if !href.is_empty() && !href.starts_with('#') => {
+                        if let Some(location) = &location {
+                            s.preview_workspace_path(location.clone(), href.to_owned(), true);
+                        }
+                    }
+                    _ => {}
+                },
+            )
             .style(style.clone())
             .selectable(true)
             .build(kit),

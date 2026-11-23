@@ -49,7 +49,7 @@ it("keeps the previous final reply copyable when the next run receives its promp
     updateWindow(state, input, (update) => {
       if (update.kind === "replies") replies = update.replies;
     });
-  const message = (n: number, role: "user" | "assistant") => {
+  const message = (n: number, role: "user" | "assistant", body?: string) => {
     const id = role + "-" + n;
     const base = {
       id: TurnItemId.make(id),
@@ -67,7 +67,7 @@ it("keeps the previous final reply copyable when the next run receives its promp
       completedAt: v2Now,
       updatedAt: v2Now,
       messageId: MessageId.make(id),
-      text: id,
+      text: body ?? id,
     };
     const item: OrchestrationV2TurnItem =
       role === "assistant"
@@ -84,7 +84,9 @@ it("keeps the previous final reply copyable when the next run receives its promp
   };
   apply({ ...event, type: "run.created", payload: run(1, "completed") });
   message(1, "user");
-  message(1, "assistant");
+  message(1, "assistant", 'See :codex-file-citation{path="src/main.rs" line_range_start="12"}.');
+  expect(state.rows.at(-1)?.body).toBe("See [main.rs](<src/main.rs#L12>).");
+  expect(state.rows.at(-1)?.copy_body).toBeUndefined();
   expect(replies).toEqual(["assistant-1"]);
   apply({ ...event, type: "run.created", payload: run(2, "running") });
   message(2, "user");

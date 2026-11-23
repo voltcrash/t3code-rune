@@ -47,7 +47,10 @@ import { imageKey } from "./images.ts";
 import { toolRow } from "./toolDetail.ts";
 import { fileChangeRow } from "./fileChange.ts";
 import * as NodeUtil from "node:util";
-import { renderCodexDirectivesForCopy } from "@t3tools/shared/codexMarkdownDirectives";
+import {
+  renderCodexDirectivesForCopy,
+  renderCodexInlineDirectivesAsMarkdown,
+} from "@t3tools/shared/codexMarkdownDirectives";
 import { nativeTurnLayout } from "./turnFolds.ts";
 
 type Row = {
@@ -158,13 +161,17 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     return { key, role: "tasks", body, caption: taskListLabel(item.steps), attachments: [] };
   }
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
+  const markdown =
+    item.type === "assistant_message"
+      ? renderCodexInlineDirectivesAsMarkdown(item.text)
+      : item.text;
   const copy =
     item.type === "assistant_message" && !item.streaming
-      ? renderCodexDirectivesForCopy(item.text)
-      : item.text;
+      ? renderCodexDirectivesForCopy(markdown)
+      : markdown;
   return {
     key,
-    ...(copy === item.text ? {} : { copy_body: copy }),
+    ...(copy === markdown ? {} : { copy_body: copy }),
     entry_id: item.messageId,
     role: item.type === "user_message" ? "user" : "assistant",
     body:
@@ -175,7 +182,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
             );
             return file?.label ?? ref.source;
           })
-        : item.text,
+        : markdown,
     attachments: (item.attachments ?? []).map((a) => {
       const name = a.name;
       if (a.type === "image") {

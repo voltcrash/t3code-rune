@@ -4,7 +4,7 @@ import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { pairWithTarget, resolveFolder } from "./projects.ts";
+import { pairWithTarget, resolveFolder, workspaceMarkdownLink } from "./projects.ts";
 
 it("restricts the pairing credential exchange to the confirmed endpoint", async () => {
   const origin = "https://environment.example.test";
@@ -68,3 +68,21 @@ it.effect(
       }
     }).pipe(Effect.provide([NodePath.layerWin32, layerRemoteHttpClient(globalThis.fetch)])),
 );
+
+it("opens Markdown citations at their line inside the active environment checkout", () => {
+  expect(workspaceMarkdownLink("docs/a%20b.md#L38-L42", "/work/project")).toEqual({
+    path: "docs/a b.md",
+    line: 38,
+  });
+  expect(
+    workspaceMarkdownLink("file:///D:/work/Project/README.md#L2", "D:\\work\\project"),
+  ).toEqual({ path: "README.md", line: 2 });
+  for (const href of [
+    "../elsewhere/secret.md",
+    "file:///elsewhere/secret.md",
+    "https://example.test/guide.md",
+    "javascript:void(0)",
+  ]) {
+    expect(workspaceMarkdownLink(href, "/work/project")).toBeNull();
+  }
+});
