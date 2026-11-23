@@ -1653,10 +1653,13 @@ try {
             request.root,
             request.query,
             request.instance,
+            request.slash
+              ? { model: request.model ?? null, showSkills: clientSettings.showSkillsInSlashMenu }
+              : undefined,
           )
           .pipe(Effect.timeout("12 seconds")),
         { signal },
-      ).then(result, () => result([]));
+      ).then(result, () => result(null));
       continue;
     }
     if (request?.type === "openurl") {

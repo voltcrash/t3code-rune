@@ -84,6 +84,7 @@ struct Trigger {
     watch: u64,
     root: String,
     instance: Option<String>,
+    model: bool,
     kind: Kind,
     range: Range<usize>,
     query: String,
@@ -168,6 +169,8 @@ struct Search {
     operation: u64,
     dismissed: bool,
     loaded: bool,
+    needs_refresh: bool,
+    restore: Option<String>,
     entries: Vec<Entry>,
     active: usize,
 }
@@ -181,12 +184,12 @@ pub(super) struct Picker {
 
 impl Picker {
     pub(super) fn skills_changed(&mut self, watch: u64, instance: &str) {
-        if self.search.as_ref().is_some_and(|s| {
-            !s.dismissed
-                && s.trigger.watch == watch
-                && s.trigger.instance.as_deref() == Some(instance)
-        }) {
-            self.search = None;
+        if let Some(s) = self.search.as_mut()
+            && !s.dismissed
+            && s.trigger.watch == watch
+            && s.trigger.instance.as_deref() == Some(instance)
+        {
+            s.needs_refresh = true;
         }
     }
 
@@ -199,14 +202,21 @@ impl Picker {
         }
     }
 
-    pub(super) fn receive(&mut self, operation: u64, entries: Vec<Entry>) {
+    pub(super) fn receive(&mut self, operation: u64, entries: Option<Vec<Entry>>) {
         if let Some(s) = &mut self.search
             && s.operation == operation
             && !s.dismissed
+            && !s.needs_refresh
         {
-            s.entries = entries;
+            if let Some(entries) = entries {
+                s.active = s
+                    .restore
+                    .take()
+                    .and_then(|path| entries.iter().position(|entry| entry.path == path))
+                    .unwrap_or(0);
+                s.entries = entries;
+            }
             s.loaded = true;
-            s.active = 0;
         }
     }
 
@@ -232,7 +242,12 @@ impl Picker {
                 .strip_suffix(e.name())
                 .unwrap_or("")
                 .trim_end_matches(['/', '\\']);
-            let item = PopupItem::new(&e.path, e.name())
+            let title = if s.trigger.kind == Kind::Command && e.kind == "skill" {
+                format!("/skill:{}", e.path)
+            } else {
+                e.name().to_owned()
+            };
+            let item = PopupItem::new(&e.path, title)
                 .description(e.description.as_deref().unwrap_or(parent));
             if e.kind == "model" {
                 return item;
@@ -319,16 +334,19 @@ impl Desktop {
         if kind != Kind::Command && Some(watch) != self.mentions.ready {
             return None;
         }
+        let model = kind == Kind::Command
+            && (draft || self.can_pick_thread_model(self.workspace.visible_thread()?));
         let instance = match kind {
             Kind::Skill => Some(self.status_target()?.2?.to_owned()),
-            Kind::File if !self.can_read_files => return None,
-            Kind::Command
-                if !draft && !self.can_pick_thread_model(self.workspace.visible_thread()?) =>
-            {
-                return None;
+            Kind::Command if Some(watch) == self.mentions.ready => {
+                self.status_target().and_then(|t| t.2).map(str::to_owned)
             }
+            Kind::File if !self.can_read_files => return None,
             _ => None,
         };
+        if kind == Kind::Command && !model && instance.is_none() {
+            return None;
+        }
         let target = if draft {
             Target::Project(id.into())
         } else {
@@ -342,6 +360,7 @@ impl Desktop {
             watch,
             root: root.into(),
             instance,
+            model,
             kind,
             range,
             query: q.chars().take(256).collect(),
@@ -350,8 +369,21 @@ impl Desktop {
 
     pub(super) fn sync_mentions(&mut self, tx: &mut Tx) -> bool {
         let trigger = self.mention_trigger(tx.focused());
-        let changed = trigger.as_ref() != self.mentions.search.as_ref().map(|s| &s.trigger);
+        let previous = self.mentions.search.as_ref();
+        let changed = trigger.as_ref() != previous.map(|s| &s.trigger)
+            || previous.is_some_and(|s| s.needs_refresh);
         if changed {
+            let mut restore = None;
+            if let Some(s) = previous
+                && s.needs_refresh
+                && trigger.as_ref() == Some(&s.trigger)
+            {
+                restore = s
+                    .entries
+                    .get(s.active)
+                    .map(|entry| entry.path.clone())
+                    .or_else(|| s.restore.clone());
+            }
             if let Some(s) = self.mentions.search.take()
                 && s.due.is_none()
                 && !s.loaded
@@ -359,14 +391,15 @@ impl Desktop {
                 self.send_mention_search(&s.trigger, s.operation, true);
             }
             if let Some(trigger) = trigger {
-                let local = trigger.kind == Kind::Command;
-                let entries = if local {
-                    Entry::model_command(&trigger.query, &self.mentions.labels.switch_model)
-                        .into_iter()
-                        .collect()
-                } else {
-                    Vec::new()
-                };
+                let local = trigger.kind == Kind::Command && trigger.instance.is_none();
+                let entries =
+                    if trigger.model && restore.as_deref().is_none_or(|path| path == "/model") {
+                        Entry::model_command(&trigger.query, &self.mentions.labels.switch_model)
+                            .into_iter()
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                 let delay = Duration::from_millis(120);
                 self.mentions.search = Some(Search {
                     trigger,
@@ -374,6 +407,8 @@ impl Desktop {
                     operation: self.next_request_id(),
                     dismissed: false,
                     loaded: local,
+                    needs_refresh: false,
+                    restore,
                     entries,
                     active: 0,
                 });
@@ -413,6 +448,8 @@ impl Desktop {
                 target,
                 root: &t.root,
                 instance: t.instance.as_deref(),
+                slash: t.kind == Kind::Command,
+                model: t.model.then(|| self.mentions.labels.switch_model.clone()),
                 query: (!cancel).then_some(t.query.as_str()),
             },
         );
@@ -421,7 +458,10 @@ impl Desktop {
     fn choose_mention(&mut self, operation: u64, path: &str, tx: &mut Tx) {
         let current = self.mention_trigger(tx.focused());
         let Some(s) = self.mentions.search.take_if(|s| {
-            !s.dismissed && s.operation == operation && current.as_ref() == Some(&s.trigger)
+            !s.dismissed
+                && !s.needs_refresh
+                && s.operation == operation
+                && current.as_ref() == Some(&s.trigger)
         }) else {
             return;
         };
@@ -459,7 +499,7 @@ impl Desktop {
         };
         let len = s.entries.len();
         match event.key {
-            Key::Enter if !s.loaded && s.trigger.instance.is_some() => {}
+            Key::Enter if len == 0 && !s.loaded && s.trigger.instance.is_some() => {}
             Key::Escape => s.dismissed = true,
             Key::Down if len > 0 => s.active = (s.active + 1) % len,
             Key::Up if len > 0 => s.active = (s.active + len - 1) % len,
@@ -601,7 +641,7 @@ mod tests {
                 label: None,
                 description: None,
             };
-            s.mentions.receive(operation, vec![row()]);
+            s.mentions.receive(operation, Some(vec![row()]));
             s.mentions.skills_changed(1, "replay");
             let enter = KeyEvent {
                 key: Key::Enter,
@@ -611,7 +651,22 @@ mod tests {
             assert!(s.mention_key(&owner, &enter, tx));
             assert_eq!(s.new_threads.prompt("p").unwrap().text, "$rev");
             let fresh = s.mentions.search.as_ref().unwrap().operation;
-            s.mentions.receive(fresh, vec![row()]);
+            s.mentions.receive(fresh, Some(vec![row()]));
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
+
+            *s.new_threads.edit_prompt("p").unwrap() = TextEdit::new("/");
+            s.new_threads.edit_prompt("p").unwrap().set_caret(1);
+            s.sync_mentions(tx);
+            let operation = s.mentions.search.as_ref().unwrap().operation;
+            let model = || Entry::model_command("", "Switch model").unwrap();
+            s.mentions.receive(operation, Some(vec![model(), row()]));
+            s.mentions.search.as_mut().unwrap().active = 1;
+            s.mentions.skills_changed(1, "replay");
+            assert!(s.mention_key(&owner, &enter, tx));
+            assert_eq!(s.new_threads.prompt("p").unwrap().text, "/");
+            let fresh = s.mentions.search.as_ref().unwrap().operation;
+            s.mentions.receive(fresh, Some(vec![model(), row()]));
             assert!(s.mention_key(&owner, &enter, tx));
             assert_eq!(prompt(s.new_threads.prompt("p").unwrap()), "$review ");
             assert!(

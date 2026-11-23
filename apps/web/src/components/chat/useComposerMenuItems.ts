@@ -55,7 +55,7 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
-} from "./composerSlashCommandSearch";
+} from "@t3tools/client-runtime/composerSlashCommandSearch";
 
 const COMPOSER_PULL_REQUEST_LIST_LIMIT = 99;
 const COMPOSER_PULL_REQUEST_RESULT_LIMIT = 12;

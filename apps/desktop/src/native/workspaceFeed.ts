@@ -1,6 +1,6 @@
 import * as Equal from "effect/Equal";
 import { providerWorkspaceSnapshotBasis } from "@t3tools/client-runtime/state/server-config-projection";
-import { composerSkillSearch } from "./composerSkills.ts";
+import { composerSkillSearch, type SlashMenu } from "./composerSkills.ts";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { watchProjectFileActions } from "./projectFile.ts";
 import { topOfPinnedRunOrderKey } from "@t3tools/shared/pinOrderKey";
@@ -451,6 +451,7 @@ export function watchWorkspace(
       root: string,
       query: string,
       instance: string | null,
+      slash?: SlashMenu,
     ) {
       const checkout = () => {
         const thread = draft ? undefined : threads.get(id);
@@ -463,7 +464,7 @@ export function watchWorkspace(
       if (instance) {
         if (!skillScope) return [];
         const provider = skillProvider(workspaceConfig);
-        const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query);
+        const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query, slash);
         return activeRpc === rpc && checkout() === root ? skills : [];
       }
       if (!session.canBrowse) return [];

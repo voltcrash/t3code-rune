@@ -4,19 +4,24 @@ import {
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
 
-import type { ComposerCommandItem } from "./ComposerCommandMenu";
-import { scoreProviderSkill } from "@t3tools/client-runtime/providerSkillSearch";
+import type { ServerProviderSkill } from "@t3tools/contracts";
+import { scoreProviderSkill } from "./providerSkillSearch.ts";
 
-type SlashSearchItem = Extract<
-  ComposerCommandItem,
-  { type: "slash-command" | "provider-slash-command" | "skill" }
->;
+export type SlashSearchItem =
+  | { type: "slash-command"; command: string; description: string }
+  | {
+      type: "provider-slash-command";
+      provider: string;
+      command: { name: string };
+      description: string;
+    }
+  | { type: "skill"; provider: string; skill: ServerProviderSkill };
 
 /** Provider commands, `/side`, `/btw` and `/clear` work only at the message start. */
-export function slashCommandItemsForPromptPosition(
-  items: ReadonlyArray<SlashSearchItem>,
+export function slashCommandItemsForPromptPosition<T extends SlashSearchItem>(
+  items: ReadonlyArray<T>,
   isAtPromptStart: boolean,
-): SlashSearchItem[] {
+): T[] {
   if (isAtPromptStart) {
     return [...items];
   }
@@ -75,17 +80,18 @@ function scoreSlashCommandItem(item: SlashSearchItem, query: string): number | n
   return Math.min(...scores);
 }
 
-export function searchSlashCommandItems(
-  items: ReadonlyArray<SlashSearchItem>,
+export function searchSlashCommandItems<T extends SlashSearchItem>(
+  items: ReadonlyArray<T>,
   query: string,
-): SlashSearchItem[] {
+  limit = Number.POSITIVE_INFINITY,
+): T[] {
   const normalizedQuery = normalizeSearchQuery(query, { trimLeadingPattern: /^\/+/ });
   if (!normalizedQuery) {
-    return [...items];
+    return items.slice(0, limit);
   }
 
   const ranked: Array<{
-    item: SlashSearchItem;
+    item: T;
     score: number;
     tieBreaker: string;
   }> = [];
@@ -108,7 +114,7 @@ export function searchSlashCommandItems(
               ? `1\u0000${item.command.name}\u0000${item.provider}`
               : `2\u0000${item.skill.name}\u0000${item.provider}`,
       },
-      Number.POSITIVE_INFINITY,
+      limit,
     );
   }
 

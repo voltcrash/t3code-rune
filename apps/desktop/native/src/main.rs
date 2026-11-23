@@ -115,7 +115,7 @@ enum Reply {
     },
     ComposerFiles {
         operation: u64,
-        entries: Vec<mentions::Entry>,
+        entries: Option<Vec<mentions::Entry>>,
     },
     FileMatches {
         operation: u64,
@@ -420,6 +420,8 @@ enum Request<'a> {
         target: &'a str,
         root: &'a str,
         instance: Option<&'a str>,
+        slash: bool,
+        model: Option<String>,
         query: Option<&'a str>,
     },
     CheckUpdates,
