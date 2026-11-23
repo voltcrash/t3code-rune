@@ -195,6 +195,9 @@ impl Desktop {
             if new_tab || p.page.tab().and_then(|t| t.device.as_ref()) != viewport {
                 p.device.sync(viewport, new_tab);
             }
+            if p.page.busy && !page.busy {
+                p.device.finish(viewport, page.error.is_none());
+            }
             p.page = page;
             self.resize_browser();
         }

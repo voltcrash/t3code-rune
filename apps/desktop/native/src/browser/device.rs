@@ -62,12 +62,18 @@ impl Axis {
     }
 }
 
+enum LockChange {
+    Rotate,
+    Preset,
+}
+
 #[derive(Default)]
 pub(super) struct Toolbar {
     width: TextEdit,
     height: TextEdit,
     edited: Option<Axis>,
-    locked: bool,
+    aspect_ratio: Option<f64>,
+    lock_change: Option<LockChange>,
     pub picker: bool,
 }
 
@@ -76,34 +82,53 @@ impl Toolbar {
         self.edited = None;
         self.picker = false;
         if new_tab || viewport.is_none() {
-            self.locked = false;
+            self.aspect_ratio = None;
+            self.lock_change = None;
         }
         if let Some(size) = viewport {
             self.width.replace_text(size.width.to_string());
             self.height.replace_text(size.height.to_string());
         }
     }
-    fn update(&mut self, axis: Axis, size: &Viewport, limits: &Limits) {
-        self.edited = Some(axis);
-        if !self.locked {
-            return;
+    pub fn finish(&mut self, size: Option<&Viewport>, success: bool) {
+        let action = self.lock_change.take();
+        if success && let (Some(ratio), Some(size)) = (self.aspect_ratio, size) {
+            self.aspect_ratio = Some(match action {
+                Some(LockChange::Rotate) => 1. / ratio,
+                Some(LockChange::Preset) => f64::from(size.width) / f64::from(size.height),
+                None => return,
+            });
         }
+    }
+    fn update(&mut self, axis: Axis, limits: &Limits) {
+        self.edited = Some(axis);
+        let Some(ratio) = self.aspect_ratio else {
+            return;
+        };
         let Ok(value) = axis.edit(self).text.parse::<u32>() else {
             return;
         };
         if !(limits.min..=limits.max).contains(&value) {
             return;
         }
-        let (other, original, companion) = match axis {
-            Axis::Width => (&mut self.height, size.width, size.height),
-            Axis::Height => (&mut self.width, size.height, size.width),
+        let (other, factor) = match axis {
+            Axis::Width => (&mut self.height, 1. / ratio),
+            Axis::Height => (&mut self.width, ratio),
         };
-        let ratio = companion as f64 / original as f64;
-        let available = limits.max as f64 / ratio;
-        let max_axis = available.min((limits.area as f64 / ratio).sqrt()).floor() as u32;
-        let min_axis = (limits.min as f64 / ratio).ceil() as u32;
-        let primary = value.clamp(min_axis.min(original), max_axis.max(original));
-        let next = (primary as f64 * ratio).round() as u32;
+        let min_axis = (f64::from(limits.min) / factor)
+            .ceil()
+            .max(f64::from(limits.min)) as u32;
+        let max_axis = (f64::from(limits.area) / factor)
+            .sqrt()
+            .min(f64::from(limits.max) / factor)
+            .min(f64::from(limits.max))
+            .floor() as u32;
+        let mut primary = value.max(min_axis).min(max_axis);
+        let mut next = (f64::from(primary) * factor).round() as u32;
+        while primary * next > limits.area && primary > min_axis {
+            primary -= 1;
+            next = (f64::from(primary) * factor).round() as u32;
+        }
         other.replace_text(next.to_string());
     }
     fn edit_request(&self) -> Option<Value> {
@@ -111,7 +136,7 @@ impl Toolbar {
             "width": self.width.text.parse::<u32>().ok()?,
             "height": self.height.text.parse::<u32>().ok()?,
             "axis": match self.edited? { Axis::Width => "width", Axis::Height => "height" },
-            "locked": self.locked,
+            "aspectRatio": self.aspect_ratio,
         }))
     }
 }
@@ -130,6 +155,11 @@ impl Desktop {
         {
             change["edit"] = edit;
         }
+        panel.device.lock_change = match change["kind"].as_str() {
+            Some("rotate") => Some(LockChange::Rotate),
+            Some("preset") => Some(LockChange::Preset),
+            _ => None,
+        };
         panel.device.sync(tab.device.as_ref(), false);
         let id = tab.id.clone();
         self.browser_request(json!({"action":"viewport","tab":id,"change":change}));
@@ -192,10 +222,8 @@ fn dimension(p: &Panel, axis: Axis, name: &str, enabled: bool, theme: &tok::Them
         })
         .on_input_change(move |s: &mut Desktop, _| {
             let browser = &mut s.workspace.browser;
-            if let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels)
-                && let Some(size) = p.page.tab().and_then(|t| t.device.as_ref())
-            {
-                p.device.update(axis, size, &labels.device.limits);
+            if let (Some(p), Some(labels)) = (&mut browser.panel, &browser.labels) {
+                p.device.update(axis, &labels.device.limits);
             }
         })
         .on_submit(|s: &mut Desktop, _| s.change_device(json!({"kind":"edit"})))
@@ -264,6 +292,7 @@ pub(super) fn view(
     let mut picker = Menu::new("browser-device-preset")
         .open(p.device.picker && enabled)
         .trigger(trigger)
+        .min_width(280.)
         .placement(Placement::BottomStart)
         .on_close(|s: &mut Desktop| {
             if let Some(p) = &mut s.workspace.browser.panel {
@@ -305,7 +334,7 @@ pub(super) fn view(
         .child(dimension(p, Axis::Height, &labels.height, enabled, theme))
         .child(
             button(
-                if p.device.locked {
+                if p.device.aspect_ratio.is_some() {
                     &labels.unlock
                 } else {
                     &labels.lock
@@ -315,18 +344,25 @@ pub(super) fn view(
                 theme,
                 |s, _| {
                     if let Some(p) = &mut s.workspace.browser.panel {
-                        p.device.locked = !p.device.locked;
+                        p.device.aspect_ratio = if p.device.aspect_ratio.is_some() {
+                            None
+                        } else {
+                            p.page
+                                .tab()
+                                .and_then(|t| t.device.as_ref())
+                                .map(|size| f64::from(size.width) / f64::from(size.height))
+                        };
                     }
                 },
             )
             .key("browser-device-lock")
             .role("switch")
-            .fill(if p.device.locked {
+            .fill(if p.device.aspect_ratio.is_some() {
                 theme.hover
             } else {
                 rune::Color::TRANSPARENT
             })
-            .checked(p.device.locked),
+            .checked(p.device.aspect_ratio.is_some()),
         )
         .child(
             button(&labels.rotate, glyph(&ROTATE), enabled, theme, |s, _| {

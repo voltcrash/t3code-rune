@@ -48,7 +48,12 @@ export type DeviceChange =
   | { kind: "preset"; id: string }
   | {
       kind: "edit" | "rotate";
-      edit?: { width: number; height: number; locked: boolean; axis: "width" | "height" };
+      edit?: {
+        width: number;
+        height: number;
+        aspectRatio: number | null;
+        axis: "width" | "height";
+      };
     };
 
 export function deviceViewport(
@@ -85,15 +90,16 @@ export function deviceViewport(
         n <= PREVIEW_VIEWPORT_MAX_DIMENSION,
     )
   ) {
-    const size = edit.locked
-      ? resizeFreeformViewport(
-          edit,
-          { x: 0, y: 0 },
-          1,
-          edit.axis === "width" ? "east" : "south",
-          current.width / current.height,
-        )
-      : { width: edit.width, height: edit.height };
+    const size =
+      edit.aspectRatio !== null
+        ? resizeFreeformViewport(
+            edit,
+            { x: 0, y: 0 },
+            1,
+            edit.axis === "width" ? "east" : "south",
+            edit.aspectRatio,
+          )
+        : { width: edit.width, height: edit.height };
     if (validSize(size) && (size.width !== current.width || size.height !== current.height)) {
       next = { _tag: "freeform", ...size };
     }

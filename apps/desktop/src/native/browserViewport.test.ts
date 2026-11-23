@@ -27,7 +27,7 @@ it("opens with the preferred viewport and preserves its identity when rotating",
 
 it("validates freeform edits and rotates the edited size", () => {
   const size = { _tag: "freeform", width: 600, height: 400 } as const;
-  const edit = { width: 900, height: 400, axis: "width", locked: true } as const;
+  const edit = { width: 900, height: 400, axis: "width", aspectRatio: 1.5 } as const;
   expect(deviceViewport({ kind: "edit", edit }, size, fill, 1)).toEqual({
     ...size,
     width: 900,
@@ -38,12 +38,24 @@ it("validates freeform edits and rotates the edited size", () => {
     width: 600,
     height: 900,
   });
+  const original = { _tag: "freeform", width: 2800, height: 2795 } as const;
+  const locked = { ...edit, aspectRatio: original.width / original.height };
+  const small = deviceViewport(
+    { kind: "edit", edit: { ...locked, width: 241 } },
+    original,
+    fill,
+    1,
+  );
+  expect(small).toEqual({ _tag: "freeform", width: 241, height: 241 });
+  expect(
+    deviceViewport({ kind: "edit", edit: { ...locked, width: 2800 } }, small!, fill, 1),
+  ).toEqual(original);
   expect(deviceViewport({ kind: "edit", edit: { ...edit, width: 9000 } }, size, fill, 1)).toBe(
     size,
   );
   expect(
     deviceViewport(
-      { kind: "edit", edit: { ...edit, width: 3800, height: 3800, locked: false } },
+      { kind: "edit", edit: { ...edit, width: 3800, height: 3800, aspectRatio: null } },
       size,
       fill,
       1,
