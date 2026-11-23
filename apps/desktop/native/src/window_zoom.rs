@@ -4,7 +4,7 @@ use rune::{App, MenuItem};
 use rune::{Key, KeyEvent, PhysicalKeyCode, Tx};
 
 #[derive(Clone, Copy)]
-enum Direction {
+pub(crate) enum Direction {
     In,
     Out,
     Actual,
@@ -53,13 +53,32 @@ impl Desktop {
     }
 
     pub(crate) fn zoom_key(&mut self, event: &KeyEvent, tx: &Tx) -> bool {
+        let Some(direction) = Direction::from_key(event, tx) else {
+            return false;
+        };
+        if !self.zoom_browser(direction.browser_setting(), tx) {
+            self.zoom_window(direction);
+        }
+        true
+    }
+}
+
+impl Direction {
+    pub(crate) fn browser_setting(self) -> &'static str {
+        match self {
+            Self::In => "zoomIn",
+            Self::Out => "zoomOut",
+            Self::Actual => "resetZoom",
+        }
+    }
+    pub(crate) fn from_key(event: &KeyEvent, tx: &Tx) -> Option<Self> {
         if event.key == Key::Insert
             || !event.mods.cmd
             || event.mods.alt
             || (cfg!(target_os = "macos") && event.mods.ctrl)
             || (!cfg!(target_os = "macos") && event.mods.logo)
         {
-            return false;
+            return None;
         }
         let typed = match &event.key {
             Key::Command(c) => Some(*c),
@@ -75,10 +94,9 @@ impl Desktop {
                 Direction::Out
             }
             (Some('0'), _, false) | (_, Some(PhysicalKeyCode::Numpad0), false) => Direction::Actual,
-            _ => return false,
+            _ => return None,
         };
-        self.zoom_window(direction);
-        true
+        Some(direction)
     }
 }
 
@@ -89,6 +107,7 @@ pub(crate) fn view_menu(app: App<Desktop>) -> App<Desktop> {
             .id(id)
             .key_equivalent(shortcut.parse().expect("valid window zoom shortcut"))
             .menu("View")
+            .keys_first()
     };
     app.menu_item(item("actual-size", "Actual Size", "mod+0", |s, _| {
         s.zoom_window(Direction::Actual)

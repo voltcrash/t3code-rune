@@ -150,6 +150,9 @@ fn key(s: &mut Desktop, ev: &KeyEvent, tx: &mut Tx, down: bool) -> bool {
     {
         return false;
     }
+    if s.browser_page_shortcut(ev, tx, down) {
+        return true;
+    }
     if ev.key == Key::Escape && ev.mods.shift {
         if down {
             tx.focus("browser-address", true);

@@ -1,5 +1,6 @@
 mod dialog;
 mod input;
+mod menu;
 
 use super::{Desktop, Request};
 use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, row, text_input, tok};
@@ -16,6 +17,7 @@ pub(crate) const ICON: Icon = Icon {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Labels {
     pub title: String,
+    menu: menu::Labels,
     address: String,
     add: String,
     close_tab: String,
@@ -38,6 +40,10 @@ pub(crate) struct Tab {
     id: String,
     url: String,
     title: String,
+    zoom: u16,
+    scheme: String,
+    can_zoom_in: bool,
+    can_zoom_out: bool,
     back: bool,
     forward: bool,
     failure: Option<String>,
@@ -77,6 +83,7 @@ pub(crate) struct Panel {
     input: input::Input,
     answer: TextEdit,
     focus_dialog: bool,
+    menu_open: bool,
 }
 impl Panel {
     fn new(watch: u64, operation: u64) -> Self {
@@ -93,6 +100,7 @@ impl Panel {
             input: input::Input::default(),
             answer: TextEdit::new(""),
             focus_dialog: false,
+            menu_open: false,
         }
     }
 }
@@ -164,6 +172,7 @@ impl Desktop {
             if p.page.selected != page.selected
                 || p.page.dialog.as_ref().map(|d| d.id) != page.dialog.as_ref().map(|d| d.id)
             {
+                p.menu_open = false;
                 p.answer = TextEdit::new(
                     page.dialog
                         .as_ref()
@@ -309,9 +318,9 @@ fn button(
 pub(crate) fn view(
     s: &Desktop,
     theme: &tok::Theme,
-    height: f32,
-    leading: f32,
-    trailing: f32,
+    bar: super::workspace::Topbar,
+    kit: &rune_kit::Kit,
+    overlays: &mut Vec<El>,
 ) -> El {
     let (Some(p), Some(labels)) = (&s.workspace.browser.panel, &s.workspace.browser.labels) else {
         return el();
@@ -371,10 +380,10 @@ pub(crate) fn view(
         |s, _| s.browser_command("add"),
     ));
     let top = row()
-        .h(height)
+        .h(bar.height)
         .w_full()
-        .pl(leading + 6.)
-        .pr(trailing + 6.)
+        .pl(bar.leading + 6.)
+        .pr(bar.trailing + 6.)
         .gap(2.)
         .center_y()
         .window_drag()
@@ -435,7 +444,8 @@ pub(crate) fn view(
             } else {
                 field.disabled(true)
             },
-        );
+        )
+        .child(menu::view(p, &labels.menu, theme, kit, overlays));
     let mut frame = el()
         .key("browser-page")
         .label(&labels.title)
