@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Node’s file-backed Blob detects changes to the selected file while streaming it.
+import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@t3tools/client-runtime/text-paste";
 import { makeEnvironmentHttpApiGroupClient } from "@t3tools/client-runtime/rpc";
 import {
   clampFileAttachmentUploadBytes,
@@ -7,6 +8,7 @@ import {
 import {
   getProviderAttachmentLimitError,
   MessageId,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   ThreadId,
@@ -34,14 +36,26 @@ type EnvironmentRpc = Effect.Success<ReturnType<typeof openEnvironmentRpc>>;
 
 const unavailable = (message: string) => new AttachmentUnavailable({ message });
 
+export type SelectedFile = string | { readonly path: string; readonly pasted: string };
+
+export function textPasteLimits(session: Session) {
+  return {
+    threshold: PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES,
+    input: PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+    file: session.attachmentUploads ? clampFileAttachmentUploadBytes(session.maxFileBytes) : 0,
+  };
+}
+
 const openSelection = Effect.fn("nativeDesktop.openSelection")(function* (
   session: Session,
-  path: string,
+  selection: SelectedFile,
 ) {
-  const name = NodePath.basename(path).trim();
+  const pasted = typeof selection !== "string";
+  const path = pasted ? selection.path : selection;
+  const name = pasted ? selection.pasted : NodePath.basename(path).trim();
   if (!name || name.length > 255)
     return yield* unavailable("Choose a file with a name of 1 to 255 characters.");
-  const mimeType = lookup(name) ?? "application/octet-stream";
+  const mimeType = pasted ? "text/plain" : (lookup(name) ?? "application/octet-stream");
   const imageType = PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find((type) => type === mimeType);
   const limit = imageType
     ? PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
@@ -60,13 +74,13 @@ const openSelection = Effect.fn("nativeDesktop.openSelection")(function* (
   const metadata: AttachmentCreateUploadUrlInput = imageType
     ? { type: "image", name, mimeType: imageType, sizeBytes: blob.size }
     : { type: "file", name, mimeType, sizeBytes: blob.size };
-  return { blob, metadata };
+  return { blob, metadata, pasted };
 });
 
 export const prepareAttachments = Effect.fn("nativeDesktop.prepareAttachments")(function* (
   session: Session,
   rpc: EnvironmentRpc,
-  paths: readonly string[] = [],
+  paths: readonly SelectedFile[] = [],
   thread: string,
   operation: string,
 ) {
@@ -105,6 +119,7 @@ export const prepareAttachments = Effect.fn("nativeDesktop.prepareAttachments")(
     Effect.fn("nativeDesktop.uploadAttachment")(function* ({
       metadata,
       blob,
+      pasted,
     }: (typeof files)[number]) {
       const slot = yield* rpc[WS_METHODS.attachmentsCreateUploadUrl](metadata);
       minted.push(slot.attachmentId);
@@ -121,11 +136,14 @@ export const prepareAttachments = Effect.fn("nativeDesktop.prepareAttachments")(
             ),
           ),
         );
-      return {
-        ...metadata,
-        type: metadata.type ?? "image",
-        id: slot.attachmentId,
-      } satisfies ChatAttachment;
+      const stored = { ...metadata, id: slot.attachmentId };
+      if (pasted)
+        return {
+          ...stored,
+          type: "file",
+          source: { _tag: "pasted-text" },
+        } satisfies ChatAttachment;
+      return { ...stored, type: metadata.type ?? "image" } satisfies ChatAttachment;
     }),
   ).pipe(
     Effect.onExit((exit) =>
@@ -148,7 +166,7 @@ export const retryAttachments = Effect.fn("nativeDesktop.retryAttachments")(func
   session: Session,
   rpc: EnvironmentRpc,
   cached: readonly ChatAttachment[],
-  paths: readonly string[],
+  paths: readonly SelectedFile[],
   thread: string,
   operation: string,
   onMissingThread?: () => void,

@@ -137,6 +137,10 @@ impl NewThreads {
             self.active = None;
         }
     }
+    pub(super) fn retained_input_units(&self) -> Option<usize> {
+        let draft = self.drafts.get(self.active.as_deref()?)?;
+        (!draft.uncertain).then(|| super::attachments::retained_input_units(&draft.prompt))
+    }
     pub(super) fn editable_files(&mut self) -> Option<&mut Vec<Attachment>> {
         let draft = self.current();
         (!draft.uncertain).then_some(&mut draft.files)

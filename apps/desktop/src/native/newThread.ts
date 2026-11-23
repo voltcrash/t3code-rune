@@ -19,7 +19,7 @@ import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
-import { prepareAttachments, retryAttachments } from "./attachments.ts";
+import { prepareAttachments, retryAttachments, type SelectedFile } from "./attachments.ts";
 import { draftModelCatalog, draftModelReply } from "./draftModels.ts";
 import { permissionLabel } from "./permissions.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
@@ -115,7 +115,7 @@ const prepareLaunch = Effect.fn("nativeDesktop.prepareLaunch")(function* (
     project: string;
     model: string;
     text: string;
-    files: readonly string[];
+    files: readonly SelectedFile[];
     operation: string;
     runtime: string;
     runtime_override?: string | null;

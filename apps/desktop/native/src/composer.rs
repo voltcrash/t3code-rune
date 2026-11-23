@@ -36,6 +36,9 @@ impl Default for Draft {
 }
 
 impl Draft {
+    pub(super) fn retained_input_units(&self) -> usize {
+        super::attachments::retained_input_units(&self.editor)
+    }
     pub(super) fn set_model(
         &mut self,
         pick: Option<crate::models::Handoff>,

@@ -23,6 +23,8 @@ pub(crate) struct Labels {
     pub(crate) file_close: String,
     pub(crate) truncated: String,
     pub(crate) retry: String,
+    too_large: String,
+    remove_some: String,
 
     pub(crate) preview: String,
     remove: String,
@@ -46,6 +48,8 @@ impl Default for Labels {
             truncated: "Preview limited to the first 1 MB. Save the file to read it in full."
                 .into(),
             retry: "Try again".into(),
+            too_large: "Pasted text is too large to attach".into(),
+            remove_some: "Remove some text or an attachment, then paste again.".into(),
 
             preview: "Preview {name}".into(),
             remove: "Remove {name}".into(),
@@ -54,29 +58,65 @@ impl Default for Labels {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Default, serde::Deserialize)]
+pub(super) struct TextPasteLimits {
+    threshold: usize,
+    input: usize,
+    file: usize,
+}
+
+#[derive(Clone)]
 pub(super) struct Selection {
     pub(super) path: String,
-    #[serde(skip)]
+    pasted: Option<String>,
     clipboard_file: Option<Rc<TempPath>>,
-    #[serde(skip)]
     thumbnail: Option<preview::Thumbnail>,
+}
+
+pub(super) fn retained_input_units(edit: &rune::TextEdit) -> usize {
+    let (start, end) = edit.range();
+    edit.text[..start].encode_utf16().count() + edit.text[end..].encode_utf16().count()
+}
+
+impl serde::Serialize for Selection {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(name) = &self.pasted {
+            use serde::ser::SerializeStruct;
+            let mut file = serializer.serialize_struct("PastedText", 2)?;
+            file.serialize_field("path", &self.path)?;
+            file.serialize_field("pasted", name)?;
+            file.end()
+        } else {
+            serializer.serialize_str(&self.path)
+        }
+    }
 }
 
 impl Selection {
     pub(super) fn local(path: &str) -> Self {
         Self {
             path: path.to_owned(),
+            pasted: None,
             clipboard_file: None,
             thumbnail: preview::Thumbnail::for_path(Path::new(path)),
         }
     }
 
+    fn name(&self) -> &str {
+        self.pasted
+            .as_deref()
+            .or_else(|| Path::new(&self.path).file_name()?.to_str())
+            .unwrap_or(&self.path)
+    }
+
     fn png(bytes: &[u8]) -> io::Result<Self> {
+        Self::temporary("image-", ".png", bytes)
+    }
+
+    fn temporary(prefix: &str, suffix: &str, bytes: &[u8]) -> io::Result<Self> {
         let mut file = tempfile::Builder::new()
-            .prefix("image-")
-            .suffix(".png")
+            .prefix(prefix)
+            .suffix(suffix)
             .tempfile()?;
         file.write_all(bytes)?;
         let file = file.into_temp_path();
@@ -279,6 +319,76 @@ impl Target {
         }
     }
 
+    fn fold_text(&self, app: &mut Desktop, text: &str) -> bool {
+        let limits = app.text_paste;
+        if text.is_empty()
+            || limits.threshold == 0
+            || app.pending
+            || !app.can_operate
+            || !self.active(app)
+        {
+            return false;
+        }
+        let retained = match self {
+            Self::Project(_) => app.new_threads.retained_input_units(),
+            Self::Thread(id) => app
+                .workspace
+                .drafts
+                .get(id)
+                .map(|draft| draft.retained_input_units()),
+        };
+        let Some(retained) = retained else {
+            return false;
+        };
+        let exceeds_input = text.len() + retained > limits.input
+            && text.encode_utf16().count() + retained > limits.input;
+        if !exceeds_input && text.len() < limits.threshold {
+            return false;
+        }
+        let mut consumed = false;
+        let mut error = None;
+        let labels = &app.workspace.attachment_labels;
+        let too_large = labels.too_large.clone();
+        let remove_some = labels.remove_some.clone();
+        self.edit(app, |files| {
+            if limits.file == 0 || text.len() > limits.file || files.len() >= FILE_LIMIT {
+                if exceeds_input {
+                    error = Some(if limits.file > 0 && text.len() > limits.file {
+                        too_large
+                    } else {
+                        remove_some
+                    });
+                    consumed = true;
+                }
+                return;
+            }
+            match Selection::temporary("paste-", ".txt", text.as_bytes()) {
+                Ok(mut selection) => {
+                    let mut number = 1;
+                    let mut name = "pasted-text.txt".to_owned();
+                    while files
+                        .iter()
+                        .any(|file| file.name().eq_ignore_ascii_case(&name))
+                    {
+                        number += 1;
+                        name = format!("pasted-text-{number}.txt");
+                    }
+                    selection.pasted = Some(name);
+                    files.push(selection);
+                    consumed = true;
+                }
+                Err(e) => {
+                    error = Some(e.to_string());
+                    consumed = exceeds_input;
+                }
+            }
+        });
+        if error.is_some() {
+            app.error = error;
+        }
+        consumed
+    }
+
     pub(super) fn paste(&self, app: &mut Desktop, content: &rune::ClipboardContent) -> bool {
         let paths = content.files();
         let image = content.image();
@@ -293,13 +403,13 @@ impl Target {
                 && !content.text().is_empty()
                 && !describes_paths(content.text(), paths)
             {
-                return false;
+                return self.fold_text(app, content.text());
             }
             self.add(app, paths);
             return true;
         }
         let Some(image) = image.filter(|_| content.text().is_empty()) else {
-            return false;
+            return self.fold_text(app, content.text());
         };
         let mut error = None;
         self.edit(app, |files| {
@@ -388,10 +498,7 @@ impl Target {
         let mut documents = 0;
         for file in files {
             let path = &file.path;
-            let name = Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path);
+            let name = file.name();
             let caption = workspace.attachment_labels.remove.replace("{name}", name);
             let target = self.clone();
             let remove_path = path.clone();
@@ -499,6 +606,30 @@ mod tests {
         app.new_threads
             .configure("project".into(), vec![], Default::default(), false, "main");
         let target = Target::Project("project".into());
+        app.text_paste = TextPasteLimits {
+            threshold: 32 * 1024,
+            input: 120_000,
+            file: 128 * 1024,
+        };
+        let raw = "🎨".repeat(8192);
+        let large = ClipboardContent::new(raw.clone());
+        assert!(!target.paste(&mut app, &ClipboardContent::new(raw[4..].to_string())));
+        assert!(target.paste(&mut app, &large));
+        assert!(target.paste(&mut app, &large));
+        let files = app.new_threads.editable_files().unwrap();
+        assert_eq!(files[0].name(), "pasted-text.txt");
+        assert_eq!(files[1].name(), "pasted-text-2.txt");
+        assert_eq!(std::fs::read(&files[0].path).unwrap(), raw.as_bytes());
+        assert_eq!(
+            serde_json::to_value(&files[0]).unwrap()["pasted"],
+            "pasted-text.txt"
+        );
+        files.clear();
+        app.text_paste.file = 0;
+        assert!(!target.paste(&mut app, &large));
+        let overflow = ClipboardContent::new("x".repeat(120_001));
+        assert!(target.paste(&mut app, &overflow));
+        assert!(app.error.take().is_some());
         let mixed = ClipboardContent::new("share this").with_files([PathBuf::from("notes.txt")]);
         assert!(!target.paste(&mut app, &mixed));
         assert!(app.new_threads.editable_files().unwrap().is_empty());

@@ -186,6 +186,8 @@ enum Reply {
         #[serde(default)]
         can_read_files: bool,
         #[serde(default)]
+        text_paste: attachments::TextPasteLimits,
+        #[serde(default)]
         can_write_files: bool,
         #[serde(default)]
         can_pin: bool,
@@ -716,6 +718,7 @@ struct Desktop {
     can_operate: bool,
     can_write_files: bool,
     can_read_files: bool,
+    text_paste: attachments::TextPasteLimits,
     can_pin: bool,
     terminal_read: bool,
     terminal_write: bool,
@@ -770,6 +773,7 @@ impl Desktop {
             can_operate: false,
             can_write_files: false,
             can_read_files: false,
+            text_paste: Default::default(),
             can_pin: false,
             terminal_read: false,
             terminal_write: false,
@@ -1321,6 +1325,7 @@ impl Desktop {
                 can_operate,
                 can_write_files,
                 can_read_files,
+                text_paste,
                 can_pin,
                 terminal_read,
                 terminal_write,
@@ -1336,6 +1341,7 @@ impl Desktop {
                 self.can_operate = can_operate;
                 self.can_write_files = can_write_files;
                 self.can_read_files = can_read_files;
+                self.text_paste = text_paste;
                 self.can_pin = can_operate && can_pin;
                 self.terminal_read = terminal_read;
                 self.terminal_write = terminal_write;
@@ -2451,6 +2457,7 @@ mod tests {
                 can_operate: true,
                 can_write_files: true,
                 can_read_files: true,
+                text_paste: Default::default(),
                 can_pin: true,
                 terminal_read: true,
                 terminal_write: true,
