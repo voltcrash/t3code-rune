@@ -228,6 +228,14 @@ mod tests {
             hits.push(ranges.first().unwrap().start);
         });
         assert_eq!(hits, [src.rfind("needle needle").unwrap()]);
+
+        let src = "**needle**\n".repeat(20_000) + "\nneedle needle";
+        hits.clear();
+        prompt_occurrences(&src, "needle needle", Some(0), |ranges, current| {
+            assert!(current);
+            hits.push(ranges[0].start);
+        });
+        assert_eq!(hits, [src.rfind("needle needle").unwrap()]);
     }
     #[test]
     fn search_keeps_original_byte_offsets_for_curly_quotes_and_dotted_i() {
