@@ -1,3 +1,5 @@
+import * as Equal from "effect/Equal";
+import { providerWorkspaceSnapshotBasis } from "@t3tools/client-runtime/state/server-config-projection";
 import { composerSkillSearch } from "./composerSkills.ts";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { watchProjectFileActions } from "./projectFile.ts";
@@ -88,6 +90,7 @@ export function watchWorkspace(
   currentVisit: () => ReturnType<typeof trackVisibleThread> | undefined,
   onWorkspaceConfig: Parameters<typeof watchDraftModels>[3],
   onSynchronized: (ready: boolean) => void,
+  onSkillsChanged: (instance: string) => void,
 ) {
   let { sequence, identities, scratchRoot, visitRows } = initial;
   const projects = rowsById(initial.view.projects);
@@ -138,6 +141,9 @@ export function watchWorkspace(
   const searchSkills = composerSkillSearch();
   let skillScope: Scope.Scope | undefined;
   let workspaceConfig: ServerConfig | undefined;
+  let skillInstance: string | null = null;
+  const skillProvider = (config: ServerConfig | undefined) =>
+    config?.providers.find((p) => p.instanceId === skillInstance);
   const draftModels = watchDraftModels(
     signal,
     (id) => projects.get(id),
@@ -147,6 +153,19 @@ export function watchWorkspace(
         configLoaded = true;
         scratchRoot = config.scratchWorkspaceRoot;
         git.reconcile();
+      }
+      if (skillInstance && config) {
+        const before = skillProvider(workspaceConfig);
+        const after = skillProvider(config);
+        if (
+          before !== after &&
+          !Equal.equals(
+            providerWorkspaceSnapshotBasis(before),
+            providerWorkspaceSnapshotBasis(after),
+          )
+        ) {
+          onSkillsChanged(skillInstance);
+        }
       }
       workspaceConfig = config;
       scripts.configure(config?.settings);
@@ -440,9 +459,10 @@ export function watchWorkspace(
       };
       const rpc = activeRpc;
       if (!session.canOperate || !rpc || checkout() !== root) return [];
+      skillInstance = instance;
       if (instance) {
         if (!skillScope) return [];
-        const provider = workspaceConfig?.providers.find((p) => p.instanceId === instance);
+        const provider = skillProvider(workspaceConfig);
         const skills = yield* searchSkills(rpc, skillScope, root, instance, provider, query);
         return activeRpc === rpc && checkout() === root ? skills : [];
       }

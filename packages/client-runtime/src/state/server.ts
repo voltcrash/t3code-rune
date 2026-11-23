@@ -65,6 +65,7 @@ import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import {
   applyServerConfigProjection,
+  providerWorkspaceSnapshotBasis,
   reuseUnchanged,
   type ServerConfigProjection,
   withoutEnvironmentThemes,
@@ -820,28 +821,10 @@ export function resolveServerConfigValue(
   return initialConfig ?? projection?.config ?? null;
 }
 
-/**
- * The provider-wide fields a workspace snapshot builds on. A live session, a sign-out, a
- * /usage-limits change, or a server rescan that changed the skills shows up here, so a snapshot
- * fetched before it no longer applies.
- */
-const snapshotBasis = (provider: ServerProviderEntry | undefined) =>
-  provider && {
-    enabled: provider.enabled,
-    models: provider.models,
-    // The digest stands for the lists, which load with a snapshot and must not unseat it.
-    ...(provider.catalogDigest === undefined
-      ? { slashCommands: provider.slashCommands, skills: provider.skills }
-      : { catalogDigest: provider.catalogDigest }),
-    ...(provider.workspaceRescannedAt === undefined
-      ? {}
-      : { workspaceRescannedAt: provider.workspaceRescannedAt }),
-  };
-
 interface FetchedWorkspaceSnapshot {
   readonly instanceId: ProviderInstanceId;
   readonly snapshot: ServerProviderWorkspaceSnapshot;
-  readonly basis: ReturnType<typeof snapshotBasis>;
+  readonly basis: ReturnType<typeof providerWorkspaceSnapshotBasis>;
 }
 
 const MAX_FETCHED_WORKSPACE_SNAPSHOTS = 32;
@@ -868,7 +851,7 @@ export function withFetchedWorkspaceSnapshots(
       const own = fetched.filter(
         (entry) =>
           entry.instanceId === provider.instanceId &&
-          Equal.equals(entry.basis, snapshotBasis(provider)),
+          Equal.equals(entry.basis, providerWorkspaceSnapshotBasis(provider)),
       );
       return own.length === 0
         ? provider
@@ -883,7 +866,7 @@ export function recordFetchedWorkspaceSnapshot(
   providers: ServerConfig["providers"],
   configProvider: ServerProviderEntry | undefined,
 ): ReadonlyArray<FetchedWorkspaceSnapshot> {
-  const basis = snapshotBasis(configProvider);
+  const basis = providerWorkspaceSnapshotBasis(configProvider);
   const snapshot = providers
     .find((provider) => provider.instanceId === input.instanceId)
     ?.workspaceSnapshots?.find((candidate) => candidate.cwd === input.cwd);

@@ -65,6 +65,26 @@ export function reuseUnchanged<T>(previous: unknown, next: T): T {
   return (same ? previous : merged) as T;
 }
 
+/**
+ * The provider-wide fields a workspace snapshot builds on. A live session, a sign-out, a
+ * /usage-limits change, or a server rescan that changed the skills shows up here, so a snapshot
+ * fetched before it no longer applies.
+ */
+export const providerWorkspaceSnapshotBasis = (
+  provider: ServerConfig["providers"][number] | undefined,
+) =>
+  provider && {
+    enabled: provider.enabled,
+    models: provider.models,
+    // The digest stands for the lists, which load with a snapshot and must not unseat it.
+    ...(provider.catalogDigest === undefined
+      ? { slashCommands: provider.slashCommands, skills: provider.skills }
+      : { catalogDigest: provider.catalogDigest }),
+    ...(provider.workspaceRescannedAt === undefined
+      ? {}
+      : { workspaceRescannedAt: provider.workspaceRescannedAt }),
+  };
+
 type ServerProviders = ServerConfig["providers"];
 
 /**

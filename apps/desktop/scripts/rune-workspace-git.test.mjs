@@ -50,6 +50,7 @@ it.each([true, false])(
           configLoaded: true,
           view: { projects: [project], threads: [thread] },
           visitRows: new Map(),
+          legacyScripts: new Map(),
         },
         controller.signal,
         noop,
@@ -57,6 +58,8 @@ it.each([true, false])(
         noop,
         noop,
         () => ({ reconnect: synchronized.resolve }),
+        noop,
+        noop,
         noop,
       );
       const select = (id, cwd, notify) =>
@@ -67,7 +70,7 @@ it.each([true, false])(
       replay.resolve({
         kind: "project.updated",
         sequence: 2,
-        project: { ...project, workspaceRoot: "/moved" },
+        project: { ...project, workspaceRoot: "/moved", scripts: [] },
       });
       await synchronized.promise;
       expect(await workspace.git.initialize(1)).toBe(false);

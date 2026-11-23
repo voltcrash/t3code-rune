@@ -197,6 +197,7 @@ function startWorkspaceFeed(owner, initial, watch) {
       configureProviders(config);
     },
     (ready) => write({ type: "composerfilesready", watch, ready }),
+    (instance) => write({ type: "composerskillschanged", watch, instance }),
   );
   workspaceFeed = {
     watch,

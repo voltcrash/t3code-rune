@@ -136,6 +136,16 @@ pub(super) struct Picker {
 }
 
 impl Picker {
+    pub(super) fn skills_changed(&mut self, watch: u64, instance: &str) {
+        if self.search.as_ref().is_some_and(|s| {
+            !s.dismissed
+                && s.trigger.watch == watch
+                && s.trigger.instance.as_deref() == Some(instance)
+        }) {
+            self.search = None;
+        }
+    }
+
     pub(super) fn connection(&mut self, watch: u64, ready: bool) {
         if ready {
             self.ready = Some(watch);
