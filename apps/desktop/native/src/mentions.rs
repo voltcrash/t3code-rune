@@ -215,6 +215,15 @@ impl Picker {
         }
     }
 
+    pub(super) fn slash_settings_changed(&mut self) {
+        if let Some(s) = &mut self.search
+            && !s.dismissed
+            && s.trigger.kind == Kind::Command
+        {
+            s.needs_refresh = true;
+        }
+    }
+
     pub(super) fn connection(&mut self, watch: u64, ready: bool) {
         if ready {
             self.ready = Some(watch);

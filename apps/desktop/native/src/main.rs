@@ -2286,7 +2286,10 @@ fn start() -> io::Result<()> {
                 } = reply.reply
                 {
                     s.settings_labels = Some(settings_labels);
-                    s.slash_skills = slash_skills;
+                    if s.slash_skills != slash_skills {
+                        s.slash_skills = slash_skills;
+                        s.mentions.slash_settings_changed();
+                    }
                     s.chat_width = chat_width;
                     s.font_smoothing = Some(smoothing);
                     if s.saving_client_settings {

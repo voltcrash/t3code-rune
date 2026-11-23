@@ -42,16 +42,37 @@ impl SettingsPage {
         }
     }
 
-    pub(super) fn button(self, s: &Desktop, theme: &tok::Theme) -> El {
+    pub(super) fn tabs(s: &Desktop, theme: &tok::Theme, compact: bool) -> El {
+        let layout = if compact { row().px(12.) } else { col() };
+        let tabs = layout
+            .key("settings-tabs")
+            .role("tablist")
+            .focus_group()
+            .label(
+                s.settings_labels
+                    .as_ref()
+                    .map_or("Settings", |l| l.settings.as_str()),
+            )
+            .w_full()
+            .gap(4.)
+            .child(Self::Appearance.tab(s, theme));
+        if s.settings_labels.is_some() {
+            tabs.child(Self::Chat.tab(s, theme))
+        } else {
+            tabs
+        }
+    }
+
+    fn tab(self, s: &Desktop, theme: &tok::Theme) -> El {
         let active = self == s.settings_page;
         let name = self.title(s.settings_labels.as_ref());
         let (key, icon) = match self {
             Self::Appearance => ("settings-appearance", &PALETTE),
             Self::Chat => ("settings-chat", &CHAT),
         };
-        let button = row()
+        let tab = row()
             .key(key)
-            .role("button")
+            .role("tab")
             .label(name)
             .focus_selected(active)
             .focusable(true)
@@ -76,9 +97,9 @@ impl SettingsPage {
                 tx.focus(key, true);
             });
         if active {
-            button.fill(theme.separator)
+            tab.fill(theme.separator)
         } else {
-            button
+            tab
         }
     }
 }
@@ -116,6 +137,7 @@ pub(super) fn composer(
         .on_press(|s: &mut Desktop| s.composer_advanced = !s.composer_advanced);
     let mut group = col()
         .w_full()
+        .radius(12.)
         .clip_rounded(12.)
         .border(1., theme.separator)
         .child(disclosure);

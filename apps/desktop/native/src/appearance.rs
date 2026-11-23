@@ -475,29 +475,19 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .border(1., theme.separator)
         .fill(theme.bg);
     if nav > 0. {
-        let mut links = col()
+        let links = col()
             .w(nav)
             .h_full()
             .padding(12.)
             .gap(4.)
             .fill(theme.text.alpha(0.025))
             .child(label(settings_title, 15., 600., theme.text).padding(8.))
-            .child(SettingsPage::Appearance.button(s, theme));
-        if labels.is_some() {
-            links = links.child(SettingsPage::Chat.button(s, theme));
-        }
+            .child(SettingsPage::tabs(s, theme, false));
         panel = panel.child(links);
     }
     let mut column = col().grow(1.).min_w(0.).h_full().child(header);
     if nav == 0. && labels.is_some() {
-        column = column.child(
-            row()
-                .w_full()
-                .px(12.)
-                .gap(4.)
-                .child(SettingsPage::Appearance.button(s, theme))
-                .child(SettingsPage::Chat.button(s, theme)),
-        );
+        column = column.child(SettingsPage::tabs(s, theme, true));
     }
     panel = panel
         .child(
