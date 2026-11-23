@@ -51,7 +51,8 @@ function withLayout<T>(
   const db = open();
   try {
     db.exec(
-      "CREATE TABLE IF NOT EXISTS hidden_details (environment TEXT, draft INTEGER, target TEXT, PRIMARY KEY(environment, draft, target))",
+      "CREATE TABLE IF NOT EXISTS hidden_details (environment TEXT, draft INTEGER, target TEXT, PRIMARY KEY(environment, draft, target));" +
+        "CREATE TABLE IF NOT EXISTS panel_widths (environment TEXT, thread TEXT, width INTEGER NOT NULL, PRIMARY KEY(environment, thread))",
     );
     return run(db);
   } finally {
@@ -59,7 +60,7 @@ function withLayout<T>(
   }
 }
 
-export function hiddenThreadDetails(open: () => NodeSqlite.DatabaseSync, environment: string) {
+export function readThreadLayout(open: () => NodeSqlite.DatabaseSync, environment: string) {
   return withLayout(open, (db) => {
     const threads: string[] = [];
     const drafts: string[] = [];
@@ -68,7 +69,21 @@ export function hiddenThreadDetails(open: () => NodeSqlite.DatabaseSync, environ
       .iterate(environment)) {
       if (typeof target === "string") (draft ? drafts : threads).push(target);
     }
-    return { threads, drafts };
+    const widths = new Map<string, number>();
+    for (const { thread, width } of db
+      .prepare("SELECT thread, width FROM panel_widths WHERE environment = ?")
+      .iterate(environment)) {
+      if (
+        typeof thread === "string" &&
+        typeof width === "number" &&
+        Number.isInteger(width) &&
+        width >= 1 &&
+        width <= 0xffffffff
+      ) {
+        widths.set(thread, width);
+      }
+    }
+    return { hidden: { threads, drafts }, widths: Object.fromEntries(widths) };
   });
 }
 
@@ -85,5 +100,18 @@ export function setThreadDetailsVisibility(
         ? "DELETE FROM hidden_details WHERE environment = ? AND draft = ? AND target = ?"
         : "INSERT OR IGNORE INTO hidden_details(environment, draft, target) VALUES (?, ?, ?)",
     ).run(environment, Number(draft), target);
+  });
+}
+
+export function setThreadPanelWidth(
+  open: () => NodeSqlite.DatabaseSync,
+  environment: string,
+  thread: string,
+  width: number,
+) {
+  withLayout(open, (db) => {
+    db.prepare(
+      "INSERT INTO panel_widths(environment, thread, width) VALUES (?, ?, ?) ON CONFLICT(environment, thread) DO UPDATE SET width = excluded.width",
+    ).run(environment, thread, width);
   });
 }

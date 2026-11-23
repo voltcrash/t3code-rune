@@ -18,8 +18,9 @@ import { trackVisibleThread, visitFromWindow } from "../src/native/visits.ts";
 import { watchSidebarProviders } from "../src/native/sidebarProviders.ts";
 import { watchWorkspace } from "../src/native/workspaceFeed.ts";
 import {
-  hiddenThreadDetails,
+  readThreadLayout,
   setThreadDetailsVisibility,
+  setThreadPanelWidth,
   threadDetailsLabels,
 } from "../src/native/threadDetails.ts";
 import { runeUpdates } from "./rune-updates.mjs";
@@ -1348,11 +1349,11 @@ async function handleWorkspaceRequest(request, reply) {
       stopWorkspaceFeed();
       stopWatching();
       pendingLaunches.clear();
-      let hiddenDetails;
+      let layout;
       try {
-        hiddenDetails = hiddenThreadDetails(openLayoutDatabase, session.environmentId);
+        layout = readThreadLayout(openLayoutDatabase, session.environmentId);
       } catch {
-        process.stderr.write("Couldn’t read thread details visibility.\n");
+        process.stderr.write("Couldn’t read the desktop layout.\n");
       }
       reply({
         type: "connected",
@@ -1395,6 +1396,7 @@ async function handleWorkspaceRequest(request, reply) {
           preview: m(msg("Preview {name}", { name: "{name}" })),
           remove: m(msg("Remove {name}", { name: "{name}" })),
         },
+        panel_width: { widths: layout?.widths ?? {}, resize: m(msg("Resize right panel")) },
         browser_labels: session.browserAvailable ? browserLabels() : undefined,
         issues_labels: session.canReadIssues ? issueLabels() : undefined,
         usage_labels: usageLabels(),
@@ -1409,7 +1411,7 @@ async function handleWorkspaceRequest(request, reply) {
           installing: m(msg("Installing…")),
         },
         details: {
-          hidden: hiddenDetails,
+          hidden: layout?.hidden,
           machine: initialWorkspace.machine,
           windows: session.platform === "windows",
           environment: clientSettings.threadDetailsItems.environment !== false,
@@ -1878,6 +1880,28 @@ try {
       clientSettingsWrites = clientSettingsWrites.then(() => setClientSetting(request));
     } else if (request?.type === "openeditor" || request?.type === "chooseeditor") {
       void handleEditor(request, reply);
+    } else if (request?.type === "setpanelwidth") {
+      if (
+        session &&
+        workspaceFeed?.watch === request.watch &&
+        typeof request.thread === "string" &&
+        validWidth(request.width)
+      ) {
+        try {
+          setThreadPanelWidth(
+            openLayoutDatabase,
+            session.environmentId,
+            request.thread,
+            request.width,
+          );
+        } catch {
+          reply({
+            type: "layoutsaveerror",
+            watch: request.watch,
+            error: m(msg("Couldn’t save the panel width.")),
+          });
+        }
+      }
     } else if (request?.type === "setdetailsvisible") {
       if (session && workspaceFeed?.watch === request.watch) {
         const { watch, target, draft, visible } = request;
@@ -1891,7 +1915,7 @@ try {
           );
         } catch {
           reply({
-            type: "detailssaveerror",
+            type: "layoutsaveerror",
             watch,
             error: m(msg("Couldn’t save thread details visibility.")),
           });

@@ -4,9 +4,13 @@ import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { hiddenThreadDetails, setThreadDetailsVisibility } from "./threadDetails.ts";
+import {
+  readThreadLayout,
+  setThreadDetailsVisibility,
+  setThreadPanelWidth,
+} from "./threadDetails.ts";
 
-it.effect("remembers visibility separately for each environment, thread, and draft", () =>
+it.effect("remembers layout separately for each environment, thread, and draft", () =>
   Effect.gen(function* () {
     const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
     const database = (yield* Path.Path).join(dir, "layout.sqlite");
@@ -15,7 +19,17 @@ it.effect("remembers visibility separately for each environment, thread, and dra
     setThreadDetailsVisibility(open, "local", "one", true, false);
     setThreadDetailsVisibility(open, "local", "one", false, false);
     setThreadDetailsVisibility(open, "local", "one", false, true);
-    expect(hiddenThreadDetails(open, "local")).toEqual({ threads: [], drafts: ["one"] });
-    expect(hiddenThreadDetails(open, "remote")).toEqual({ threads: ["one"], drafts: [] });
+    setThreadPanelWidth(open, "remote", "one", 643);
+    setThreadPanelWidth(open, "local", "one", 440);
+    setThreadPanelWidth(open, "local", "one", 510);
+    setThreadPanelWidth(open, "local", "two", 360);
+    expect(readThreadLayout(open, "remote")).toEqual({
+      widths: { one: 643 },
+      hidden: { threads: ["one"], drafts: [] },
+    });
+    expect(readThreadLayout(open, "local")).toEqual({
+      widths: { one: 510, two: 360 },
+      hidden: { threads: [], drafts: ["one"] },
+    });
   }).pipe(Effect.provide(NodeServices.layer)),
 );

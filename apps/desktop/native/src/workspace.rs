@@ -17,6 +17,8 @@ use turn_folds::VisibleRow;
 pub(crate) mod file_diff;
 #[path = "palette.rs"]
 pub(super) mod palette;
+#[path = "workspace_panel_width.rs"]
+pub(crate) mod panel_width;
 #[path = "plan.rs"]
 mod plan;
 #[path = "sidebar_header.rs"]
@@ -305,6 +307,7 @@ pub(super) struct Workspace {
     settled: Vec<usize>,
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
+    pub(crate) panel_width: panel_width::Widths,
     pub(crate) terminal_heights: HashMap<String, f32>,
     search: TextEdit,
     search_target: Option<String>,
@@ -382,6 +385,7 @@ impl Workspace {
             settled: Vec::new(),
             conversation: None,
             drafts: HashMap::new(),
+            panel_width: Default::default(),
             terminal_heights: HashMap::new(),
             questions: HashMap::new(),
             search: TextEdit::new(""),
@@ -2323,6 +2327,13 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     thread_details::menu(s, &kit, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
+    let available = viewport[0] - if show_sidebar { width } else { 0. };
+    let max_panel_width = panel_width::max_width(viewport[0], available);
+    let panel_width = if split_panel {
+        s.workspace.panel_width.shown(s, max_panel_width)
+    } else {
+        available
+    };
     let workspace = if panel_open {
         let bar = Topbar {
             leading: if split_panel { 0. } else { bar.leading },
@@ -2333,19 +2344,20 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         } else if diff_open {
             file_diff::view(s, theme, &kit, bar)
         } else if s.workspace.explorer.is_some() {
-            let width = if split_panel {
-                (viewport[0] - if show_sidebar { width } else { 0. }) * 0.5
-            } else {
-                viewport[0]
-            };
-            workspace_tree::panel(s, theme, &kit, bar, width)
+            workspace_tree::panel(s, theme, &kit, bar, panel_width)
         } else {
             workspace_files::view(s, theme, &kit, bar, None)
         };
         if split_panel {
             root.child(main)
                 .child(el().w(1.).h_full().fill(theme.separator))
-                .child(panel)
+                .child(panel.grow(0.).min_w(panel_width))
+                .children(panel_width::rail(
+                    s,
+                    panel_width,
+                    max_panel_width,
+                    viewport[0] - panel_width,
+                ))
         } else {
             root.child(panel)
         }
