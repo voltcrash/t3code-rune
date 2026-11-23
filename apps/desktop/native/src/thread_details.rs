@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::cell::Cell;
 use std::collections::HashSet;
 
-const WIDTH: f32 = 280.;
+pub(super) const WIDTH: f32 = 280.;
 const GAP: f32 = 12.;
 const CLEARANCE: f32 = 32.;
 

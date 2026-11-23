@@ -24,6 +24,7 @@ enum Action {
     ToggleBrowser,
     TogglePanelMaximized,
     ToggleFiles,
+    FindThread,
     ToggleDetails,
     OpenEditor,
     OpenFile,
@@ -60,6 +61,7 @@ impl Action {
             Self::ToggleBrowser => "toggle-browser".into(),
             Self::TogglePanelMaximized => "maximize-workspace-panel".into(),
             Self::ToggleFiles => "toggle-files".into(),
+            Self::FindThread => "find-in-thread".into(),
             Self::ToggleDetails => "toggle-thread-details".into(),
             Self::OpenEditor => "open-editor".into(),
             Self::OpenFile => unreachable!(),
@@ -103,6 +105,13 @@ impl Action {
                     .map_or("Open in editor", |c| c.open_label())
                     .into();
             }
+            Self::FindThread => {
+                return ws
+                    .find_labels
+                    .as_ref()
+                    .map_or("Find in thread", |l| &l.title)
+                    .into();
+            }
             Self::ToggleDetails => {
                 return ws
                     .details
@@ -142,6 +151,8 @@ impl Action {
             Self::GoToFile => "Ctrl+P",
             Self::OpenEditor if cfg!(target_os = "macos") => "⌘O",
             Self::OpenEditor => "Ctrl+O",
+            Self::FindThread if cfg!(target_os = "macos") => "⌘F",
+            Self::FindThread => "Ctrl+F",
             Self::ToggleDetails if cfg!(target_os = "macos") => "⇧⌘B",
             Self::ToggleDetails => "Ctrl+Shift+B",
             Self::ToggleBrowser if cfg!(target_os = "macos") => "⇧⌘J",
@@ -162,6 +173,7 @@ impl Action {
             Self::TogglePanelMaximized => &super::panel_maximize::MAXIMIZE,
             Self::ToggleBrowser => &crate::browser::ICON,
             Self::ToggleFiles => &PANEL_ICON,
+            Self::FindThread => &glyphs::SEARCH,
             Self::ToggleDetails => &DETAILS_ICON,
             Self::OpenEditor => &super::thread_details::editor::OPEN,
             Self::Settings => &crate::appearance::GEAR,
@@ -206,6 +218,7 @@ enum Page {
 }
 
 struct Available {
+    find: bool,
     browser: bool,
     terminal: bool,
     files: bool,
@@ -316,6 +329,9 @@ impl Palette {
                 command(Action::ToggleSidebar);
                 if available.editor {
                     command(Action::OpenEditor);
+                }
+                if available.find {
+                    command(Action::FindThread);
                 }
                 if available.details {
                     command(Action::ToggleDetails);
@@ -560,6 +576,7 @@ impl Desktop {
             browser: self.browser_available(),
             terminal: self.terminal_available(),
             files: self.file_location().is_some(),
+            find: self.can_find_thread(),
             details: self.can_show_details(),
             editor: self.can_open_editor(),
         };
@@ -626,6 +643,19 @@ impl Desktop {
             Action::ToggleBrowser => self.toggle_browser(tx),
             Action::TogglePanelMaximized => self.toggle_panel_maximized(tx),
             Action::ToggleFiles => self.toggle_files_panel(tx),
+            Action::FindThread => {
+                let focus = if self.can_operate
+                    && self
+                        .workspace
+                        .visible_thread()
+                        .is_some_and(|t| !self.workspace.questions.contains_key(&t.id))
+                {
+                    "message-input"
+                } else {
+                    "thread-actions-trigger"
+                };
+                self.open_thread_find(Some(focus), tx)
+            }
             Action::ToggleDetails => self.toggle_details(tx),
             Action::OpenEditor => self.open_editor(),
             Action::Refresh => self.refresh_visible(),

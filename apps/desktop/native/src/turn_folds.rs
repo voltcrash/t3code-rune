@@ -91,6 +91,22 @@ impl Layout {
             self.visible[index]
         }
     }
+    pub(super) fn reveal(&mut self, index: usize, count: usize) {
+        let mut changed = false;
+        for fold in &self.folds {
+            if fold
+                .ranges
+                .iter()
+                .any(|&[first, end]| (first..end).contains(&index))
+            {
+                changed |= self.open.insert(fold.id.clone());
+            }
+        }
+        if changed {
+            self.update(count, None);
+        }
+    }
+
     pub(super) fn key(&self, group: usize) -> &str {
         &self.folds[group].id
     }

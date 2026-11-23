@@ -341,5 +341,11 @@
   "5001018045518f6c": "No se pudo guardar el ancho del panel.",
   "8381e38420ae57f3": "Maximizar el panel",
   "7e4b0afa9879fd43": "Restaurar el tamaño del panel",
-  "94e4f10759a0446c": "No se pudo guardar la disposición del panel."
+  "94e4f10759a0446c": "No se pudo guardar la disposición del panel.",
+  "0d8761c57796fb94": "Buscar en el hilo",
+  "bac07cd397c7d1a8": "Coincidencia siguiente",
+  "f67b82db6ff66321": "Coincidencia anterior",
+  "add695e6e4871706": "Cerrar búsqueda",
+  "bd5e110db33c9400": "Falló la búsqueda",
+  "1c79d42e902ff431": "Reintentar"
 }

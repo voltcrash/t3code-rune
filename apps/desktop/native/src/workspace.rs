@@ -29,6 +29,8 @@ mod sidebar_header;
 mod thread_actions;
 #[path = "thread_details.rs"]
 pub(crate) mod thread_details;
+#[path = "thread_find.rs"]
+pub(crate) mod thread_find;
 #[path = "workspace_files.rs"]
 pub(crate) mod workspace_files;
 #[path = "workspace_tree.rs"]
@@ -118,6 +120,7 @@ impl Thread {
 
 #[derive(Deserialize)]
 pub(super) struct MessageRow {
+    entry_id: Option<String>,
     #[serde(skip)]
     preview: std::cell::OnceCell<String>,
     key: String,
@@ -192,6 +195,7 @@ pub(super) enum LiveUpdate {
 }
 
 pub(super) struct Conversation {
+    find: Option<thread_find::Search>,
     folds: turn_folds::Layout,
     project_root: Option<String>,
     expanded_activities: HashSet<String>,
@@ -288,6 +292,7 @@ pub(super) struct Workspace {
     pub(crate) browser: crate::browser::Browser,
     pub(crate) issues: crate::issues::Issues,
     pub(crate) usage: crate::usage::Panel,
+    pub(crate) find_labels: Option<Box<thread_find::Labels>>,
     row_clock: sidebar_status::Clock,
     pub(super) paused: bool,
     pub(crate) diff: file_diff::Panel,
@@ -386,6 +391,7 @@ impl Workspace {
             filter_revision: 0,
             settled: Vec::new(),
             conversation: None,
+            find_labels: None,
             drafts: HashMap::new(),
             panel_width: Default::default(),
             terminal_heights: HashMap::new(),
@@ -803,6 +809,7 @@ impl Desktop {
         }
         self.workspace.drafts.entry(id.to_owned()).or_default();
         self.workspace.conversation = Some(Conversation {
+            find: None,
             folds: Default::default(),
             project_root: self
                 .workspace
@@ -1976,10 +1983,25 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let [measured_width, toolbar_height] = cx
         .layout_size("thread-titlebar")
         .unwrap_or([0., bar.height]);
+    let find_height = if s
+        .workspace
+        .conversation
+        .as_ref()
+        .is_some_and(|p| p.find.is_some())
+        && composing.is_none()
+        && !s.workspace.show_projects
+        && !s.history.on_issues()
+        && (!panel_open || split_panel)
+    {
+        thread_find::BAR_HEIGHT
+    } else {
+        0.
+    };
+    let overlays_top = toolbar_height + find_height;
     let layout = thread_details::layout(
         s,
         measured_width,
-        viewport[1] - toolbar_height,
+        viewport[1] - overlays_top,
         chat_lane_inset(viewport[0]),
         !panel_open || split_panel,
     );
@@ -2228,7 +2250,12 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     } else if !s.workspace.show_projects
         && let Some(pane) = &s.workspace.conversation
     {
-        timeline(s, pane, theme, dark, layout.lane, &mut overlays)
+        col()
+            .grow(1.)
+            .min_h(0.)
+            .w_full()
+            .children(thread_find::bar(s, pane, theme, dark))
+            .child(timeline(s, pane, theme, dark, layout.lane, &mut overlays))
     } else if matches!(s.landing, Landing::Failed(_)) {
         col()
             .grow(1.)
@@ -2275,16 +2302,11 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         main = main.child(drawer);
     }
     if layout.card {
-        main = main.children(thread_details::card(
-            s,
-            measured_width,
-            toolbar_height,
-            theme,
-        ));
+        main = main.children(thread_details::card(s, measured_width, overlays_top, theme));
     }
     if measured_width > 0.
         && let Some(banner) =
-            crate::provider_status::view(s, layout.banner_width, toolbar_height, theme, dark)
+            crate::provider_status::view(s, layout.banner_width, overlays_top, theme, dark)
     {
         main = main.child(banner);
     }
@@ -2435,6 +2457,7 @@ mod tests {
                 index: 0,
                 remove: 0,
                 rows: vec![MessageRow {
+                    entry_id: None,
                     preview: Default::default(),
                     key: "msg".into(),
                     role: "assistant".into(),
@@ -2600,6 +2623,7 @@ mod tests {
         desktop.open_thread("thread");
         let workspace = &mut desktop.workspace;
         let message = |key: &str| MessageRow {
+            entry_id: None,
             preview: Default::default(),
             key: key.into(),
             role: "user".into(),

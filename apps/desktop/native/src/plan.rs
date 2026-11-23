@@ -1,6 +1,6 @@
 use super::{Desktop, MessageRow, Request, label};
 use rune::{El, FileDialogOptions, TextEdit, TextStyle, Tx, col, el, row, spacer, text_input, tok};
-use rune_kit::{Dialog, Kit, Markdown, MarkdownStyle, Menu, MenuItem};
+use rune_kit::{Dialog, Kit, MarkdownStyle, Menu, MenuItem};
 use serde::Deserialize;
 use std::borrow::Cow;
 
@@ -67,13 +67,15 @@ impl Plan {
                     .fill(theme.text.alpha(0.08)),
             )
             .child(
-                label(title, 14., 500., theme.text)
+                super::thread_find::plain(s, item, title, label(title, 14., 500., theme.text))
                     .truncate()
                     .min_w(0.)
                     .grow(1.),
             );
         let header = header.child(options_button(s, &item.key, theme));
-        let body = Markdown::new(
+        let body = super::thread_find::markdown(
+            s,
+            item,
             self.markdown(&item.body, closed, item.caption.as_deref())
                 .as_ref(),
         )

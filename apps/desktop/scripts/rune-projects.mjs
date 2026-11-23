@@ -1,3 +1,4 @@
+import { threadFindLabels, findInThread } from "../src/native/threadFind.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
@@ -174,6 +175,7 @@ function startWorkspaceFeed(owner, initial, watch) {
   const hiddenProviders = new Set(usagePreferences().hiddenProviders);
   usage.filter(hiddenProviders);
   usageTotals.filter(hiddenProviders);
+  let threadFindMode;
   let registryIcons = new Set();
   const configureProviders = watchSidebarProviders((instances, art) => {
     registryIcons = new Set(
@@ -201,6 +203,21 @@ function startWorkspaceFeed(owner, initial, watch) {
       usageTotals.configure(config?.settings, rpc);
       editors.configure(config, rpc);
       configureProviders(config);
+      if (config) {
+        const mode = config.threadFind
+          ? config.threadFindProgressive
+            ? "stream"
+            : "single"
+          : "unavailable";
+        if (mode !== threadFindMode) {
+          threadFindMode = mode;
+          write({
+            type: "threadfindavailable",
+            watch,
+            labels: mode === "unavailable" ? null : threadFindLabels(),
+          });
+        }
+      }
     },
     (ready) => write({ type: "composerfilesready", watch, ready }),
     (instance) => write({ type: "composerskillschanged", watch, instance }),
@@ -244,6 +261,7 @@ function startWorkspaceFeed(owner, initial, watch) {
     issues: workspaceIssues(owner, signal, feed.activeRpc, (operation, list, error) =>
       write({ type: "issues", watch, operation, list, error }),
     ),
+    threadFindMode: () => threadFindMode,
     hasRegistryIcon: (url) => registryIcons.has(url),
     ...feed,
   };
@@ -1804,6 +1822,41 @@ try {
           .pipe(Effect.timeout("12 seconds")),
         { signal },
       ).then(result, () => result(null));
+      continue;
+    }
+    if (request?.type === "findthread") {
+      const record = watching;
+      const respond = (result) =>
+        write({ type: "threadfind", watch: request.watch, operation: request.operation, result });
+      const mode = workspaceFeed?.threadFindMode();
+      if (!record || record.id !== request.watch || (mode !== "stream" && mode !== "single")) {
+        if (request.query) respond(null);
+        continue;
+      }
+      record.find?.abort();
+      record.find = undefined;
+      if (request.query) {
+        const controller = new AbortController();
+        record.find = controller;
+        const signal = AbortSignal.any([
+          record.owner.signal,
+          record.controller.signal,
+          controller.signal,
+        ]);
+        void Effect.runPromise(
+          findInThread(
+            record.owner,
+            mode === "stream",
+            record.thread,
+            request,
+            workspaceFeed?.activeRpc(),
+            respond,
+          ).pipe(Effect.scoped, Effect.provide(record.owner.http)),
+          { signal },
+        ).catch(() => {
+          if (!signal.aborted) respond(null);
+        });
+      }
       continue;
     }
     if (request?.type === "issuedetail") {

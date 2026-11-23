@@ -51,6 +51,7 @@ import { nativeTurnFolds } from "./turnFolds.ts";
 
 type Row = {
   key: string;
+  entry_id?: string;
   role:
     | "command"
     | "reasoning"
@@ -94,6 +95,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
     const previewEnd = collapsible ? proposedPlanPreviewEnd(body.slice(start), 10) : undefined;
     return {
       key,
+      entry_id: item.id,
       role: "plan",
       body,
       attachments: [],
@@ -156,6 +158,7 @@ function timelineRow(row: OrchestrationV2ProjectedTurnItem, root?: string): Row 
   if (item.type !== "user_message" && item.type !== "assistant_message") return null;
   return {
     key,
+    entry_id: item.messageId,
     role: item.type === "user_message" ? "user" : "assistant",
     body:
       item.type === "user_message" && item.context

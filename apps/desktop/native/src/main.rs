@@ -45,6 +45,15 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    ThreadFindAvailable {
+        watch: u64,
+        labels: Option<Box<workspace::thread_find::Labels>>,
+    },
+    ThreadFind {
+        watch: u64,
+        operation: u64,
+        result: Option<workspace::thread_find::ResultPage>,
+    },
     BrowserPage {
         watch: u64,
         operation: u64,
@@ -462,6 +471,16 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    FindThread {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        start: Option<workspace::thread_find::Match>,
+        watch: u64,
+        operation: u64,
+        query: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        dark: bool,
+    },
     Browser {
         watch: u64,
         operation: u64,
@@ -1034,6 +1053,7 @@ impl Desktop {
         self.permission_menu = None;
         self.models.close();
         if matches!(request, Request::Thread { .. }) {
+            self.interrupt_thread_find();
             self.close_conversation_inspectors();
         }
         self.answer_advance = None;
@@ -1071,6 +1091,21 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::ThreadFindAvailable { watch, labels } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.workspace.find_labels = labels;
+            }
+            return;
+        }
+        if let Reply::ThreadFind {
+            watch,
+            operation,
+            result,
+        } = message.reply
+        {
+            self.receive_thread_find(watch, operation, result);
+            return;
+        }
         if let Reply::DictationChoice {
             watch,
             choice,
@@ -1698,6 +1733,8 @@ impl Desktop {
             | Reply::DictationChoice { .. }
             | Reply::Dictation { .. }
             | Reply::VoiceModels { .. }
+            | Reply::ThreadFindAvailable { .. }
+            | Reply::ThreadFind { .. }
             | Reply::Issues { .. }
             | Reply::BrowserPage { .. }
             | Reply::BrowserFrame { .. }
@@ -2136,6 +2173,7 @@ fn start() -> io::Result<()> {
             s.sync_draft_model_watch();
             let browser = s.sync_browser(tx);
             let issues = s.sync_issues(tx);
+            let find = s.sync_thread_find(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
             let git = s.sync_git();
@@ -2153,6 +2191,7 @@ fn start() -> io::Result<()> {
             s.poll_answer(tx)
                 || browser
                 || issues
+                || find
                 || microphone
                 || dictation
                 || stop
@@ -2277,6 +2316,28 @@ fn start() -> io::Result<()> {
             }
             if s.palette.is_some() {
                 return false;
+            }
+            if !ev.mods.alt
+                && !ev.mods.shift
+                && ev.is_command('f')
+                && s.can_find_thread()
+                && !matches!(
+                    tx.focused(),
+                    Some(
+                        "thread-terminal-grid"
+                            | "browser-address"
+                            | "browser-page"
+                            | "browser-response"
+                    )
+                )
+            {
+                if !tx.key_repeat() {
+                    s.open_thread_find(None, tx);
+                }
+                return true;
+            }
+            if ev.key == rune::Key::Escape && s.close_thread_find(tx) {
+                return true;
             }
             if s.environment.is_some()
                 && !ev.mods.alt
