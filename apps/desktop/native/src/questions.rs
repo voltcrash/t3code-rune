@@ -533,20 +533,25 @@ pub(super) fn input(s: &Desktop, thread: &str, theme: &tok::Theme, cx: &rune::Cx
         &f.answers[step].editor,
         hint,
         theme,
+        |field| {
+            field
+                .label("Question answer")
+                .disabled(!can_edit)
+                .on_edit(move |s: &mut Desktop| {
+                    &mut s.workspace.questions.get_mut(&id).unwrap().answers[step].editor
+                })
+                .on_input_change(move |s: &mut Desktop, _| {
+                    s.answer_advance = None;
+                    if let Some(f) = s.workspace.questions.get_mut(&typing) {
+                        f.answers[step].edited = true;
+                        f.answers[step].selected.clear();
+                    }
+                })
+                .on_submit(move |s: &mut Desktop, _| {
+                    s.advance_answer(&submit, &version, step, false)
+                })
+        },
     )
-    .label("Question answer")
-    .disabled(!can_edit)
-    .on_edit(move |s: &mut Desktop| {
-        &mut s.workspace.questions.get_mut(&id).unwrap().answers[step].editor
-    })
-    .on_input_change(move |s: &mut Desktop, _| {
-        s.answer_advance = None;
-        if let Some(f) = s.workspace.questions.get_mut(&typing) {
-            f.answers[step].edited = true;
-            f.answers[step].selected.clear();
-        }
-    })
-    .on_submit(move |s: &mut Desktop, _| s.advance_answer(&submit, &version, step, false))
 }
 
 pub(super) fn controls(s: &Desktop, thread: &str, theme: &tok::Theme) -> El {

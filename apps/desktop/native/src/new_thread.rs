@@ -370,23 +370,26 @@ pub(super) fn view(
     let draft = &s.new_threads.drafts[project];
     let locked = s.pending || draft.uncertain;
     let target = super::attachments::Target::Project(project.to_owned());
+    s.mentions.view(&target, cx, kit, overlays);
     let field = composer::input(
         cx,
         "new-thread-prompt",
         &draft.prompt,
         &s.composer_hints.message,
         theme,
-    )
-    .label("Message")
-    .disabled(locked)
-    .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
-    .on_input_change(|s: &mut Desktop, _| {
-        let draft = s.new_threads.current();
-        crate::attachments::release_unreachable(&mut draft.files, &draft.prompt);
-    })
-    .on_submit(|s: &mut Desktop, _| s.launch());
-    s.mentions.view(&target, cx, kit, overlays);
-    let field = target.input(field, &s.copied_files, &draft.files);
+        |field| {
+            let field = field
+                .label("Message")
+                .disabled(locked)
+                .on_edit(|s: &mut Desktop| &mut s.new_threads.current().prompt)
+                .on_input_change(|s: &mut Desktop, _| {
+                    let draft = s.new_threads.current();
+                    crate::attachments::release_unreachable(&mut draft.files, &draft.prompt);
+                })
+                .on_submit(|s: &mut Desktop, _| s.launch());
+            target.input(field, &s.copied_files, &draft.files)
+        },
+    );
     let options = draft
         .choices
         .iter()
