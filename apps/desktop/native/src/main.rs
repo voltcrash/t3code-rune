@@ -41,6 +41,10 @@ use workspace::{ConversationWindow, LiveStatus, LiveUpdate, Project, Thread, Wor
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Reply {
+    VoiceModels {
+        watch: u64,
+        catalog: appearance::voice::Catalog,
+    },
     #[cfg(target_os = "linux")]
     MenuAction {
         action: linux_menu::Action,
@@ -406,6 +410,15 @@ struct ClientMessage<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Request<'a> {
+    VoiceModels {
+        watch: u64,
+        open: bool,
+    },
+    ChangeVoiceModel {
+        watch: u64,
+        action: &'a str,
+        model: &'a str,
+    },
     OpenUrl {
         url: &'a str,
     },
@@ -715,6 +728,7 @@ struct Desktop {
     contrast: appearance::Contrast,
     font_families: appearance::FontFamilies,
     typography_advanced: bool,
+    voice_settings: appearance::voice::VoiceSettings,
     settings_open: bool,
     settings_page: appearance::SettingsPage,
     settings_labels: Option<appearance::SettingsLabels>,
@@ -781,6 +795,7 @@ impl Desktop {
             contrast: Default::default(),
             font_families: Default::default(),
             typography_advanced: false,
+            voice_settings: Default::default(),
             settings_open: false,
             settings_page: Default::default(),
             settings_labels: None,
@@ -961,6 +976,12 @@ impl Desktop {
     }
 
     fn receive(&mut self, message: WorkerMessage) {
+        if let Reply::VoiceModels { watch, catalog } = message.reply {
+            if self.workspace.feed == Some(watch) {
+                self.voice_settings.catalog = Some(catalog);
+            }
+            return;
+        }
         if let Some(id) = message.id {
             self.clipboard_uploads.remove(&id);
         }
@@ -1404,6 +1425,10 @@ impl Desktop {
                 }
                 self.workspace.sequence = sequence;
                 self.workspace.set_feed(environment_id, watch);
+                self.voice_settings.catalog = None;
+                if self.settings_open && self.settings_page == appearance::SettingsPage::Voice {
+                    self.show_voice_models(true);
+                }
                 if self.workspace.usage.open {
                     self.start_usage();
                 }
@@ -1511,6 +1536,7 @@ impl Desktop {
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }
             | Reply::WorkspaceProviders { .. }
+            | Reply::VoiceModels { .. }
             | Reply::Usage { .. }
             | Reply::UsageTotals { .. }
             | Reply::WorkspaceEditors { .. }

@@ -19,6 +19,7 @@ pub(crate) struct SettingsLabels {
     pub(super) settings: String,
     pub(super) appearance: String,
     pub(super) chat: String,
+    pub(super) voice: super::voice::Labels,
     composer: String,
     advanced: String,
     slash_skills: String,
@@ -36,12 +37,14 @@ pub(crate) enum SettingsPage {
     #[default]
     Appearance,
     Chat,
+    Voice,
 }
 
 impl SettingsPage {
     pub(super) fn title(self, labels: Option<&SettingsLabels>) -> &str {
         match self {
             Self::Appearance => labels.map_or("Appearance", |l| &l.appearance),
+            Self::Voice => labels.map_or("Voice", |l| &l.voice.title),
             Self::Chat => labels.map_or("Chat", |l| &l.chat),
         }
     }
@@ -62,6 +65,7 @@ impl SettingsPage {
             .child(Self::Appearance.tab(s, theme));
         if s.settings_labels.is_some() {
             tabs.child(Self::Chat.tab(s, theme))
+                .child(Self::Voice.tab(s, theme))
         } else {
             tabs
         }
@@ -73,6 +77,7 @@ impl SettingsPage {
         let (key, icon) = match self {
             Self::Appearance => ("settings-appearance", &PALETTE),
             Self::Chat => ("settings-chat", &CHAT),
+            Self::Voice => ("settings-voice", &super::voice::MIC),
         };
         let tab = row()
             .key(key)
@@ -96,6 +101,9 @@ impl SettingsPage {
                 if s.settings_page != self {
                     s.font_families.close();
                     s.chat_width_menu = false;
+                    if self == Self::Voice || s.settings_page == Self::Voice {
+                        s.show_voice_models(self == Self::Voice);
+                    }
                     s.settings_page = self;
                 }
                 tx.focus(key, true);

@@ -1,6 +1,7 @@
 use super::{Desktop, Request, workspace::label};
 use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
 mod chat;
+pub(crate) mod voice;
 pub(crate) use chat::{SettingsLabels, SettingsPage};
 mod chat_width;
 mod contrast;
@@ -78,6 +79,9 @@ impl Desktop {
         self.font_families.close();
         self.chat_width_menu = false;
         self.settings_open = true;
+        if self.settings_page == SettingsPage::Voice {
+            self.show_voice_models(true);
+        }
         self.typography_advanced = false;
         self.composer_advanced = false;
         self.settings_error = None;
@@ -85,6 +89,9 @@ impl Desktop {
     }
 
     fn close_settings(&mut self, tx: &mut Tx) {
+        if self.settings_page == SettingsPage::Voice {
+            self.show_voice_models(false);
+        }
         self.settings_open = false;
         tx.focus("settings-trigger", true);
     }
@@ -455,6 +462,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
         .child(close);
     let mut popups = Vec::new();
     let mut body = match (s.settings_page, labels) {
+        (SettingsPage::Voice, Some(labels)) => voice::view(s, &labels.voice, w < 640., theme),
         (SettingsPage::Chat, Some(labels)) => chat::settings(s, labels, w < 640., theme),
         _ => appearance_body(s, cx, content, w < 640., theme, &mut popups),
     }
@@ -498,6 +506,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                         .key(match s.settings_page {
                             SettingsPage::Appearance => "appearance-scroll",
                             SettingsPage::Chat => "chat-settings-scroll",
+                            SettingsPage::Voice => "voice-settings-scroll",
                         })
                         .w_full()
                         .grow(1.)
