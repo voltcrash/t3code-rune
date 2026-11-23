@@ -156,12 +156,12 @@ effectIt.effect("copies page text only from the stream the viewer controls", () 
     try {
       const events = yield* Effect.promise(() => attached.promise);
       events.onClipboard?.("before control");
-      events.onControl({ canOperate: true, controller: "you", generation: 1, dialog: null });
+      events.onControl?.({ canOperate: true, controller: "you", generation: 1, dialog: null });
       events.onClipboard?.("selected page text");
-      events.onControl({ canOperate: true, controller: "agent", generation: 2, dialog: null });
+      events.onControl?.({ canOperate: true, controller: "agent", generation: 2, dialog: null });
       events.onClipboard?.("after losing control");
       panel.stop();
-      events.onControl({ canOperate: true, controller: "you", generation: 3, dialog: null });
+      events.onControl?.({ canOperate: true, controller: "you", generation: 3, dialog: null });
       events.onClipboard?.("after closing the tab");
       expect(copy.mock.calls).toEqual([["a", "selected page text"]]);
     } finally {
