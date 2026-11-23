@@ -273,6 +273,7 @@ fn row_index<T>(rows: &[T], id: impl Fn(&T) -> &String) -> HashMap<String, usize
 
 pub(super) struct Workspace {
     pub(super) drawer: std::cell::Cell<Option<bool>>,
+    sidebar_relocated: std::cell::Cell<bool>,
     pub(super) sequence: u64,
     environment_id: Option<String>,
     pub(super) feed: Option<u64>,
@@ -349,6 +350,7 @@ impl Workspace {
         Self {
             sequence: 0,
             drawer: Default::default(),
+            sidebar_relocated: Default::default(),
             environment_id: None,
             feed: None,
             refresh_request: None,
@@ -828,8 +830,10 @@ impl Desktop {
         self.workspace.actions.close_menu();
     }
 
-    pub(super) fn close_unmounted_sidebar_menus(&mut self) -> bool {
-        if self.workspace.row_clock.mounted.get() {
+    pub(super) fn reconcile_sidebar_menus(&mut self) -> bool {
+        if !self.workspace.sidebar_relocated.replace(false)
+            && self.workspace.row_clock.mounted.get()
+        {
             return false;
         }
         let scope = self.workspace.project_scope.is_open();
@@ -1889,7 +1893,9 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     let viewport = cx.layout_size("workspace").unwrap_or([1100., 780.]);
     let narrow = viewport[0] < 640.;
     let drawer = (viewport[0] < 768.).then(|| s.workspace.drawer.get().unwrap_or(false));
-    s.workspace.drawer.set(drawer);
+    if s.workspace.drawer.replace(drawer).is_some() != drawer.is_some() {
+        s.workspace.sidebar_relocated.set(true);
+    }
     let composing = s.new_threads.active.as_deref();
     let mut overlays = Vec::new();
     let thread = s.workspace.visible_thread();
@@ -2151,7 +2157,15 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .mounted
         .set(show_sidebar || drawer == Some(true));
     if show_sidebar || drawer == Some(true) {
-        let side = sidebar(s, bar, [width, viewport[1]], theme, dark, &mut overlays);
+        let mut sidebar_overlays = Vec::new();
+        let side = sidebar(
+            s,
+            bar,
+            [width, viewport[1]],
+            theme,
+            dark,
+            &mut sidebar_overlays,
+        );
         if show_sidebar {
             root = root.child(side);
         } else {
@@ -2170,7 +2184,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
                 .child(sheet);
             overlays.insert(0, layer);
         }
-        thread_actions::sidebar_menu(s, &kit, &mut overlays);
+        if !s.workspace.sidebar_relocated.get() {
+            overlays.extend(sidebar_overlays);
+            thread_actions::sidebar_menu(s, &kit, &mut overlays);
+        }
     }
     thread_details::menu(s, &kit, &mut overlays);
     palette::overlay(s, cx, theme, &mut overlays);
