@@ -257,6 +257,7 @@ export function openBrowserPanel(
             emit();
           },
           onFrame() {},
+          onViewport() {},
           onConnectedChange() {},
           onUnauthorized: failed,
           onGone: failed,
