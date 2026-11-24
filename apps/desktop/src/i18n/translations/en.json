@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "This tracker cannot be read right now.",
   "4aa8190ec693085e": "Filter by tracker",
   "d650b40b3b6eab7b": "Filter by provider",
-  "46a2577ad57158b6": "All"
+  "46a2577ad57158b6": "All",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Saved pull request views} other {Saved issue views}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {Save PR view} other {Save issue view}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {Rename PR view} other {Rename issue view}}",
+  "ed3f9d351d00c0da": "Views",
+  "059b7a4de5adadf6": "Modified view",
+  "587e9f4a8fbf87b0": "Save current view…",
+  "0c23b8ea1d06fc88": "Update saved view",
+  "22f08ba80504e5b7": "Rename view…",
+  "0a76a3d58c4446c3": "Delete view",
+  "3b50d0053c320a55": "Save your search, filters, and sort order on this device.",
+  "01c75f010cf6228f": "View name",
+  "762fcce45b65eea9": "Save",
+  "556df31b330166ff": "Enter a name for this view.",
+  "262cd2c6c05667db": "Use {max} characters or fewer.",
+  "3a85d6e4f8a78c72": "A view with this name already exists.",
+  "9a8fd03416860d24": "PRs Requesting My Review",
+  "01e7836447bcad93": "Issues Assigned to Me"
 }

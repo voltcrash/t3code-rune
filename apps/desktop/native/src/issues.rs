@@ -60,7 +60,7 @@ pub(crate) struct Labels {
     just_now: String,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Filter {
     #[default]
@@ -186,6 +186,7 @@ pub(crate) struct Issues {
     newest: bool,
     host: String,
     hosts: Vec<crate::pull_requests::HostOption>,
+    pub(crate) views: crate::saved_views::Views<ViewPrefs>,
     menu: std::cell::Cell<Option<MenuKind>>,
     operation: u64,
     pending: bool,
@@ -297,6 +298,53 @@ impl Desktop {
             page.error = error;
             page.pending = false;
         }
+    }
+}
+
+/// What a saved issue view keeps: the list's search, state, sort and tracker.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct ViewPrefs {
+    state: Filter,
+    newest: bool,
+    host: String,
+    query: String,
+}
+
+pub(crate) struct SavedIssues;
+
+impl crate::saved_views::SavedList for SavedIssues {
+    type Prefs = ViewPrefs;
+    const LIST: &'static str = "issues";
+    const KEY: &'static str = "issue-views";
+    fn views(s: &Desktop) -> &crate::saved_views::Views<ViewPrefs> {
+        &s.workspace.issues.views
+    }
+    fn views_mut(s: &mut Desktop) -> &mut crate::saved_views::Views<ViewPrefs> {
+        &mut s.workspace.issues.views
+    }
+    fn current(s: &Desktop) -> ViewPrefs {
+        let page = &s.workspace.issues;
+        ViewPrefs {
+            state: page.filter,
+            newest: page.newest,
+            host: page.host.clone(),
+            query: page.query.text.trim().to_owned(),
+        }
+    }
+    fn apply(s: &mut Desktop, prefs: ViewPrefs) {
+        let page = &mut s.workspace.issues;
+        page.filter = prefs.state;
+        page.newest = prefs.newest;
+        page.host = prefs.host;
+        page.query = TextEdit::new(&prefs.query);
+        s.load_issues("list");
+    }
+    fn labels(labels: &crate::saved_views::Labels) -> &crate::saved_views::ListLabels {
+        labels.issues()
+    }
+    fn suggested(_: &Desktop, _: &crate::saved_views::ListLabels) -> String {
+        String::new()
     }
 }
 
@@ -527,6 +575,7 @@ pub(crate) fn view(
         page.menu.set(None);
         return detail::view(s, panel, labels, theme, dark);
     }
+    crate::saved_views::dialog::<SavedIssues>(s, theme, overlays);
     let wide = width >= 640. && !split;
     let search = text_input(&page.query, TextStyle::new(13., 400.))
         .key("issue-search")
@@ -572,6 +621,12 @@ pub(crate) fn view(
         .gap(8.)
         .child(menu(s, MenuKind::Sort, theme, dark, overlays))
         .child(menu(s, MenuKind::Filter, theme, dark, overlays))
+        .child(crate::saved_views::menu::<SavedIssues>(
+            s,
+            theme,
+            &s.contrast.kit(dark),
+            overlays,
+        ))
         .children(
             (!page.hosts.is_empty() || !page.host.is_empty())
                 .then(|| menu(s, MenuKind::Host, theme, dark, overlays)),

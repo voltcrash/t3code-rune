@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "Dieser Tracker kann gerade nicht gelesen werden.",
   "4aa8190ec693085e": "Nach Tracker filtern",
   "d650b40b3b6eab7b": "Nach Anbieter filtern",
-  "46a2577ad57158b6": "Alle"
+  "46a2577ad57158b6": "Alle",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Gespeicherte Pull-Request-Ansichten} other {Gespeicherte Issue-Ansichten}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {PR-Ansicht speichern} other {Issue-Ansicht speichern}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {PR-Ansicht umbenennen} other {Issue-Ansicht umbenennen}}",
+  "ed3f9d351d00c0da": "Ansichten",
+  "059b7a4de5adadf6": "Geänderte Ansicht",
+  "587e9f4a8fbf87b0": "Aktuelle Ansicht speichern…",
+  "0c23b8ea1d06fc88": "Gespeicherte Ansicht aktualisieren",
+  "22f08ba80504e5b7": "Ansicht umbenennen…",
+  "0a76a3d58c4446c3": "Ansicht löschen",
+  "3b50d0053c320a55": "Speichere deine Suche, Filter und Sortierung auf diesem Gerät.",
+  "01c75f010cf6228f": "Name der Ansicht",
+  "762fcce45b65eea9": "Speichern",
+  "556df31b330166ff": "Gib einen Namen für diese Ansicht ein.",
+  "262cd2c6c05667db": "Verwende höchstens {max} Zeichen.",
+  "3a85d6e4f8a78c72": "Eine Ansicht mit diesem Namen existiert bereits.",
+  "9a8fd03416860d24": "PRs mit Review-Anfrage an mich",
+  "01e7836447bcad93": "Mir zugewiesene Issues"
 }

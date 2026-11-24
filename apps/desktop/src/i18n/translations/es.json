@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "Ahora mismo no se puede leer este gestor de issues.",
   "4aa8190ec693085e": "Filtrar por gestor de issues",
   "d650b40b3b6eab7b": "Filtrar por proveedor",
-  "46a2577ad57158b6": "Todos"
+  "46a2577ad57158b6": "Todos",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Vistas de pull requests guardadas} other {Vistas de issues guardadas}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {Guardar vista de PR} other {Guardar vista de issues}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {Cambiar nombre de la vista de PR} other {Cambiar nombre de la vista de issues}}",
+  "ed3f9d351d00c0da": "Vistas",
+  "059b7a4de5adadf6": "Vista modificada",
+  "587e9f4a8fbf87b0": "Guardar vista actual…",
+  "0c23b8ea1d06fc88": "Actualizar vista guardada",
+  "22f08ba80504e5b7": "Cambiar nombre de la vista…",
+  "0a76a3d58c4446c3": "Eliminar vista",
+  "3b50d0053c320a55": "Guarda tu búsqueda, filtros y orden en este dispositivo.",
+  "01c75f010cf6228f": "Nombre de la vista",
+  "762fcce45b65eea9": "Guardar",
+  "556df31b330166ff": "Escribe un nombre para esta vista.",
+  "262cd2c6c05667db": "Usa {max} caracteres como máximo.",
+  "3a85d6e4f8a78c72": "Ya existe una vista con este nombre.",
+  "9a8fd03416860d24": "PR que solicitan mi revisión",
+  "01e7836447bcad93": "Issues asignadas a mí"
 }
