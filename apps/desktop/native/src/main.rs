@@ -529,6 +529,7 @@ enum Request<'a> {
         state: issues::Filter,
         sort: &'static str,
         query: String,
+        host: String,
     },
     PullRequests {
         watch: u64,
@@ -538,6 +539,7 @@ enum Request<'a> {
         involvement: usize,
         sort: usize,
         query: String,
+        host: String,
     },
     SetDictation {
         watch: u64,

@@ -63,7 +63,10 @@ it("groups the viewer's own pull requests first, fills in line counts, and re-so
       }),
     [WS_METHODS.pullRequestsInvalidate]: () => Effect.void,
   };
-  const published: Array<{ groups?: Array<{ key: string; rows: Array<object> }> }> = [];
+  const published: Array<{
+    groups?: Array<{ key: string; rows: Array<object> }>;
+    hosts?: Array<object>;
+  }> = [];
   const done = Promise.withResolvers<void>();
   const list = workspacePullRequests(
     {
@@ -123,4 +126,18 @@ it("groups the viewer's own pull requests first, fills in line counts, and re-so
     query: "label:bug fix",
   });
   expect(listed.at(-1)).toMatchObject({ query: "fix", filters: { labels: [["bug"]] } });
+
+  await list.request({
+    operation: 4,
+    action: "list",
+    state: 1,
+    involvement: 1,
+    sort: 0,
+    query: "",
+    host: "github.com",
+  });
+  expect(listed.at(-1)).toMatchObject({ host: "github.com", involvement: "reviewing" });
+  expect(published.at(-1)?.hosts).toEqual([
+    { host: "github.com", label: "github.com", icon: null },
+  ]);
 });
