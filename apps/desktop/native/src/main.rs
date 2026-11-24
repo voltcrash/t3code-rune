@@ -414,6 +414,12 @@ enum Reply {
     ThreadEdited {
         watch: u64,
         error: Option<String>,
+        #[serde(default)]
+        operation: Option<String>,
+    },
+    SnoozePresets {
+        operation: u64,
+        presets: Vec<workspace::thread_actions::SnoozeChoice>,
     },
     ArchivedThreads {
         operation: u64,
@@ -670,6 +676,22 @@ enum Request<'a> {
         operation: String,
     },
     MarkUnread {
+        thread: String,
+        watch: u64,
+        operation: String,
+    },
+    SnoozePresets {
+        thread: String,
+        watch: u64,
+        operation: u64,
+    },
+    Snooze {
+        thread: String,
+        watch: u64,
+        operation: String,
+        preset: String,
+    },
+    Unsnooze {
         thread: String,
         watch: u64,
         operation: String,
@@ -1427,7 +1449,19 @@ impl Desktop {
             self.receive_archived(operation, groups, error);
             return;
         }
-        if let Reply::ThreadEdited { watch, error } = message.reply {
+        if let Reply::SnoozePresets { operation, presets } = message.reply {
+            self.receive_snooze_presets(operation, presets);
+            return;
+        }
+        if let Reply::ThreadEdited {
+            watch,
+            error,
+            operation,
+        } = message.reply
+        {
+            if self.workspace.feed == Some(watch) {
+                self.snooze_finished(operation.as_deref(), error.is_some());
+            }
             let error = if self.archived_edit_finished(&error) {
                 None
             } else {
@@ -1836,6 +1870,7 @@ impl Desktop {
             | Reply::DraftModels { .. }
             | Reply::WorkspaceLive { .. }
             | Reply::ThreadEdited { .. }
+            | Reply::SnoozePresets { .. }
             | Reply::ArchivedThreads { .. }
             | Reply::GitStatus { .. }
             | Reply::GitInitialized { .. }

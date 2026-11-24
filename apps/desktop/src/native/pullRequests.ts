@@ -101,12 +101,6 @@ export interface PullRequestRequest {
   readonly query: string;
 }
 
-const GROUP_LABELS: Record<PullRequestGroup["key"], () => string> = {
-  authored: () => m(msg("Authored")),
-  reviewRequested: () => m(msg("Review requested")),
-  others: () => m(msg("Others")),
-};
-
 /** The rows the native list draws, in the order and groups the web list shows. */
 export function pullRequestView(
   groups: ReadonlyArray<PullRequestGroup>,
@@ -114,7 +108,7 @@ export function pullRequestView(
 ) {
   return groups.map((group) => ({
     key: group.key,
-    label: group.label ? GROUP_LABELS[group.key]() : "",
+    label: group.label ? m(group.label) : "",
     rows: group.entries.map((entry) => {
       const measured = stats.get(entry.url);
       return {

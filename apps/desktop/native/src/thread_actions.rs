@@ -12,6 +12,8 @@ pub(crate) struct Labels {
     unpin: String,
     settle: String,
     unsettle: String,
+    snooze: String,
+    wake: String,
     rename: String,
     mark_unread: String,
     copy: String,
@@ -58,9 +60,22 @@ struct Rename {
     original: String,
 }
 
+/// A snooze choice the worker resolved when the menu opened.
+#[derive(Deserialize)]
+pub(crate) struct SnoozeChoice {
+    id: String,
+    label: String,
+    when: String,
+}
+
 pub(super) struct Actions {
     menu: Option<OpenMenu>,
     copy_open: bool,
+    snooze_open: bool,
+    /// The request the shown snooze choices answer, and the choices once they arrive.
+    snooze: Option<(u64, Option<Vec<SnoozeChoice>>)>,
+    /// A confirmed snooze of the open thread moves on, keyed by the snooze's operation.
+    snooze_forward: Option<(String, Forward)>,
     unpinning: Option<Target>,
     archiving: Option<Target>,
     deleting: Option<Target>,
@@ -79,6 +94,8 @@ impl Actions {
     pub(super) fn close_menu(&mut self) {
         self.menu = None;
         self.copy_open = false;
+        self.snooze_open = false;
+        self.snooze = None;
     }
 }
 
@@ -87,6 +104,9 @@ impl Default for Actions {
         Self {
             menu: None,
             copy_open: false,
+            snooze_open: false,
+            snooze: None,
+            snooze_forward: None,
             unpinning: None,
             archiving: None,
             deleting: None,
@@ -98,6 +118,28 @@ impl Default for Actions {
 }
 
 impl Workspace {
+    /// Where to go once the open thread leaves the inbox: the next inbox thread, else its project.
+    fn plan_forward(&self, id: &str) -> Forward {
+        let next = self
+            .filtered
+            .iter()
+            .position(|&i| self.threads[i].id == id)
+            .and_then(|pos| {
+                self.filtered[pos + 1..]
+                    .iter()
+                    .chain(&self.filtered[..pos])
+                    .map(|&i| &self.threads[i])
+                    .find(|t| self.can_advance_to(t))
+                    .map(|t| t.id.clone())
+            });
+        Forward {
+            committed: None,
+            thread: id.into(),
+            project: self.threads[self.by_thread[id]].project.clone(),
+            next,
+        }
+    }
+
     fn action_target(&self, thread: &str, origin: Origin) -> Option<Target> {
         self.by_thread.contains_key(thread).then_some(Target {
             thread: thread.to_owned(),
@@ -144,11 +186,79 @@ impl Desktop {
 
     fn thread_menu(&mut self, thread: &str, origin: Origin, point: Option<(f32, f32)>) {
         self.commit_title();
-        self.workspace.actions.copy_open = false;
+        self.workspace.actions.close_menu();
         self.workspace.actions.menu = self
             .workspace
             .action_target(thread, origin)
             .map(|target| OpenMenu { target, point });
+        // The web menu resolves snooze times as it opens; ask now so the submenu is ready.
+        if self.can_operate
+            && let Some(watch) = self.workspace.feed
+            && self.workspace.actions.menu.is_some()
+        {
+            let operation = self.next_request_id();
+            self.workspace.actions.snooze = Some((operation, None));
+            self.write_request(
+                None,
+                Request::SnoozePresets {
+                    thread: thread.to_owned(),
+                    watch,
+                    operation,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn snooze_finished(&mut self, operation: Option<&str>, failed: bool) {
+        let Some((pending, _)) = &self.workspace.actions.snooze_forward else {
+            return;
+        };
+        if operation != Some(pending.as_str()) {
+            return;
+        }
+        if let Some((_, plan)) = self.workspace.actions.snooze_forward.take()
+            && !failed
+        {
+            self.go_forward(plan);
+        }
+    }
+
+    pub(crate) fn receive_snooze_presets(&mut self, operation: u64, presets: Vec<SnoozeChoice>) {
+        if let Some((pending, choices)) = &mut self.workspace.actions.snooze
+            && *pending == operation
+        {
+            *choices = Some(presets);
+        }
+    }
+
+    fn snooze(&mut self, id: &str, preset: Option<&str>) {
+        self.workspace.actions.close_menu();
+        let Some(target) = self.workspace.action_target(id, Origin::Sidebar) else {
+            return;
+        };
+        if !self.can_operate || self.workspace_edit_pending() {
+            return;
+        }
+        let operation = Uuid::new_v4().to_string();
+        // Like the web, snoozing the open thread from any menu moves to the next inbox thread.
+        self.workspace.actions.snooze_forward = (preset.is_some()
+            && self.new_threads.active.is_none()
+            && self.workspace.visible_thread().is_some_and(|t| t.id == id))
+        .then(|| (operation.clone(), self.workspace.plan_forward(id)));
+        let request = match preset {
+            Some(preset) => Request::Snooze {
+                thread: target.thread,
+                watch: target.watch,
+                operation,
+                preset: preset.to_owned(),
+            },
+            None => Request::Unsnooze {
+                thread: target.thread,
+                watch: target.watch,
+                operation,
+            },
+        };
+        self.write_request(None, request);
     }
 
     fn mark_unread(&mut self, id: &str) {
@@ -301,26 +411,7 @@ impl Desktop {
             && origin == Origin::Sidebar
             && self.new_threads.active.is_none()
             && ws.visible_thread().is_some_and(|t| t.id == id);
-        self.workspace.actions.forward = advance.then(|| {
-            let next = ws
-                .filtered
-                .iter()
-                .position(|&i| ws.threads[i].id == id)
-                .and_then(|pos| {
-                    ws.filtered[pos + 1..]
-                        .iter()
-                        .chain(&ws.filtered[..pos])
-                        .map(|&i| &ws.threads[i])
-                        .find(|t| ws.can_advance_to(t))
-                        .map(|t| t.id.clone())
-                });
-            Forward {
-                committed: None,
-                thread: id.into(),
-                project: thread.project.clone(),
-                next,
-            }
-        });
+        self.workspace.actions.forward = advance.then(|| ws.plan_forward(id));
         self.send(Request::SetSettlement {
             thread: id.into(),
             watch: target.watch,
@@ -367,11 +458,21 @@ impl Desktop {
         let Some(plan) = self.workspace.actions.forward.take() else {
             return;
         };
+        if self
+            .workspace
+            .visible_thread()
+            .is_some_and(|t| t.id == plan.thread && t.settled)
+        {
+            self.go_forward(plan);
+        }
+    }
+
+    fn go_forward(&mut self, plan: Forward) {
         if self.new_threads.active.is_some()
             || !self
                 .workspace
                 .visible_thread()
-                .is_some_and(|t| t.id == plan.thread && t.settled)
+                .is_some_and(|t| t.id == plan.thread)
         {
             return;
         }
@@ -582,6 +683,12 @@ pub(super) fn header(
         .build(kit, overlays)
 }
 
+const CLOCK: rune::Icon = rune::Icon {
+    name: "clock",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></g>"#,
+};
+
 const CIRCLE_CHECK: rune::Icon = rune::Icon {
     name: "circle-check",
     view: 24.,
@@ -705,18 +812,60 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
     }
     let id = thread.id.clone();
     let settled = !thread.settled;
-    menu = menu
-        .item(
-            MenuItem::new(if settled {
-                &labels.settle
-            } else {
-                &labels.unsettle
-            })
-            .icon(&CIRCLE_CHECK)
-            .disabled(locked)
-            .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
-        )
-        .separator();
+    menu = menu.item(
+        MenuItem::new(if settled {
+            &labels.settle
+        } else {
+            &labels.unsettle
+        })
+        .icon(&CIRCLE_CHECK)
+        .disabled(locked)
+        .on_select(move |s: &mut Desktop| s.set_settlement(&id, settled, origin)),
+    );
+    let id = thread.id.clone();
+    if s.workspace.is_snoozed(thread) {
+        menu = menu.item(
+            MenuItem::new(&labels.wake)
+                .icon(&CLOCK)
+                .disabled(locked)
+                .on_select(move |s: &mut Desktop| s.snooze(&id, None)),
+        );
+    } else {
+        let choices = s
+            .workspace
+            .actions
+            .snooze
+            .as_ref()
+            .and_then(|(_, choices)| choices.as_ref());
+        let entries = choices.map_or_else(
+            || vec![MenuEntry::item(MenuItem::new("…").disabled(true))],
+            |choices| {
+                choices
+                    .iter()
+                    .map(|choice| {
+                        let id = id.clone();
+                        let preset = choice.id.clone();
+                        MenuEntry::item(
+                            MenuItem::new(&choice.label)
+                                .shortcut(&choice.when)
+                                .on_select(move |s: &mut Desktop| s.snooze(&id, Some(&preset))),
+                        )
+                    })
+                    .collect()
+            },
+        );
+        menu = menu.item(
+            MenuItem::new(&labels.snooze)
+                .icon(&CLOCK)
+                .disabled(locked || choices.is_some_and(Vec::is_empty))
+                .submenu_min_width(220.)
+                .submenu(entries, s.workspace.actions.snooze_open)
+                .on_select(|s: &mut Desktop| {
+                    s.workspace.actions.snooze_open = !s.workspace.actions.snooze_open;
+                }),
+        );
+    }
+    menu = menu.separator();
     let id = thread.id.clone();
     menu = menu.item(
         MenuItem::new(&labels.rename)

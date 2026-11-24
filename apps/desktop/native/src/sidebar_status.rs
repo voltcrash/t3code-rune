@@ -24,7 +24,7 @@ pub(super) enum RowStatus {
     Ready,
 }
 
-fn unix_millis() -> i64 {
+pub(super) fn unix_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -203,7 +203,7 @@ pub(super) struct Clock {
     pub viewport: rune::Live<[f32; 4]>,
     rows: RefCell<HashMap<String, Weak<rune::Live<[f32; 4]>>>>,
     now: i64,
-    offset: i64,
+    pub(super) offset: i64,
 }
 
 impl Default for Clock {
@@ -281,8 +281,19 @@ impl super::Workspace {
         self.row_clock.now = unix_millis();
     }
     pub(crate) fn poll_sidebar_clock(&mut self, tx: &mut rune::Tx) -> bool {
+        // A snooze ending moves its thread back into the inbox, whether or not rows are shown.
+        let woke = self.next_wake.is_some_and(|wake| {
+            let now = unix_millis().saturating_add(self.row_clock.offset);
+            if now < wake {
+                tx.wake_after(std::time::Duration::from_millis((wake - now).max(1) as u64));
+            }
+            now >= wake
+        });
+        if woke {
+            self.filter();
+        }
         if !self.row_clock.mounted.get() {
-            return false;
+            return woke;
         }
         let now = unix_millis();
         let (changed, deadline) = self.sidebar_clock_deadline(now);
@@ -292,7 +303,7 @@ impl super::Workspace {
         if changed {
             self.row_clock.now = now;
         }
-        changed
+        changed || woke
     }
 
     fn sidebar_clock_deadline(&self, now: i64) -> (bool, Option<i64>) {

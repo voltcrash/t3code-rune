@@ -8,6 +8,7 @@ import { archivedThreadGroups } from "../src/native/archivedThreads.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { pullRequestLabels, workspacePullRequests } from "../src/native/pullRequests.ts";
+import { threadSnoozeMenu } from "../src/native/threadSnooze.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
@@ -858,6 +859,7 @@ const releaseUpdate = runeUpdates({
 });
 const clientSettingsPath = NodePath.join(homes.server, "userdata", "client-settings.json");
 let clientSettings = DEFAULT_CLIENT_SETTINGS;
+const snoozeMenu = threadSnoozeMenu();
 function publishClientSettings(error) {
   write({
     type: "clientsettings",
@@ -1698,6 +1700,82 @@ async function handleWorkspaceRequest(request, reply) {
           operation: request.operation,
           groups: [],
           error: m(msg("Could not load archived threads")),
+        });
+      }
+      return;
+    } else if (request.type === "snoozepresets") {
+      reading = session;
+      const feed = workspaceFeed;
+      const result = { type: "snoozepresets", operation: request.operation, presets: [] };
+      if (
+        !reading?.canOperate ||
+        feed?.watch !== request.watch ||
+        !feed.hasThread(request.thread)
+      ) {
+        reply(result);
+        return;
+      }
+      const config = await Effect.runPromise(
+        openEnvironmentRpc(reading).pipe(
+          Effect.flatMap((rpc) => rpc[WS_METHODS.serverGetConfig]({})),
+          Effect.scoped,
+          Effect.timeout("15 seconds"),
+          Effect.provide(reading.http),
+        ),
+        { signal: reading.signal },
+      ).catch(() => undefined);
+      reply({
+        ...result,
+        presets: snoozeMenu.open(request.thread, config?.settings.snoozePresets, new Date()),
+      });
+      return;
+    } else if (request.type === "snooze" || request.type === "unsnooze") {
+      reading = session;
+      const feed = workspaceFeed;
+      const result = { type: "threadedited", watch: request.watch, operation: request.operation };
+      const snoozedUntil =
+        request.type === "snooze"
+          ? snoozeMenu.pick(request.thread, request.preset, new Date())
+          : null;
+      if (
+        !reading?.canOperate ||
+        !feed ||
+        feed.watch !== request.watch ||
+        !feed.hasThread(request.thread)
+      ) {
+        reply({ ...result, error: "This thread cannot be changed on this connection." });
+        return;
+      }
+      if (snoozedUntil === undefined) {
+        reply({ ...result, error: m(msg("That snooze time has passed. Choose another time.")) });
+        return;
+      }
+      try {
+        await Effect.runPromise(
+          openEnvironmentRpc(reading).pipe(
+            Effect.flatMap((rpc) =>
+              rpc[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+                ...(snoozedUntil === null
+                  ? { type: "thread.unsnooze", reason: "user" }
+                  : { type: "thread.snooze", snoozedUntil }),
+                threadId: ThreadId.make(request.thread),
+                commandId: CommandId.make(request.operation),
+              }),
+            ),
+            Effect.scoped,
+            Effect.timeout("15 seconds"),
+            Effect.provide(reading.http),
+          ),
+          { signal: reading.signal },
+        );
+        reply(result);
+      } catch {
+        reply({
+          ...result,
+          error:
+            snoozedUntil === null
+              ? m(msg("Could not wake thread"))
+              : m(msg("Could not snooze thread")),
         });
       }
       return;
