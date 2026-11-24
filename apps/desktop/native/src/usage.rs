@@ -1,7 +1,7 @@
 mod providers;
 pub(crate) mod summary;
 use crate::{Desktop, Request, workspace};
-use rune::{Cx, El, Icon, ScrollSpec, col, el, icon, row, spacer, tok};
+use rune::{Cx, El, Icon, ScrollSpec, col, el, row, spacer, tok};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const CHART: Icon = Icon {
@@ -186,16 +186,7 @@ impl Desktop {
 pub(super) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
     let title = &s.workspace.usage.labels.as_ref()?.usage;
     Some(
-        el().key("sidebar-usage")
-            .role("button")
-            .label(title)
-            .help(title)
-            .size(32., 32.)
-            .radius(6.)
-            .center()
-            .focusable(true)
-            .hover(theme.text.alpha(0.06))
-            .child(icon(&CHART, 16.).color(theme.text_secondary))
+        crate::workspace::footer_button("sidebar-usage", title, &CHART, theme, true)
             .on_press(Desktop::open_usage),
     )
 }

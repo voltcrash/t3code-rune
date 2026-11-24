@@ -15,6 +15,7 @@ enum Action {
     Scratch,
     AddProject,
     Projects,
+    PullRequests,
     Issues,
     Back,
     Forward,
@@ -32,6 +33,7 @@ enum Action {
     CheckUpdates,
     Usage,
     Refresh,
+    Disconnect,
     Project(usize),
     Thread(usize),
 }
@@ -48,6 +50,8 @@ impl Action {
             Self::Scratch => "scratch".into(),
             Self::AddProject => "add-project".into(),
             Self::Projects => "projects".into(),
+            Self::PullRequests => "pull-requests".into(),
+            Self::Disconnect => "disconnect".into(),
             Self::Issues => "issues".into(),
             Self::CheckUpdates => "check-updates".into(),
             Self::Settings => "settings".into(),
@@ -75,6 +79,15 @@ impl Action {
             Self::Scratch => "New thread without a project",
             Self::AddProject => "Add project",
             Self::Projects => "Projects",
+            Self::Disconnect => "Disconnect",
+            Self::PullRequests => {
+                return ws
+                    .pull_requests
+                    .labels
+                    .as_ref()
+                    .map_or("Pull requests", |l| l.title.as_str())
+                    .into();
+            }
             Self::Issues => {
                 return ws
                     .issues
@@ -179,6 +192,8 @@ impl Action {
             Self::Settings => &crate::appearance::GEAR,
             Self::Usage => &crate::usage::CHART,
             Self::Issues => &crate::issues::ICON,
+            Self::PullRequests => &crate::pull_requests::ICON,
+            Self::Disconnect => &crate::workspace::DISCONNECT_ICON,
             Self::Back => &crate::navigation::BACK,
             Self::Forward => &crate::navigation::FORWARD,
             Self::ToggleSidebar => &rune_kit::shell::SIDEBAR,
@@ -318,6 +333,9 @@ impl Palette {
                     command(Action::Forward);
                 }
                 command(Action::Projects);
+                if ws.pull_requests.labels.is_some() {
+                    command(Action::PullRequests);
+                }
                 if ws.issues.labels.is_some() {
                     command(Action::Issues);
                 }
@@ -326,6 +344,7 @@ impl Palette {
                     command(Action::Usage);
                 }
                 command(Action::CheckUpdates);
+                command(Action::Disconnect);
                 command(Action::ToggleSidebar);
                 if available.editor {
                     command(Action::OpenEditor);
@@ -665,6 +684,10 @@ impl Desktop {
             }
             Action::Projects => self.show_projects(),
             Action::Issues => self.show_issue_list(tx),
+            Action::PullRequests => self.show_pull_requests(tx),
+            Action::Disconnect => {
+                self.send(super::Request::Disconnect);
+            }
             Action::Settings => self.open_settings(tx),
             Action::Usage => self.open_usage(),
             Action::CheckUpdates => self.check_updates(tx),

@@ -1011,6 +1011,31 @@ pub(crate) fn panel_control(
     }
 }
 
+/// A sidebar footer icon button, sized like the web's `SidebarMenuButton size="icon"`.
+pub(crate) fn footer_button(
+    key: &'static str,
+    caption: &str,
+    glyph: &'static rune::Icon,
+    theme: &tok::Theme,
+    enabled: bool,
+) -> El {
+    let button = el()
+        .key(key)
+        .role("button")
+        .label(caption)
+        .help(caption)
+        .no_window_drag()
+        .size(32., 32.)
+        .radius(8.)
+        .center()
+        .child(icon(glyph, 16.).color(theme.text_secondary));
+    if enabled {
+        button.hover(theme.separator).focusable(true)
+    } else {
+        button.disabled(true).opacity(0.64)
+    }
+}
+
 pub(super) fn action(
     caption: &str,
     theme: &tok::Theme,
@@ -1493,33 +1518,7 @@ fn sidebar(
             |s| s.send(Request::Refresh),
         ));
     }
-    let footer_action = |caption, glyph: &'static rune::Icon, run: fn(&mut Desktop)| {
-        if width
-            >= (if s.workspace.issues.labels.is_some() {
-                292.
-            } else {
-                232.
-            })
-        {
-            return action(caption, theme, !s.pending, run);
-        }
-        let button = el()
-            .key(caption)
-            .role("button")
-            .label(caption)
-            .help(caption)
-            .size(28., 28.)
-            .center()
-            .radius(6.)
-            .no_window_drag()
-            .child(icon(glyph, 16.).color(theme.text_secondary));
-        if s.pending {
-            button.disabled(true).opacity(0.5)
-        } else {
-            button.hover(theme.separator).focusable(true).on_press(run)
-        }
-    };
-    let mut footer = row().w_full().h(36.).pt(4.).center_y();
+    let mut footer = row().w_full().h(36.).pt(4.).gap(4.).center_y();
     let back = if s.history.on_issues() {
         s.workspace.issues.labels.as_ref().map(|l| &l.back)
     } else if s.history.on_pull_requests() {
@@ -1528,30 +1527,36 @@ fn sidebar(
         None
     };
     if let Some(back) = back {
-        footer = footer.child(
-            action_with_tx(
-                back,
-                theme,
-                !s.pending && s.history.available(false),
-                |s, tx| s.navigate_history(false, tx),
-            )
-            .grow(1.),
-        );
+        let enabled = !s.pending && s.history.available(false);
+        let button = row()
+            .key("sidebar-back")
+            .role("button")
+            .label(back)
+            .no_window_drag()
+            .grow(1.)
+            .min_w(0.)
+            .h(32.)
+            .px(10.)
+            .gap(8.)
+            .center_y()
+            .radius(8.)
+            .child(icon(&crate::navigation::BACK, 16.).color(theme.text_secondary))
+            .child(label(back, 14., 500., theme.text_secondary).truncate());
+        footer = footer.child(if enabled {
+            button
+                .hover(theme.separator)
+                .focusable(true)
+                .on_press_tx(|s: &mut Desktop, tx| s.navigate_history(false, tx))
+        } else {
+            button.disabled(true).opacity(0.64)
+        });
     } else {
         footer = footer
             .child(crate::appearance::trigger(theme))
             .children(crate::pull_requests::trigger(s, theme))
             .children(crate::issues::trigger(s, theme))
             .children(crate::usage::trigger(s, theme))
-            .child(footer_action(
-                "Projects",
-                &rune_kit::glyphs::FOLDER,
-                Desktop::show_projects,
-            ))
-            .child(spacer())
-            .child(footer_action("Disconnect", &DISCONNECT_ICON, |s| {
-                s.send(Request::Disconnect)
-            }));
+            .child(spacer());
     }
     let content = sidebar.child(footer.children(crate::updates::sidebar(s, theme)));
     col()
@@ -1693,7 +1698,7 @@ fn empty_home(s: &Desktop, theme: &tok::Theme, narrow: bool) -> El {
         .child(buttons)
 }
 
-static DISCONNECT_ICON: rune::Icon = rune::Icon {
+pub(crate) static DISCONNECT_ICON: rune::Icon = rune::Icon {
     name: "disconnect",
     view: 24.,
     body: r#"<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
