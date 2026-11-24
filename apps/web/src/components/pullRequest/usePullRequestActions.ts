@@ -46,7 +46,10 @@ import {
   appendHandoff,
   readableFailure,
 } from "./pullRequestDetail.logic";
-import { pullRequestEntryKey, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
+import {
+  pullRequestEntryKey,
+  type EnvironmentPullRequestEntry,
+} from "@t3tools/client-runtime/pull-request-list";
 
 import { changeRequestTermKind, type ChangeRequestTermKind } from "./changeRequestTerm";
 

@@ -42,7 +42,7 @@ import {
   mergePullRequestLists,
   type EnvironmentPullRequestStat,
   type MergedPullRequestList,
-} from "../components/pullRequest/pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import { writePullRequestDetailSnapshot } from "../components/pullRequest/pullRequestDetail.logic";
 import { pullRequestChecksState } from "../components/pullRequest/pullRequestPresentation";
 import { useGuideRunStore } from "../components/pullRequest/guide/guideRunStore";

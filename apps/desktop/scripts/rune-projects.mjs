@@ -7,6 +7,7 @@ import {
 import { archivedThreadGroups } from "../src/native/archivedThreads.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
+import { pullRequestLabels, workspacePullRequests } from "../src/native/pullRequests.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
@@ -269,6 +270,9 @@ function startWorkspaceFeed(owner, initial, watch) {
     ),
     issues: workspaceIssues(owner, signal, feed.activeRpc, (operation, list, error) =>
       write({ type: "issues", watch, operation, list, error }),
+    ),
+    pullRequests: workspacePullRequests(owner, signal, feed.activeRpc, (operation, reply) =>
+      write({ type: "pullrequests", watch, operation, ...reply }),
     ),
     threadFindMode: () => threadFindMode,
     hasRegistryIcon: (url) => registryIcons.has(url),
@@ -1499,6 +1503,7 @@ async function handleWorkspaceRequest(request, reply) {
         },
         browser_labels: session.browserAvailable ? browserLabels() : undefined,
         issues_labels: session.canReadIssues ? issueLabels() : undefined,
+        pull_request_labels: session.canReadPullRequests ? pullRequestLabels() : undefined,
         usage_labels: usageLabels(),
         usage_preferences: usagePreferences(),
         update_labels: {
@@ -2024,6 +2029,14 @@ try {
       if (feed?.watch === request.watch) {
         if (request.action === "close") feed.issues.close();
         else void feed.issues.request(request);
+      }
+      continue;
+    }
+    if (request?.type === "pullrequests") {
+      const feed = workspaceFeed;
+      if (feed?.watch === request.watch) {
+        if (request.action === "close") feed.pullRequests.close();
+        else void feed.pullRequests.request(request);
       }
       continue;
     }

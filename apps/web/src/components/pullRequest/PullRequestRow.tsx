@@ -16,7 +16,7 @@ import { getSourceControlPresentationForKind } from "~/sourceControlPresentation
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { PullRequestChecksPopover } from "./PullRequestChecksPopover";
 import { pullRequestPanelReference } from "./usePullRequestDetail";
-import type { EnvironmentPullRequestEntry } from "./pullRequestList.logic";
+import type { EnvironmentPullRequestEntry } from "@t3tools/client-runtime/pull-request-list";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
 import {
   PULL_REQUEST_ROW_CLASS,

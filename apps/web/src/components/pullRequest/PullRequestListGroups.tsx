@@ -10,7 +10,7 @@ import {
   scorePullRequestMatch,
   type EnvironmentPullRequestEntry,
   type PullRequestGroup,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import { PullRequestRow, type PullRequestRowTarget } from "./PullRequestRow";
 import {
   PullRequestSpeedModeProvider,

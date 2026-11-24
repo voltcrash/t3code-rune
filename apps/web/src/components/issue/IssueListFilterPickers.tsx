@@ -33,7 +33,7 @@ import {
   pullRequestProjectKey,
   type PullRequestFilterOption,
 } from "../pullRequest/PullRequestListFilters";
-import { pullRequestLabelColor } from "../pullRequest/pullRequestList.logic";
+import { pullRequestLabelColor } from "@t3tools/client-runtime/pull-request-list";
 
 const VISIBLE_CHOICES = 30;
 const matches = (needle: string, ...fields: ReadonlyArray<string | null | undefined>) =>

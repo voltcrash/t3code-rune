@@ -59,7 +59,7 @@ import { PullRequestEditButton } from "../pullRequest/PullRequestEditButton";
 import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
 import { PullRequestMarkdownEditor } from "../pullRequest/PullRequestMarkdownEditor";
 import { readableFailure } from "../pullRequest/pullRequestDetail.logic";
-import { pullRequestLabelColor } from "../pullRequest/pullRequestList.logic";
+import { pullRequestLabelColor } from "@t3tools/client-runtime/pull-request-list";
 import {
   PullRequestActorLabel,
   PullRequestLabelChip,

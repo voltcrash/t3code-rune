@@ -31,7 +31,7 @@ import { Badge } from "../ui/badge";
 import { InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { PullRequestReviewOutcome } from "./pullRequestDetail.logic";
-import { pullRequestLabelColor } from "./pullRequestList.logic";
+import { pullRequestLabelColor } from "@t3tools/client-runtime/pull-request-list";
 import {
   PULL_REQUEST_STATE_PRESENTATION,
   PullRequestGlyph,

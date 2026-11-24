@@ -7,6 +7,7 @@ pub(super) enum Page {
     Home,
     Issues,
     Issue(crate::issues::Reference),
+    PullRequests,
     Thread(String),
     NewThread(String),
 }
@@ -64,6 +65,15 @@ impl History {
         matches!(self.current, Page::Issues | Page::Issue(_))
     }
 
+    pub(super) fn on_pull_requests(&self) -> bool {
+        self.current == Page::PullRequests
+    }
+
+    /// Issues and pull requests replace the thread view and swap the sidebar footer for Back.
+    pub(super) fn on_utility_page(&self) -> bool {
+        self.on_issues() || self.on_pull_requests()
+    }
+
     pub(super) fn issue(&self) -> Option<&crate::issues::Reference> {
         match &self.current {
             Page::Issue(reference) => Some(reference),
@@ -103,6 +113,7 @@ impl History {
         let available = |page: &Page| match page {
             Page::Home => true,
             Page::Issues | Page::Issue(_) => ws.issues.labels.is_some(),
+            Page::PullRequests => ws.pull_requests.labels.is_some(),
             Page::Thread(id) => ws.has_thread(id),
             Page::NewThread(id) => drafts.has_draft(id),
         };
@@ -138,6 +149,7 @@ impl Desktop {
     pub(super) fn navigate_history(&mut self, forward: bool, tx: &mut rune::Tx) {
         self.go(forward);
         self.sync_issues(tx);
+        self.sync_pull_requests(tx);
     }
 
     pub(super) fn go(&mut self, forward: bool) {
@@ -148,6 +160,7 @@ impl Desktop {
         match self.history.pop(forward) {
             Some(Page::Home) => self.show_projects(),
             Some(Page::Issues) => self.open_issues(),
+            Some(Page::PullRequests) => self.open_index_page(Page::PullRequests),
             Some(page @ Page::Issue(_)) => self.open_index_page(page),
             Some(Page::Thread(id)) => self.open_thread(&id),
             Some(Page::NewThread(project)) => {

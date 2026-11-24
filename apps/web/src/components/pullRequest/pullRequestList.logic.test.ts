@@ -37,7 +37,7 @@ import {
   pullRequestOverrideAfterAction,
   reusePullRequestEntries,
   settlePullRequestOverrides,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import { pullRequestGroups } from "./pullRequestListGroups.logic";
 import {
   readPullRequestListPreferences,

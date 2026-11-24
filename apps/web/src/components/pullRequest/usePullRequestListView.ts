@@ -33,7 +33,7 @@ import {
   type PullRequestDiffStats,
   type PullRequestGroup,
   type PullRequestListOverride,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import type { PullRequestExpectedHost } from "./PullRequestListFilters";
 import type { PullRequestListPreferences, PullRequestListSort } from "./pullRequestListPreferences";
 import {
