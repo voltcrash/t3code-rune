@@ -40,6 +40,22 @@ pub(crate) fn relative_age(seconds: i64) -> String {
     }
 }
 
+/// The web's `snoozeWakeLabel`: whole clock minutes until the wake, rounded up past an hour.
+fn wake_label(wake: i64, now: i64) -> String {
+    let minutes = (wake.div_euclid(60_000) - now.div_euclid(60_000)).max(1);
+    match minutes {
+        0..60 => format!("{minutes}m"),
+        60..1440 => format!("{}h", (minutes + 59) / 60),
+        _ => format!("{}d", (minutes + 1439) / 1440),
+    }
+}
+
+pub(super) const ALARM: Icon = Icon {
+    name: "alarm-clock",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/></g>"#,
+};
+
 fn working_duration(seconds: i64) -> String {
     match seconds {
         0..60 => format!("{seconds}s"),
@@ -114,6 +130,8 @@ impl RowStatus {
 pub(super) struct Indicator {
     status: RowStatus,
     status_at: Option<i64>,
+    /// A snoozed shelf row shows when it wakes instead of its age.
+    wake: Option<i64>,
 }
 
 impl Thread {
@@ -122,11 +140,13 @@ impl Thread {
             Indicator {
                 status: RowStatus::Ready,
                 status_at: (self.sort_at > 0).then_some(self.sort_at),
+                wake: self.snoozed_until,
             }
         } else {
             Indicator {
                 status: self.status,
                 status_at: self.status_at,
+                wake: None,
             }
         }
     }
@@ -147,6 +167,11 @@ impl Indicator {
     }
 
     fn next_label_change(&self, now: i64, offset: i64) -> Option<i64> {
+        // The countdown counts server-clock minutes, so it changes on the server's minute.
+        let server = now.saturating_add(offset);
+        if self.wake.is_some_and(|wake| wake > server) {
+            return Some((server.div_euclid(60_000) + 1) * 60_000 - offset);
+        }
         let at = self.local_start(offset)?;
         if !self.status.timed() && self.status != RowStatus::Ready {
             return None;
@@ -170,6 +195,25 @@ pub(super) fn view(
     theme: &tok::Theme,
     clock: &Clock,
 ) -> (El, Option<&'static str>) {
+    if let Some(wake) = indicator.wake {
+        let now = clock.now.saturating_add(clock.offset);
+        if wake > now {
+            let blue = if dark {
+                rune::color::hex("#60a5fa")
+            } else {
+                rune::color::hex("#1d4ed8")
+            }
+            .expect("valid blue");
+            return (
+                row()
+                    .center_y()
+                    .gap(4.)
+                    .child(icon(&ALARM, 12.).color(blue))
+                    .child(super::label(&wake_label(wake, now), 12., 400., blue)),
+                None,
+            );
+        }
+    }
     let elapsed = indicator
         .local_start(clock.offset)
         .map(|t| indicator.elapsed_ms(clock.now, t) / 1000);
@@ -319,7 +363,8 @@ impl super::Workspace {
                 && let Some(&index) = self.by_thread.get(id)
             {
                 let thread = &self.threads[index];
-                let indicator = thread.indicator(thread.settled && inbox);
+                let indicator =
+                    thread.indicator((thread.settled || self.is_snoozed(thread)) && inbox);
                 if let Some(next) = indicator.next_label_change(now, self.row_clock.offset) {
                     deadline = Some(deadline.map_or(next, |earlier: i64| earlier.min(next)));
                     changed |= now < self.row_clock.now

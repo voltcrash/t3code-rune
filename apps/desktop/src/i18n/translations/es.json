@@ -496,5 +496,7 @@
   "e9682864e49df67a": "No se pudo reactivar el hilo",
   "6fc712c4f5a55ee2": "No se pudo posponer el hilo",
   "760b0829c8381b1a": "Posponer",
-  "0d36d1316d4fc58a": "Reactivar hilo"
+  "0d36d1316d4fc58a": "Reactivar hilo",
+  "021fe65858278fe9": "Posponer hilo",
+  "13e6f2309e418404": "Resolver"
 }
