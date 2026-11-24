@@ -54,6 +54,9 @@ pub(crate) struct Labels {
     more: String,
     loading: String,
     empty: String,
+    no_match: String,
+    ago: String,
+    just_now: String,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Serialize)]
@@ -79,17 +82,88 @@ struct Issue {
     reference: Reference,
     title: String,
     key: String,
-    context: String,
-    group: String,
+    author: String,
+    scope: Option<String>,
+    comments: u64,
+    updated_at: i64,
     status: Status,
+}
+
+#[derive(Deserialize)]
+struct TrackerIcon {
+    name: String,
+    view: f32,
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct Group {
+    key: String,
+    name: String,
+    host: Option<String>,
+    projects: String,
+    icon: Option<TrackerIcon>,
+    notice: Option<String>,
+    rows: Vec<Issue>,
 }
 
 #[derive(Default, Deserialize)]
 pub(crate) struct List {
-    rows: Vec<Issue>,
+    groups: Vec<Group>,
+    #[serde(default)]
+    errors: Vec<String>,
     more: bool,
-    notices: Vec<String>,
     has_trackers: bool,
+    #[serde(default)]
+    searching: bool,
+}
+
+/// One drawn line of the list, in the web's order: a tracker heading, its notes, its issues.
+#[derive(Clone, Copy)]
+enum Line {
+    Heading(usize),
+    Notice(usize),
+    Error(usize),
+    Empty(usize),
+    Row(usize, usize),
+}
+
+impl List {
+    fn lines(&self) -> Vec<Line> {
+        let mut lines = Vec::new();
+        for (g, group) in self.groups.iter().enumerate() {
+            lines.push(Line::Heading(g));
+            if group.notice.is_some() {
+                lines.push(Line::Notice(g));
+            }
+            if group.notice.is_none() && group.rows.is_empty() {
+                lines.push(Line::Empty(g));
+            }
+            lines.extend((0..group.rows.len()).map(|r| Line::Row(g, r)));
+        }
+        lines.extend((0..self.errors.len()).map(Line::Error));
+        lines
+    }
+}
+
+/// Rune icons are static, so each tracker's mark is leaked once and reused.
+fn tracker_icon(icon: &TrackerIcon) -> &'static Icon {
+    thread_local! {
+        static ICONS: std::cell::RefCell<std::collections::HashMap<String, &'static Icon>> =
+            Default::default();
+    }
+    ICONS.with(|icons| {
+        *icons
+            .borrow_mut()
+            .entry(icon.name.clone())
+            .or_insert_with(|| {
+                Box::leak(Box::new(Icon {
+                    name: Box::leak(icon.name.clone().into_boxed_str()),
+                    view: icon.view,
+                    body: Box::leak(icon.body.clone().into_boxed_str()),
+                }))
+            })
+    })
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -110,6 +184,7 @@ pub(crate) struct Issues {
     operation: u64,
     pending: bool,
     list: List,
+    lines: Vec<Line>,
     error: Option<String>,
 }
 
@@ -150,6 +225,7 @@ impl Desktop {
         self.workspace.issues.watch = watch;
         self.workspace.issues.menu.set(None);
         self.workspace.issues.list = Default::default();
+        self.workspace.issues.lines.clear();
         self.workspace.issues.error = None;
         self.workspace.issues.pending = false;
         if entering
@@ -177,6 +253,7 @@ impl Desktop {
         let query = page.query.text.trim().to_string();
         if matches!(action, "list" | "search") {
             page.list = Default::default();
+            page.lines.clear();
         }
         page.operation = operation;
         page.pending = true;
@@ -204,6 +281,7 @@ impl Desktop {
         let page = &mut self.workspace.issues;
         if page.watch == Some(watch) && page.operation == operation {
             if let Some(result) = list {
+                page.lines = result.lines();
                 page.list = result;
             }
             page.error = error;
@@ -228,19 +306,26 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
     let Some(labels) = &page.labels else {
         return el();
     };
-    let (key, caption) = match kind {
-        MenuKind::Sort => ("issue-sort", &labels.sort),
-        MenuKind::Filter => ("issue-filters", &labels.filters),
+    let (key, caption, glyph) = match kind {
+        MenuKind::Sort => ("issue-sort", &labels.sort, &crate::pull_requests::SORT),
+        MenuKind::Filter => (
+            "issue-filters",
+            &labels.filters,
+            &crate::pull_requests::FILTER,
+        ),
     };
-    let trigger = action(caption, theme, true, move |s| {
-        let menu = &s.workspace.issues.menu;
-        menu.set(if menu.get() == Some(kind) {
-            None
-        } else {
-            Some(kind)
-        });
-    })
-    .border(1., theme.card_border);
+    let trigger =
+        crate::pull_requests::toolbar_button(&format!("{key}-trigger"), caption, glyph, theme)
+            .focusable(true)
+            .hover(theme.hover)
+            .on_press(move |s: &mut Desktop| {
+                let menu = &s.workspace.issues.menu;
+                menu.set(if menu.get() == Some(kind) {
+                    None
+                } else {
+                    Some(kind)
+                });
+            });
     let open = page.menu.get() == Some(kind);
     let mut menu = Menu::new(key)
         .trigger(trigger)
@@ -285,6 +370,110 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
     menu.build(&s.contrast.kit(dark), overlays)
 }
 
+fn heading(group: &Group, theme: &tok::Theme, spaced: bool) -> El {
+    let muted = theme.text_secondary;
+    let mut line = row()
+        .w_full()
+        .px(12.)
+        .pt(if spaced { 24. } else { 0. })
+        .pb(4.)
+        .gap(6.)
+        .center_y();
+    if let Some(mark) = &group.icon {
+        line = line.child(icon(tracker_icon(mark), 14.).color(muted));
+    }
+    line = line.child(label(&group.name, 12., 500., muted));
+    if let Some(host) = &group.host {
+        line = line.child(label(&format!("· {host}"), 12., 400., muted));
+    }
+    line.child(label(&format!("· {}", group.projects), 12., 400., muted))
+}
+
+fn issue_row(s: &Desktop, issue: &Issue, labels: &Labels, theme: &tok::Theme, dark: bool) -> El {
+    let (mark, ink) = match issue.status {
+        Status::Open => (
+            &ICON,
+            rune::oklch(if dark { 0.85 } else { 0.60 }, 0.15, 163.),
+        ),
+        Status::Completed => (
+            &COMPLETED,
+            rune::oklch(if dark { 0.81 } else { 0.54 }, 0.19, 293.),
+        ),
+        Status::Closed => (&CLOSED, theme.text_secondary),
+    };
+    let small = |value: &str| label(value, 11., 400., theme.text_secondary);
+    let mut first = row()
+        .w_full()
+        .min_w(0.)
+        .gap(6.)
+        .center_y()
+        .child(
+            rune::text(issue.key.clone())
+                .font(TextStyle::new(12., 400.).mono())
+                .color(theme.text_secondary),
+        )
+        .child(
+            label(&issue.title, 14., 400., theme.text)
+                .truncate()
+                .shrink(),
+        );
+    if issue.comments > 0 {
+        first = first.child(el().grow(1.)).child(
+            row()
+                .gap(2.)
+                .center_y()
+                .child(icon(&COMMENT, 12.).color(theme.text_secondary))
+                .child(small(&issue.comments.to_string())),
+        );
+    }
+    let mut second = row()
+        .w_full()
+        .min_w(0.)
+        .gap(6.)
+        .center_y()
+        .child(small(&issue.author));
+    if let Some(scope) = &issue.scope {
+        second = second.child(small(scope).truncate().shrink());
+    }
+    let second = second
+        .child(el().grow(1.))
+        .child(small(&crate::pull_requests::age(
+            issue.updated_at,
+            &labels.ago,
+            &labels.just_now,
+        )));
+    let reference = issue.reference.clone();
+    let selected = s.history.issue() == Some(&reference);
+    row()
+        .role("button")
+        .label(&format!("{} {}", issue.key, issue.title))
+        .w_full()
+        .h(56.)
+        .px(12.)
+        .gap(8.)
+        .center_y()
+        .radius(6.)
+        .fill(if selected {
+            theme.hover
+        } else {
+            rune::Color::TRANSPARENT
+        })
+        .hover(theme.hover)
+        .focusable(true)
+        .on_press_tx(move |s: &mut Desktop, tx| {
+            s.open_index_page(Page::Issue(reference.clone()));
+            s.sync_issues(tx);
+        })
+        .child(icon(mark, 16.).color(ink))
+        .child(col().grow(1.).min_w(0.).gap(2.).child(first).child(second))
+}
+
+const COMMENT: Icon = Icon {
+    name: "message-square",
+    view: 24.,
+    body: r#"<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
 pub(crate) fn view(
     s: &Desktop,
     theme: &tok::Theme,
@@ -301,7 +490,7 @@ pub(crate) fn view(
         page.menu.set(None);
         return detail::view(s, panel, labels, theme, dark);
     }
-    let wide = width >= 528. && !split;
+    let wide = width >= 640. && !split;
     let search = text_input(&page.query, TextStyle::new(13., 400.))
         .key("issue-search")
         .label(&labels.search)
@@ -309,7 +498,6 @@ pub(crate) fn view(
         .single_line()
         .min_w(0.)
         .grow(1.)
-        .h(30.)
         .px(4.)
         .color(theme.text)
         .on_edit(|s: &mut Desktop| &mut s.workspace.issues.query)
@@ -318,9 +506,9 @@ pub(crate) fn view(
     let search = row()
         .center_y()
         .gap(4.)
-        .px(8.)
-        .h(32.)
-        .radius(6.)
+        .px(10.)
+        .h(34.)
+        .radius(8.)
         .border(1., theme.card_border)
         .child(icon(&rune_kit::glyphs::SEARCH, 14.).color(theme.text_secondary))
         .child(search);
@@ -329,9 +517,9 @@ pub(crate) fn view(
         .role("button")
         .label(&labels.refresh)
         .help(&labels.refresh)
-        .size(30., 30.)
+        .size(32., 32.)
         .center()
-        .radius(6.)
+        .radius(8.)
         .border(1., theme.card_border)
         .child(icon(&crate::workspace::palette::REFRESH, 14.).color(theme.text_secondary));
     if page.pending {
@@ -344,21 +532,21 @@ pub(crate) fn view(
     };
     let controls = row()
         .center_y()
-        .gap(6.)
+        .gap(8.)
         .child(menu(s, MenuKind::Sort, theme, dark, overlays))
         .child(menu(s, MenuKind::Filter, theme, dark, overlays))
         .child(refresh);
     let toolbar = if wide {
         row()
             .w_full()
-            .gap(6.)
+            .gap(8.)
             .center_y()
             .child(search.grow(1.).min_w(0.))
             .child(controls)
     } else {
         col()
             .w_full()
-            .gap(6.)
+            .gap(8.)
             .child(search.w_full())
             .child(controls)
     };
@@ -366,9 +554,10 @@ pub(crate) fn view(
         .w_full()
         .grow(1.)
         .min_h(0.)
-        .px(if wide { 28. } else { 12. })
-        .py(20.)
-        .gap(10.)
+        .px(if wide { 30. } else { 12. })
+        .pt(24.)
+        .pb(12.)
+        .gap(16.)
         .child(toolbar);
     if !page.pending && page.error.is_none() && !page.list.has_trackers && page.operation != 0 {
         body = body.child(
@@ -389,20 +578,11 @@ pub(crate) fn view(
                 .wrap(),
         );
     }
-    if page.pending || (page.error.is_none() && page.list.has_trackers && page.list.rows.is_empty())
-    {
+    if page.pending && page.lines.is_empty() {
         body = body.child(
-            label(
-                if page.pending {
-                    &labels.loading
-                } else {
-                    &labels.empty
-                },
-                13.,
-                400.,
-                theme.text_secondary,
-            )
-            .role("status"),
+            label(&labels.loading, 13., 400., theme.text_secondary)
+                .role("status")
+                .px(12.),
         );
     }
     let colors = *theme;
@@ -410,66 +590,51 @@ pub(crate) fn view(
         .w_full()
         .growth(GrowthSpec::default())
         .virtual_rows(
-            page.list.rows.len(),
-            54.,
-            |s: &Desktop, i| s.workspace.issues.list.rows[i].identity.clone().into(),
+            page.lines.len(),
+            56.,
+            |s: &Desktop, i| {
+                let page = &s.workspace.issues;
+                match page.lines[i] {
+                    Line::Heading(g) => format!("tracker:{}", page.list.groups[g].key).into(),
+                    Line::Notice(g) => format!("notice:{g}").into(),
+                    Line::Error(e) => format!("error:{e}").into(),
+                    Line::Empty(g) => format!("empty:{g}").into(),
+                    Line::Row(g, r) => page.list.groups[g].rows[r].identity.clone().into(),
+                }
+            },
             move |s: &Desktop, i| {
-                let Some(issue) = s.workspace.issues.list.rows.get(i) else {
+                let page = &s.workspace.issues;
+                let (Some(line), Some(labels)) = (page.lines.get(i).copied(), &page.labels) else {
                     return el();
                 };
-                let summary = format!(
-                    "{} · {} · {} · {}",
-                    issue.group, issue.key, issue.context, issue.title
-                );
-                let details = col()
-                    .grow(1.)
-                    .min_w(0.)
-                    .gap(2.)
-                    .child(label(&issue.title, 14., 500., colors.text).truncate())
-                    .child(
-                        label(
-                            &format!("{} · {} · {}", issue.group, issue.key, issue.context),
-                            12.,
-                            400.,
-                            colors.text_secondary,
-                        )
-                        .truncate(),
-                    );
-                let (mark, ink) = match issue.status {
-                    Status::Open => (
-                        &ICON,
-                        rune::oklch(if dark { 0.85 } else { 0.60 }, 0.15, 163.),
-                    ),
-                    Status::Completed => (
-                        &COMPLETED,
-                        rune::oklch(if dark { 0.81 } else { 0.54 }, 0.19, 293.),
-                    ),
-                    Status::Closed => (&CLOSED, colors.text_secondary),
+                let note = |text: &str, color: rune::Color, size: f32| {
+                    label(text, size, 400., color).wrap().px(12.).pb(4.)
                 };
-                let item = row()
-                    .w_full()
-                    .h(54.)
-                    .px(8.)
-                    .center_y()
-                    .gap(8.)
-                    .radius(6.)
-                    .child(icon(mark, 16.).color(ink))
-                    .child(details);
-                let reference = issue.reference.clone();
-                let selected = s.history.issue() == Some(&reference);
-                item.role("button")
-                    .label(&summary)
-                    .fill(if selected {
-                        colors.hover
-                    } else {
-                        rune::Color::TRANSPARENT
-                    })
-                    .hover(colors.hover)
-                    .focusable(true)
-                    .on_press_tx(move |s: &mut Desktop, tx| {
-                        s.open_index_page(Page::Issue(reference.clone()));
-                        s.sync_issues(tx);
-                    })
+                match line {
+                    Line::Heading(g) => heading(&page.list.groups[g], &colors, i > 0),
+                    Line::Notice(g) => note(
+                        page.list.groups[g].notice.as_deref().unwrap_or_default(),
+                        colors.text_secondary,
+                        14.,
+                    ),
+                    Line::Error(e) => note(
+                        &page.list.errors[e],
+                        rune::oklch(if dark { 0.704 } else { 0.577 }, 0.2, 25.),
+                        12.,
+                    ),
+                    Line::Empty(_) => note(
+                        if page.list.searching {
+                            &labels.no_match
+                        } else {
+                            &labels.empty
+                        },
+                        colors.text_secondary,
+                        14.,
+                    ),
+                    Line::Row(g, r) => {
+                        issue_row(s, &page.list.groups[g].rows[r], labels, &colors, dark)
+                    }
+                }
             },
         )
         .virtual_rows_version((page.operation, page.pending, colors.text, s.history.issue()));
@@ -481,13 +646,7 @@ pub(crate) fn view(
             .scroll(ScrollSpec {
                 stick_bottom: false,
             })
-            .child(rows)
-            .children(
-                page.list
-                    .notices
-                    .iter()
-                    .map(|notice| label(notice, 13., 400., theme.text_secondary).wrap()),
-            ),
+            .child(rows),
     );
     if page.list.more {
         body = body.child(action(&labels.more, theme, !page.pending, |s| {
