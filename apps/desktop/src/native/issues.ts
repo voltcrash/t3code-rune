@@ -5,6 +5,7 @@ import {
   type HeldIssuePage,
 } from "@t3tools/client-runtime/issue-list";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { sourceControlIconBody } from "./sourceControlIcon.ts";
 import { issueTrackerDetailText } from "@t3tools/client-runtime/state/issue-trackers";
 import {
   type IssueListInput,
@@ -46,6 +47,7 @@ export function issueLabels() {
     loading: m(msg("Loading…")),
     empty: m(msg("No issues under these filters.")),
     no_match: m(msg("Nothing matches that.")),
+    tracker: m(msg("Filter by tracker")),
     ago: m(msg("{age} ago", { age: "{age}" })),
     just_now: m(msg("just now")),
   };
@@ -69,7 +71,33 @@ interface IssueRequest {
   readonly state: IssueListState;
   readonly query: string;
   readonly sort?: IssueListSort;
+  readonly host?: string;
   readonly action: "list" | "more" | "refresh" | "search";
+}
+
+/** The tracker filter's choices, like the web's `hostOptionsFor`: one per host, configured first. */
+function hostOptions(page: HeldIssuePage, chosen: string) {
+  const hosts = new Map<string, (typeof page.answer.trackers)[number]>();
+  const ordered = [...page.answer.trackers].sort((a, b) =>
+    `${a.tracker} ${a.host}`.localeCompare(`${b.tracker} ${b.host}`),
+  );
+  for (const tracker of ordered) {
+    const existing = hosts.get(tracker.host);
+    if (existing === undefined || (!existing.configured && tracker.configured))
+      hosts.set(tracker.host, tracker);
+  }
+  return [
+    // A remembered host no project is on any more stays listed, so the filter can be taken off.
+    ...(chosen && !hosts.has(chosen) ? [{ host: chosen, label: chosen, icon: null }] : []),
+    ...[...hosts.values()].map((tracker) => {
+      const name = sourceControlClients.find(tracker.tracker)?.label ?? tracker.tracker;
+      return {
+        host: tracker.host,
+        label: hosts.size > 1 && name === tracker.host ? tracker.host : `${name} (${tracker.host})`,
+        icon: sourceControlIconBody(tracker.tracker),
+      };
+    }),
+  ];
 }
 
 const read = Effect.fn("nativeDesktop.readIssues")(function* (
@@ -81,45 +109,27 @@ const read = Effect.fn("nativeDesktop.readIssues")(function* (
   return yield* connection[WS_METHODS.issuesList](input);
 });
 
-/** A host's mark as an icon body native can draw, from the same artwork the web draws. */
-function trackerIcon(tracker: string) {
-  const icon = sourceControlClients.find(tracker)?.icon;
-  if (!icon) return null;
-  const [x = 0, y = 0, width = 0, height = 0] = icon.viewBox.split(/\s+/u).map(Number);
-  if (!(width > 0 && height > 0)) return null;
-  // Rune draws a body in a square viewBox from the origin, so centre the mark in one.
-  const view = Math.max(width, height);
-  const shift = `translate(${(view - width) / 2 - x} ${(view - height) / 2 - y})`;
-  const paint = (value: string | { readonly gradient: string } | undefined) =>
-    value === undefined ? "none" : typeof value === "string" ? value : `url(#${value.gradient})`;
-  const defs = (icon.gradients ?? [])
-    .map(
-      (g) =>
-        `<linearGradient id="${g.id}" x1="${g.x1}" y1="${g.y1}" x2="${g.x2}" y2="${g.y2}" gradientUnits="userSpaceOnUse"${g.transform ? ` gradientTransform="${g.transform}"` : ""}>${g.stops
-          .map(
-            (stop) =>
-              `<stop offset="${stop.offset}" stop-color="${stop.color}"${stop.opacity === undefined ? "" : ` stop-opacity="${stop.opacity}"`}/>`,
-          )
-          .join("")}</linearGradient>`,
-    )
-    .join("");
-  const paths = icon.paths
-    .map(
-      (path) =>
-        `<path d="${path.d}" fill="${paint(path.fill)}"${path.fillRule ? ` fill-rule="${path.fillRule}"` : ""}${path.fillOpacity === undefined ? "" : ` fill-opacity="${path.fillOpacity}"`}${path.stroke ? ` stroke="${path.stroke}"` : ""}${path.strokeWidth === undefined ? "" : ` stroke-width="${path.strokeWidth}"`}/>`,
-    )
-    .join("");
-  return {
-    name: `tracker-${tracker}`,
-    view,
-    body: `${defs ? `<defs>${defs}</defs>` : ""}<g transform="${shift}">${paths}</g>`,
-  };
-}
-
-function issueView(session: IssueSession, page: HeldIssuePage, query: string, sort: IssueListSort) {
-  const groups = groupIssues(new Map([[session.environmentId, page]]), query, [], sort);
+function issueView(
+  session: IssueSession,
+  page: HeldIssuePage,
+  query: string,
+  sort: IssueListSort,
+  host: string,
+) {
+  // The answer names every tracker even when one host is chosen; the web groups only that one.
+  const shown = host
+    ? {
+        ...page,
+        answer: {
+          ...page.answer,
+          trackers: page.answer.trackers.filter((tracker) => tracker.host === host),
+        },
+      }
+    : page;
+  const groups = groupIssues(new Map([[session.environmentId, shown]]), query, [], sort);
   return {
     has_trackers: groups.length > 0,
+    hosts: hostOptions(page, host),
     searching: query.length > 0,
     groups: groups.map((group) => {
       const name = sourceControlClients.find(group.tracker.tracker)?.label ?? group.tracker.tracker;
@@ -133,7 +143,7 @@ function issueView(session: IssueSession, page: HeldIssuePage, query: string, so
             count: group.tracker.projectCount,
           }),
         ),
-        icon: trackerIcon(group.tracker.tracker),
+        icon: sourceControlIconBody(group.tracker.tracker),
         notice: group.tracker.configured
           ? null
           : group.tracker.detail === null
@@ -177,26 +187,43 @@ export function workspaceIssues(
 ) {
   let current: AbortController | undefined;
   let held:
-    | { page: HeldIssuePage; query: string; state: IssueListState; sort: IssueListSort }
+    | {
+        page: HeldIssuePage;
+        query: string;
+        state: IssueListState;
+        sort: IssueListSort;
+        host: string;
+      }
     | undefined;
   function close() {
     current?.abort();
     current = undefined;
     held = undefined;
   }
-  async function request({ operation, state, query, action, sort = "updated" }: IssueRequest) {
+  async function request({
+    operation,
+    state,
+    query,
+    action,
+    sort = "updated",
+    host = "",
+  }: IssueRequest) {
     current?.abort();
     const controller = new AbortController();
     current = controller;
     const until = AbortSignal.any([signal, controller.signal]);
     const previous =
-      held?.query === query && held.state === state && held.sort === sort ? held.page : undefined;
+      held?.query === query && held.state === state && held.sort === sort && held.host === host
+        ? held.page
+        : undefined;
     if (!previous) held = undefined;
     try {
       if (
         !session.canReadIssues ||
         !["open", "closed", "all"].includes(state) ||
         query.length > 200 ||
+        typeof host !== "string" ||
+        host.length > 200 ||
         (action === "more" && !previous)
       ) {
         throw new Error("Unavailable issue list");
@@ -209,6 +236,7 @@ export function workspaceIssues(
             limit: 50,
             sort,
             ...(query && { query }),
+            ...(host && { host }),
             ...(action === "more"
               ? { cursors: previous?.nextCursors }
               : { refresh: action === "refresh" }),
@@ -229,8 +257,8 @@ export function workspaceIssues(
           : holdIssuePages([[session.environmentId, result]], new Map()).get(
               session.environmentId,
             )!;
-      held = { page, query, state, sort };
-      publish(operation, issueView(session, page, query, sort));
+      held = { page, query, state, sort, host };
+      publish(operation, issueView(session, page, query, sort, host));
     } catch {
       if (!until.aborted) publish(operation, undefined, m(msg("Couldn’t load issues.")));
     }

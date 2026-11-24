@@ -20,6 +20,8 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { parsePullRequestQuery } from "@t3tools/client-runtime/pull-request-query";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { sourceControlIconBody } from "./sourceControlIcon.ts";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/catalog.ts";
 import { openEnvironmentRpc } from "./environmentRpc.ts";
@@ -64,6 +66,8 @@ export function pullRequestLabels() {
     checking: m(msg("Checking...")),
     more: m(msg("Load more pull requests")),
     loading: m(msg("Loading...")),
+    provider: m(msg("Filter by provider")),
+    all_hosts: m(msg("All", { $context: "all hosts" })),
     ago: m(msg("{age} ago", { age: "{age}" })),
     just_now: m(msg("just now")),
   };
@@ -99,6 +103,22 @@ export interface PullRequestRequest {
   readonly involvement: number;
   readonly sort: number;
   readonly query: string;
+  readonly host?: string;
+}
+
+/** The provider filter's choices, named like the web's `pullRequestHostLabel`. */
+function hostOptions(providers: PullRequestListResult["providers"]) {
+  return providers.map((provider) => {
+    const sharing = providers.filter((other) => other.kind === provider.kind).length;
+    return {
+      host: provider.host,
+      label:
+        sharing > 1
+          ? provider.host
+          : (sourceControlClients.find(provider.kind)?.label ?? provider.host),
+      icon: sourceControlIconBody(provider.kind),
+    };
+  });
 }
 
 /** The rows the native list draws, in the order and groups the web list shows. */
@@ -159,6 +179,7 @@ export function workspacePullRequests(
     operation: number,
     reply: {
       groups?: ReturnType<typeof pullRequestView>;
+      hosts?: ReturnType<typeof hostOptions>;
       more?: boolean;
       filtered?: boolean;
       error?: string;
@@ -174,6 +195,9 @@ export function workspacePullRequests(
         readonly stats: Stats;
       }
     | undefined;
+  // While one host is chosen the answer names only it, so the menu keeps the full list, also
+  // across leaving the page, since the page remembers the chosen host.
+  let hosts: ReturnType<typeof hostOptions> = [];
   function close() {
     current?.abort();
     current = undefined;
@@ -189,7 +213,8 @@ export function workspacePullRequests(
     const sort = SORTS[input.sort];
     const query = typeof input.query === "string" ? input.query.trim() : "";
     const { text, filters } = parsePullRequestQuery(query);
-    const key = JSON.stringify([state, involvement, query]);
+    const host = typeof input.host === "string" ? input.host : "";
+    const key = JSON.stringify([state, involvement, query, host]);
     const previous = held?.key === key ? held : undefined;
     if (!previous) held = undefined;
     const run = <A, E>(effect: Effect.Effect<A, E, never>) =>
@@ -208,6 +233,7 @@ export function workspacePullRequests(
         !involvement ||
         !sort ||
         query.length > 200 ||
+        host.length > 200 ||
         ((input.action === "more" || input.action === "sort") && !previous)
       ) {
         throw new Error("Unavailable pull request list");
@@ -226,7 +252,12 @@ export function workspacePullRequests(
             stats,
           ),
           more: Object.keys(list.nextCursors).length > 0,
-          filtered: state !== "open" || involvement !== "all" || query.length > 0,
+          hosts:
+            host && !hosts.some((option) => option.host === host)
+              ? [...hosts, { host, label: host, icon: null }]
+              : hosts,
+          filtered:
+            state !== "open" || involvement !== "all" || query.length > 0 || host.length > 0,
         });
       // Sorting reorders the rows already read, as the web list does, instead of reading again.
       if (input.action === "sort" && previous) {
@@ -239,7 +270,7 @@ export function workspacePullRequests(
       if (input.action === "refresh") {
         await call((rpc) => rpc[WS_METHODS.pullRequestsInvalidate]({}));
       }
-      const base = { state, involvement, limit: PAGE_SIZE } as const;
+      const base = { state, involvement, limit: PAGE_SIZE, ...(host && { host }) } as const;
       const scoped = Object.keys(filters).length > 0 ? { filters } : {};
       const page = await call((rpc) =>
         rpc[WS_METHODS.pullRequestsList]({
@@ -250,6 +281,7 @@ export function workspacePullRequests(
         }),
       );
       if (until.aborted) return;
+      if (!host) hosts = hostOptions(page.providers);
       const continued = input.action === "more" && previous;
       const arrived = continued
         ? page.entries.filter(

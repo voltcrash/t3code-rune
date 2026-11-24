@@ -55,6 +55,7 @@ pub(crate) struct Labels {
     loading: String,
     empty: String,
     no_match: String,
+    tracker: String,
     ago: String,
     just_now: String,
 }
@@ -90,7 +91,7 @@ struct Issue {
 }
 
 #[derive(Deserialize)]
-struct TrackerIcon {
+pub(crate) struct TrackerIcon {
     name: String,
     view: f32,
     body: String,
@@ -110,6 +111,8 @@ struct Group {
 #[derive(Default, Deserialize)]
 pub(crate) struct List {
     groups: Vec<Group>,
+    #[serde(default)]
+    hosts: Vec<crate::pull_requests::HostOption>,
     #[serde(default)]
     errors: Vec<String>,
     more: bool,
@@ -147,7 +150,7 @@ impl List {
 }
 
 /// Rune icons are static, so each tracker's mark is leaked once and reused.
-fn tracker_icon(icon: &TrackerIcon) -> &'static Icon {
+pub(crate) fn tracker_icon(icon: &TrackerIcon) -> &'static Icon {
     thread_local! {
         static ICONS: std::cell::RefCell<std::collections::HashMap<String, &'static Icon>> =
             Default::default();
@@ -170,6 +173,7 @@ fn tracker_icon(icon: &TrackerIcon) -> &'static Icon {
 enum MenuKind {
     Sort,
     Filter,
+    Host,
 }
 
 #[derive(Default)]
@@ -180,6 +184,8 @@ pub(crate) struct Issues {
     query: TextEdit,
     filter: Filter,
     newest: bool,
+    host: String,
+    hosts: Vec<crate::pull_requests::HostOption>,
     menu: std::cell::Cell<Option<MenuKind>>,
     operation: u64,
     pending: bool,
@@ -219,6 +225,7 @@ impl Desktop {
                     state: Filter::Open,
                     sort: "updated",
                     query: String::new(),
+                    host: String::new(),
                 },
             );
         }
@@ -251,6 +258,7 @@ impl Desktop {
         let state = page.filter;
         let sort = if page.newest { "created" } else { "updated" };
         let query = page.query.text.trim().to_string();
+        let host = page.host.clone();
         if matches!(action, "list" | "search") {
             page.list = Default::default();
             page.lines.clear();
@@ -267,6 +275,7 @@ impl Desktop {
                 state,
                 sort,
                 query,
+                host,
             },
         );
     }
@@ -280,8 +289,9 @@ impl Desktop {
     ) {
         let page = &mut self.workspace.issues;
         if page.watch == Some(watch) && page.operation == operation {
-            if let Some(result) = list {
+            if let Some(mut result) = list {
                 page.lines = result.lines();
+                page.hosts = std::mem::take(&mut result.hosts);
                 page.list = result;
             }
             page.error = error;
@@ -307,6 +317,32 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
         return el();
     };
     let (key, caption, glyph) = match kind {
+        MenuKind::Host => {
+            return crate::pull_requests::host_filter(
+                "issue-host",
+                &labels.tracker,
+                &labels.all,
+                &page.host,
+                &page.hosts,
+                page.menu.get() == Some(MenuKind::Host),
+                |s| {
+                    let menu = &s.workspace.issues.menu;
+                    menu.set((menu.get() != Some(MenuKind::Host)).then_some(MenuKind::Host));
+                },
+                |s| s.workspace.issues.menu.set(None),
+                |s, host| {
+                    let page = &mut s.workspace.issues;
+                    page.menu.set(None);
+                    if page.host != host {
+                        page.host = host;
+                        s.load_issues("list");
+                    }
+                },
+                theme,
+                &s.contrast.kit(dark),
+                overlays,
+            );
+        }
         MenuKind::Sort => ("issue-sort", &labels.sort, &crate::pull_requests::SORT),
         MenuKind::Filter => (
             "issue-filters",
@@ -333,6 +369,7 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
         .on_close(|s: &mut Desktop| s.workspace.issues.menu.set(None));
     if open {
         match kind {
+            MenuKind::Host => {}
             MenuKind::Filter => {
                 for (value, name) in [
                     (Filter::Open, &labels.open),
@@ -535,6 +572,10 @@ pub(crate) fn view(
         .gap(8.)
         .child(menu(s, MenuKind::Sort, theme, dark, overlays))
         .child(menu(s, MenuKind::Filter, theme, dark, overlays))
+        .children(
+            (!page.hosts.is_empty() || !page.host.is_empty())
+                .then(|| menu(s, MenuKind::Host, theme, dark, overlays)),
+        )
         .child(refresh);
     let toolbar = if wide {
         row()

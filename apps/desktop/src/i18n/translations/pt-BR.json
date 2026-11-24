@@ -501,5 +501,8 @@
   "13e6f2309e418404": "Concluir",
   "56a74a14f052879d": "Nada corresponde a isso.",
   "283ada62d3847554": "{count, plural, one {{count} projeto} other {{count} projetos}}",
-  "7cae1b414ae74c6b": "Não é possível ler este rastreador agora."
+  "7cae1b414ae74c6b": "Não é possível ler este rastreador agora.",
+  "4aa8190ec693085e": "Filtrar por rastreador",
+  "d650b40b3b6eab7b": "Filtrar por provedor",
+  "46a2577ad57158b6": "Todos"
 }

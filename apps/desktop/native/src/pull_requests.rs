@@ -44,6 +44,84 @@ const EYE: Icon = Icon {
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g>"#,
 };
+pub(crate) const PLUG: Icon = Icon {
+    name: "plug-2",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M12 17v5"/><path d="M5 8h14"/><path d="M6 11V8h12v3a6 6 0 1 1-12 0Z"/></g>"#,
+};
+
+/// A host the list can narrow to, with its mark when the worker knows one.
+#[derive(Deserialize)]
+pub(crate) struct HostOption {
+    host: String,
+    label: String,
+    icon: Option<crate::issues::TrackerIcon>,
+}
+
+fn host_mark(option: Option<&HostOption>) -> &'static Icon {
+    option
+        .and_then(|o| o.icon.as_ref())
+        .map_or(&PLUG, crate::issues::tracker_icon)
+}
+
+/// The web's provider/tracker filter: "All" with a plug, or just the chosen host's mark.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn host_filter(
+    key: &'static str,
+    title: &str,
+    all: &str,
+    chosen: &str,
+    hosts: &[HostOption],
+    open: bool,
+    toggle: fn(&mut Desktop),
+    close: fn(&mut Desktop),
+    pick: fn(&mut Desktop, String),
+    theme: &tok::Theme,
+    kit: &rune_kit::Kit,
+    overlays: &mut Vec<El>,
+) -> El {
+    use rune_kit::{Menu, MenuItem};
+    let current = hosts.iter().find(|o| o.host == chosen);
+    let trigger_key = format!("{key}-trigger");
+    let trigger = if chosen.is_empty() {
+        toolbar_button(&trigger_key, all, &PLUG, theme).label(format!("{title}: {all}"))
+    } else {
+        let name = current.map_or(chosen, |o| o.label.as_str());
+        el().key(trigger_key)
+            .role("button")
+            .label(format!("{title}: {name}"))
+            .help(format!("{title}: {name}"))
+            .size(32., 32.)
+            .center()
+            .radius(8.)
+            .border(1., theme.card_border)
+            .child(icon(host_mark(current), 16.).color(theme.text))
+    }
+    .focusable(true)
+    .hover(theme.hover)
+    .on_press(toggle);
+    let mut menu = Menu::new(key).trigger(trigger).open(open).on_close(close);
+    if open {
+        let lead = |mark: &'static Icon| icon(mark, 14.).color(theme.text_secondary);
+        menu = menu.item(
+            MenuItem::new(all)
+                .lead(lead(&PLUG))
+                .checked(chosen.is_empty())
+                .on_select(move |s: &mut Desktop| pick(s, String::new())),
+        );
+        for option in hosts {
+            let host = option.host.clone();
+            menu = menu.item(
+                MenuItem::new(&option.label)
+                    .lead(lead(host_mark(Some(option))))
+                    .checked(option.host == chosen)
+                    .on_select(move |s: &mut Desktop| pick(s, host.clone())),
+            );
+        }
+    }
+    menu.build(kit, overlays)
+}
+
 pub(crate) const SORT: Icon = Icon {
     name: "arrow-down-up",
     view: 24.,
@@ -77,6 +155,8 @@ pub(crate) struct Labels {
     checking: String,
     more: String,
     loading: String,
+    provider: String,
+    all_hosts: String,
     ago: String,
     just_now: String,
 }
@@ -115,6 +195,7 @@ pub(crate) struct Group {
 enum MenuKind {
     Sort,
     Filter,
+    Host,
 }
 
 /// One drawn line of the list: a group heading or the row at that group index.
@@ -131,6 +212,8 @@ pub(crate) struct PullRequests {
     state: usize,
     involvement: usize,
     sort: usize,
+    host: String,
+    hosts: Vec<HostOption>,
     menu: std::cell::Cell<Option<MenuKind>>,
     operation: u64,
     pending: bool,
@@ -153,6 +236,8 @@ impl Default for PullRequests {
             state: 1,
             involvement: 0,
             sort: 0,
+            host: String::new(),
+            hosts: Vec::new(),
             menu: Default::default(),
             operation: 0,
             pending: false,
@@ -224,6 +309,7 @@ impl Desktop {
                     involvement: 0,
                     sort: 0,
                     query: String::new(),
+                    host: String::new(),
                 },
             );
         }
@@ -264,6 +350,7 @@ impl Desktop {
             involvement: page.involvement,
             sort: page.sort,
             query: page.query.text.trim().to_string(),
+            host: page.host.clone(),
         };
         self.write_request(None, request);
     }
@@ -272,6 +359,9 @@ impl Desktop {
         let page = &mut self.workspace.pull_requests;
         if page.watch != Some(reply.watch) || page.operation != reply.operation {
             return;
+        }
+        if let Some(hosts) = reply.hosts {
+            page.hosts = hosts;
         }
         if let Some(groups) = reply.groups {
             page.set_groups(groups);
@@ -289,6 +379,7 @@ pub(crate) struct Reply {
     watch: u64,
     operation: u64,
     groups: Option<Vec<Group>>,
+    hosts: Option<Vec<HostOption>>,
     #[serde(default)]
     more: bool,
     #[serde(default)]
@@ -336,6 +427,32 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
     let (key, caption, glyph) = match kind {
         MenuKind::Sort => ("pull-request-sort", &labels.sort, &SORT),
         MenuKind::Filter => ("pull-request-filters", &labels.filters, &FILTER),
+        MenuKind::Host => {
+            return host_filter(
+                "pull-request-host",
+                &labels.provider,
+                &labels.all_hosts,
+                &page.host,
+                &page.hosts,
+                page.menu.get() == Some(MenuKind::Host),
+                |s| {
+                    let menu = &s.workspace.pull_requests.menu;
+                    menu.set((menu.get() != Some(MenuKind::Host)).then_some(MenuKind::Host));
+                },
+                |s| s.workspace.pull_requests.menu.set(None),
+                |s, host| {
+                    let page = &mut s.workspace.pull_requests;
+                    page.menu.set(None);
+                    if page.host != host {
+                        page.host = host;
+                        s.load_pull_requests("list");
+                    }
+                },
+                theme,
+                &s.contrast.kit(dark),
+                overlays,
+            );
+        }
     };
     let trigger = toolbar_button(&format!("{key}-trigger"), caption, glyph, theme)
         .focusable(true)
@@ -376,6 +493,7 @@ fn menu(s: &Desktop, kind: MenuKind, theme: &tok::Theme, dark: bool, overlays: &
                 );
             }
         }
+        MenuKind::Host => {}
         MenuKind::Filter => {
             menu = menu.group_label(&labels.state);
             for (i, name) in labels.states.iter().enumerate() {
@@ -592,6 +710,7 @@ pub(crate) fn view(
         .gap(8.)
         .child(menu(s, MenuKind::Sort, theme, dark, overlays))
         .child(menu(s, MenuKind::Filter, theme, dark, overlays))
+        .child(menu(s, MenuKind::Host, theme, dark, overlays))
         .child(refresh);
     let toolbar = if wide {
         row()
