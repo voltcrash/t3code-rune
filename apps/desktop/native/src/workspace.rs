@@ -337,6 +337,8 @@ pub(super) struct Workspace {
     filtered: Vec<usize>,
     filter_revision: u64,
     settled: Vec<usize>,
+    snoozed: Vec<usize>,
+    next_wake: Option<i64>,
     pub(super) conversation: Option<Conversation>,
     pub(super) drafts: HashMap<String, Draft>,
     pub(crate) panel_width: panel_width::Widths,
@@ -346,6 +348,7 @@ pub(super) struct Workspace {
     project_scope: sidebar_header::ProjectScope,
     pub(super) show_projects: bool,
     show_settled: bool,
+    show_snoozed: bool,
 }
 
 impl Workspace {
@@ -417,6 +420,8 @@ impl Workspace {
             filtered: Vec::new(),
             filter_revision: 0,
             settled: Vec::new(),
+            snoozed: Vec::new(),
+            next_wake: None,
             conversation: None,
             find_labels: None,
             drafts: HashMap::new(),
@@ -428,6 +433,7 @@ impl Workspace {
             project_scope: Default::default(),
             show_projects: false,
             show_settled: false,
+            show_snoozed: false,
         }
     }
     pub fn replace(&mut self, mut projects: Vec<Project>, mut threads: Vec<Thread>) {
@@ -545,11 +551,21 @@ impl Workspace {
         let query = self.search.text.trim().to_lowercase();
         self.filtered.clear();
         self.settled.clear();
+        self.snoozed.clear();
+        self.next_wake = None;
+        let now = sidebar_status::unix_millis().saturating_add(self.row_clock.offset);
         for (index, thread) in self.threads.iter().enumerate() {
             if !self.project_scope.includes(&thread.project) {
                 continue;
             }
-            if query.is_empty() && thread.settled {
+            let wake = thread.snoozed_until.filter(|&until| until > now);
+            // Like the web sidebar, a snooze outranks settling until it wakes.
+            if query.is_empty()
+                && let Some(wake) = wake
+            {
+                self.snoozed.push(index);
+                self.next_wake = Some(self.next_wake.map_or(wake, |next| next.min(wake)));
+            } else if query.is_empty() && thread.settled {
                 self.settled.push(index);
             } else if query.is_empty()
                 || thread.search_title.contains(&query)
@@ -560,6 +576,10 @@ impl Workspace {
                 self.filtered.push(index);
             }
         }
+        // Like the web Snoozed section, the soonest wake comes first.
+        let threads = &self.threads;
+        self.snoozed
+            .sort_by_key(|&i| (threads[i].snoozed_until, threads[i].id.clone()));
         if let Some(id) = &self.search_target
             && !self
                 .by_thread
@@ -570,16 +590,25 @@ impl Workspace {
         }
         self.filter_revision += 1;
     }
-    fn settled_rows(&self, draft_open: bool) -> &[usize] {
-        if self.settled.is_empty() || self.show_settled {
-            return &self.settled;
+    pub(super) fn is_snoozed(&self, thread: &Thread) -> bool {
+        let now = sidebar_status::unix_millis().saturating_add(self.row_clock.offset);
+        thread.snoozed_until.is_some_and(|until| until > now)
+    }
+
+    /// A shelf's rows; a closed shelf still shows the open thread, like the web sidebar.
+    fn shelf_rows(&self, shelf: Shelf, draft_open: bool) -> &[usize] {
+        let (rows, open) = match shelf {
+            Shelf::Settled => (&self.settled, self.show_settled),
+            Shelf::Snoozed => (&self.snoozed, self.show_snoozed),
+        };
+        if rows.is_empty() || open {
+            return rows;
         }
         if !draft_open
             && let Some(t) = self.visible_thread()
-            && t.settled
-            && self.project_scope.includes(&t.project)
+            && let Some(i) = rows.iter().find(|&&i| self.threads[i].id == t.id)
         {
-            return std::slice::from_ref(&self.by_thread[&t.id]);
+            return std::slice::from_ref(i);
         }
         &[]
     }
@@ -1317,39 +1346,50 @@ static NEW_THREAD_ICON: rune::Icon = rune::Icon {
 };
 
 impl Desktop {
-    fn sidebar_rows(&self, settled: bool) -> &[usize] {
-        if settled {
-            self.workspace
-                .settled_rows(self.new_threads.active.is_some())
-        } else {
-            &self.workspace.filtered
+    fn sidebar_rows(&self, shelf: Option<Shelf>) -> &[usize] {
+        match shelf {
+            Some(shelf) => self
+                .workspace
+                .shelf_rows(shelf, self.new_threads.active.is_some()),
+            None => &self.workspace.filtered,
         }
     }
 }
 
-fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> El {
-    let count = s.sidebar_rows(settled).len();
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum Shelf {
+    Snoozed,
+    Settled,
+}
+
+fn sidebar_rows(s: &Desktop, shelf: Option<Shelf>, theme: &tok::Theme, dark: bool) -> El {
+    let count = s.sidebar_rows(shelf).len();
     let query_empty = s.workspace.search.text.trim().is_empty();
     let colors = *theme;
+    let open = match shelf {
+        Some(Shelf::Settled) => s.workspace.show_settled,
+        Some(Shelf::Snoozed) => s.workspace.show_snoozed,
+        None => true,
+    };
     col()
-        .key(if settled {
-            "settled-rows"
-        } else {
-            "thread-rows"
+        .key(match shelf {
+            Some(Shelf::Settled) => "settled-rows",
+            Some(Shelf::Snoozed) => "snoozed-rows",
+            None => "thread-rows",
         })
         .w_full()
         .growth(GrowthSpec::default())
         .virtual_rows(
             count,
-            if settled { 37. } else { 76. },
+            if shelf.is_some() { 37. } else { 76. },
             move |s: &Desktop, i| {
-                s.workspace.threads[s.sidebar_rows(settled)[i]]
+                s.workspace.threads[s.sidebar_rows(shelf)[i]]
                     .id
                     .as_str()
                     .into()
             },
             move |s: &Desktop, i| {
-                let t = &s.workspace.threads[s.sidebar_rows(settled)[i]];
+                let t = &s.workspace.threads[s.sidebar_rows(shelf)[i]];
                 let selected = if query_empty {
                     s.new_threads.active.is_none()
                         && !s.workspace.show_projects
@@ -1360,32 +1400,36 @@ fn sidebar_rows(s: &Desktop, settled: bool, theme: &tok::Theme, dark: bool) -> E
                 } else {
                     s.workspace.search_target.as_ref() == Some(&t.id)
                 };
-                let card = thread_row(s, t, selected, settled, &colors, dark);
+                let card = thread_row(s, t, selected, shelf.is_some(), &colors, dark);
                 let gap = if i + 1 < count { 1. } else { 0. };
-                let inset = if settled { 0. } else { 2. };
+                let inset = if shelf.is_some() { 0. } else { 2. };
                 col().w_full().pt(inset).pb(inset + gap).child(card)
             },
         )
         .virtual_rows_version((
             dark,
             s.workspace.filter_revision,
-            if settled && !s.workspace.show_settled {
-                s.sidebar_rows(true).first().copied()
-            } else {
+            if open {
                 None
+            } else {
+                s.sidebar_rows(shelf).first().copied()
             },
         ))
 }
 
-fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
-    let count = ws.settled.len().to_string();
-    let chevron = crate::disclosure_chevron(ws.show_settled, 12.).color(theme.text_secondary);
+fn shelf_header(ws: &Workspace, shelf: Shelf, theme: &tok::Theme) -> El {
+    let (key, name, rows, open) = match shelf {
+        Shelf::Settled => ("settled-section", "Settled", &ws.settled, ws.show_settled),
+        Shelf::Snoozed => ("snoozed-section", "Snoozed", &ws.snoozed, ws.show_snoozed),
+    };
+    let count = rows.len().to_string();
+    let chevron = crate::disclosure_chevron(open, 12.).color(theme.text_secondary);
     row()
-        .key("settled-section")
+        .key(key)
         .role("button")
         .focusable(true)
-        .label(format!("Settled, {count}"))
-        .expanded(ws.show_settled)
+        .label(format!("{name}, {count}"))
+        .expanded(open)
         .w_full()
         .h(32.)
         .px(8.)
@@ -1393,11 +1437,17 @@ fn settled_header(ws: &Workspace, theme: &tok::Theme) -> El {
         .gap(8.)
         .radius(5.)
         .hover(theme.separator)
-        .child(label("Settled", 12., 500., theme.text_secondary))
+        .child(label(name, 12., 500., theme.text_secondary))
         .child(spacer())
         .child(label(&count, 12., 400., theme.text_secondary))
         .child(chevron)
-        .on_press(|s: &mut Desktop| s.workspace.show_settled = !s.workspace.show_settled)
+        .on_press(move |s: &mut Desktop| {
+            let ws = &mut s.workspace;
+            match shelf {
+                Shelf::Settled => ws.show_settled = !ws.show_settled,
+                Shelf::Snoozed => ws.show_snoozed = !ws.show_snoozed,
+            }
+        })
 }
 
 fn sidebar(
@@ -1431,7 +1481,8 @@ fn sidebar(
     }
     let query_empty = s.workspace.search.text.trim().is_empty();
     let count = s.workspace.filtered.len();
-    let show_shelf = query_empty && (count > 0 || !s.workspace.settled.is_empty());
+    let shelved = !s.workspace.settled.is_empty() || !s.workspace.snoozed.is_empty();
+    let show_shelf = query_empty && (count > 0 || shelved);
     let mut list = s
         .workspace
         .sidebar_viewport(col().key("thread-list"))
@@ -1456,7 +1507,7 @@ fn sidebar(
                     );
                 }
                 empty
-            } else if count == 0 && s.workspace.settled.is_empty() {
+            } else if count == 0 && !shelved {
                 label(
                     if query_empty {
                         "No threads"
@@ -1469,26 +1520,28 @@ fn sidebar(
                 )
                 .padding(10.0)
             } else {
-                sidebar_rows(s, false, theme, dark)
+                sidebar_rows(s, None, theme, dark)
             },
         );
     if show_shelf {
-        let gap = if s.sidebar_rows(true).is_empty() {
-            0.
-        } else {
-            1.
-        };
-        list = list
-            .pb(8.)
-            .child(spacer())
-            .child(
-                col()
-                    .w_full()
-                    .px(2.)
-                    .pb(gap)
-                    .child(settled_header(&s.workspace, theme)),
-            )
-            .child(sidebar_rows(s, true, theme, dark));
+        list = list.pb(8.).child(spacer());
+        for shelf in [Shelf::Snoozed, Shelf::Settled] {
+            if shelf == Shelf::Snoozed && s.workspace.snoozed.is_empty() {
+                continue;
+            }
+            let gap = if s.sidebar_rows(Some(shelf)).is_empty() {
+                0.
+            } else {
+                1.
+            };
+            list = list
+                .child(col().w_full().px(2.).pb(gap).child(shelf_header(
+                    &s.workspace,
+                    shelf,
+                    theme,
+                )))
+                .child(sidebar_rows(s, Some(shelf), theme, dark));
+        }
     }
     let mut sidebar = col()
         .key("sidebar")
@@ -2569,6 +2622,41 @@ mod tests {
         assert!(pane.status == LiveStatus::Paused);
         assert!(pane.approval_menu.is_none());
         assert!(app.pending);
+    }
+
+    #[test]
+    fn snoozed_threads_leave_the_inbox_until_they_wake() {
+        let thread = |id: &str, snoozed_until: Option<i64>| {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "project": "p", "title": id, "model": "m", "status": "idle",
+                "settled": false, "snoozed_until": snoozed_until
+            }))
+            .unwrap()
+        };
+        let now = sidebar_status::unix_millis();
+        let mut ws = Workspace::new();
+        ws.replace(
+            vec![],
+            vec![
+                thread("late", Some(now + 7_200_000)),
+                thread("awake", Some(now - 1)),
+                thread("soon", Some(now + 60_000)),
+            ],
+        );
+        let ids = |rows: &[usize]| {
+            rows.iter()
+                .map(|&i| ws.threads[i].id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&ws.filtered), ["awake"]);
+        assert_eq!(ids(&ws.snoozed), ["soon", "late"]);
+        assert_eq!(ws.next_wake, Some(now + 60_000));
+        ws.search = rune::TextEdit::new("o");
+        ws.filter();
+        assert!(
+            ws.snoozed.is_empty(),
+            "search lists snoozed threads with the rest"
+        );
     }
 
     #[test]

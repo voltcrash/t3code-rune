@@ -7,6 +7,8 @@ export function threadMenuLabels() {
     unpin: m(msg("Unpin thread")),
     settle: m(msg("Settle thread")),
     unsettle: m(msg("Un-settle thread")),
+    snooze: m(msg("Snooze", { $context: "verb, snooze the thread" })),
+    wake: m(msg("Wake thread")),
     rename: m(msg("Rename thread")),
     mark_unread: m(msg("Mark unread")),
     copy: m(msg("Copy", { $context: "submenu of things to copy" })),
