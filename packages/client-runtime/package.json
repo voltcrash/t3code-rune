@@ -644,6 +644,10 @@
       "types": "./src/pullRequestReactions.ts",
       "default": "./src/pullRequestReactions.ts"
     },
+    "./pull-request-list": {
+      "types": "./src/pullRequestList.ts",
+      "default": "./src/pullRequestList.ts"
+    },
     "./pull-request-reply": {
       "types": "./src/pullRequestReply.ts",
       "default": "./src/pullRequestReply.ts"

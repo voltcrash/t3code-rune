@@ -60,7 +60,7 @@ import {
   pullRequestChecksStatePresentation,
 } from "./pullRequestPresentation";
 import { PullRequestGlyph } from "./pullRequestIcons";
-import { pullRequestQuickActions } from "./pullRequestList.logic";
+import { pullRequestQuickActions } from "@t3tools/client-runtime/pull-request-list";
 import { PullRequestSpeedActions, PullRequestSpeedModeContext } from "./PullRequestSpeedActions";
 
 import { changeRequestTermKind } from "./changeRequestTerm";

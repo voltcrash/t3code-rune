@@ -32,6 +32,7 @@ mod pairing_link;
 mod permissions;
 mod project_icon;
 mod provider_status;
+mod pull_requests;
 mod questions;
 mod sidebar_layout;
 mod sidebar_providers;
@@ -81,6 +82,7 @@ enum Reply {
         list: Option<issues::List>,
         error: Option<String>,
     },
+    PullRequests(pull_requests::Reply),
     DictationChoice {
         watch: u64,
         choice: dictation::Choice,
@@ -252,6 +254,7 @@ enum Reply {
         panel_width: Box<workspace::panel_width::Widths>,
         browser_labels: Option<Box<browser::Labels>>,
         issues_labels: Option<Box<issues::Labels>>,
+        pull_request_labels: Option<Box<pull_requests::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
         usage_preferences: Option<usage::summary::Preferences>,
         details: Option<workspace::thread_details::Settings>,
@@ -519,6 +522,15 @@ enum Request<'a> {
         action: &'static str,
         state: issues::Filter,
         sort: &'static str,
+        query: String,
+    },
+    PullRequests {
+        watch: u64,
+        operation: u64,
+        action: &'static str,
+        state: usize,
+        involvement: usize,
+        sort: usize,
         query: String,
     },
     SetDictation {
@@ -1268,6 +1280,10 @@ impl Desktop {
             self.receive_issues(watch, operation, list, error);
             return;
         }
+        if let Reply::PullRequests(reply) = message.reply {
+            self.receive_pull_requests(reply);
+            return;
+        }
         if let Reply::Usage { watch, view } = message.reply {
             if self.workspace.feed == Some(watch) && self.workspace.usage.open {
                 self.workspace.usage.receive(*view);
@@ -1650,6 +1666,7 @@ impl Desktop {
                 panel_width,
                 browser_labels,
                 issues_labels,
+                pull_request_labels,
                 usage_labels,
                 usage_preferences,
                 details,
@@ -1686,6 +1703,7 @@ impl Desktop {
                 self.workspace.panel_width = *panel_width;
                 self.workspace.browser.labels = browser_labels;
                 self.workspace.issues.labels = issues_labels.map(|labels| *labels);
+                self.workspace.pull_requests.labels = pull_request_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.workspace.usage.summary.restore(usage_preferences);
                 self.environment = Some(label);
@@ -1828,6 +1846,7 @@ impl Desktop {
             | Reply::ThreadFindAvailable { .. }
             | Reply::ThreadFind { .. }
             | Reply::Issues { .. }
+            | Reply::PullRequests(_)
             | Reply::BrowserPage { .. }
             | Reply::BrowserFrame { .. }
             | Reply::IssueDetail { .. }
@@ -2265,7 +2284,7 @@ fn start() -> io::Result<()> {
             s.sync_window_title(tx);
             s.sync_draft_model_watch();
             let browser = s.sync_browser(tx);
-            let issues = s.sync_issues(tx);
+            let issues = s.sync_issues(tx) | s.sync_pull_requests(tx);
             let find = s.sync_thread_find(tx);
             let mentions = s.sync_mentions(tx);
             let banner = s.sync_provider_status();
@@ -2930,6 +2949,7 @@ mod tests {
                 panel_width: Default::default(),
                 browser_labels: None,
                 issues_labels: None,
+                pull_request_labels: None,
                 usage_labels: None,
                 usage_preferences: None,
                 label: "This computer".into(),

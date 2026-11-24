@@ -55,7 +55,7 @@ import {
   pullRequestLabelColor,
   type PullRequestAuthorFacet,
   type PullRequestLabelFacet,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import { resolveFilterOptions } from "./pullRequestListOptions";
 import { PullRequestActorAvatar } from "./pullRequestPresentation";
 import { PullRequestGlyph } from "./pullRequestIcons";

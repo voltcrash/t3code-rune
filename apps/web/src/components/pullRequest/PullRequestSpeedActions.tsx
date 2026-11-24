@@ -13,7 +13,10 @@ import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { resolvePullRequestMergeMethod } from "./pullRequestDetail.logic";
 import { PullRequestGlyph } from "./pullRequestIcons";
-import { pullRequestQuickActions, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
+import {
+  pullRequestQuickActions,
+  type EnvironmentPullRequestEntry,
+} from "@t3tools/client-runtime/pull-request-list";
 import {
   usePullRequestActionRunner,
   usePullRequestDefaultMergeMethodResolver,

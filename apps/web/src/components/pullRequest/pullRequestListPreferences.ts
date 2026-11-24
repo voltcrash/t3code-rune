@@ -8,16 +8,9 @@ import {
   PullRequestListState,
 } from "@t3tools/contracts";
 
-export const PullRequestListSort = Schema.Literals([
-  "ready",
-  "blocked",
-  "updated",
-  "newest",
-  "oldest",
-  "largest",
-  "smallest",
-]);
-export type PullRequestListSort = typeof PullRequestListSort.Type;
+import { PullRequestListSort } from "@t3tools/client-runtime/pull-request-list";
+
+export { PullRequestListSort };
 
 export interface PullRequestListPreferences {
   readonly involvement: PullRequestInvolvement;

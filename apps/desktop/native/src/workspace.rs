@@ -314,6 +314,7 @@ pub(super) struct Workspace {
     actions: thread_actions::Actions,
     pub(crate) browser: crate::browser::Browser,
     pub(crate) issues: crate::issues::Issues,
+    pub(crate) pull_requests: crate::pull_requests::PullRequests,
     pub(crate) usage: crate::usage::Panel,
     pub(crate) find_labels: Option<Box<thread_find::Labels>>,
     row_clock: sidebar_status::Clock,
@@ -396,6 +397,7 @@ impl Workspace {
             usage: Default::default(),
             browser: Default::default(),
             issues: Default::default(),
+            pull_requests: Default::default(),
             row_clock: Default::default(),
             paused: false,
             diff: Default::default(),
@@ -1518,12 +1520,17 @@ fn sidebar(
         }
     };
     let mut footer = row().w_full().h(36.).pt(4.).center_y();
-    if s.history.on_issues()
-        && let Some(labels) = &s.workspace.issues.labels
-    {
+    let back = if s.history.on_issues() {
+        s.workspace.issues.labels.as_ref().map(|l| &l.back)
+    } else if s.history.on_pull_requests() {
+        s.workspace.pull_requests.labels.as_ref().map(|l| &l.back)
+    } else {
+        None
+    };
+    if let Some(back) = back {
         footer = footer.child(
             action_with_tx(
-                &labels.back,
+                back,
                 theme,
                 !s.pending && s.history.available(false),
                 |s, tx| s.navigate_history(false, tx),
@@ -1533,6 +1540,7 @@ fn sidebar(
     } else {
         footer = footer
             .child(crate::appearance::trigger(theme))
+            .children(crate::pull_requests::trigger(s, theme))
             .children(crate::issues::trigger(s, theme))
             .children(crate::usage::trigger(s, theme))
             .child(footer_action(
@@ -2022,7 +2030,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .is_some_and(|p| p.find.is_some())
         && composing.is_none()
         && !s.workspace.show_projects
-        && !s.history.on_issues()
+        && !s.history.on_utility_page()
         && (!panel_open || split_panel)
     {
         thread_find::BAR_HEIGHT
@@ -2109,6 +2117,10 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         );
     } else if s.history.on_issues()
         && let Some(labels) = &s.workspace.issues.labels
+    {
+        breadcrumbs = breadcrumbs.child(label(&labels.title, 14., 500., theme.text).truncate());
+    } else if s.history.on_pull_requests()
+        && let Some(labels) = &s.workspace.pull_requests.labels
     {
         breadcrumbs = breadcrumbs.child(label(&labels.title, 14., 500., theme.text).truncate());
     } else if !empty && !landing {
@@ -2225,7 +2237,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
         .flex_wrap()
         .center_y()
         .child(header);
-    if !controls.is_empty() && !s.history.on_issues() {
+    if !controls.is_empty() && !s.history.on_utility_page() {
         let panels = row()
             .key("workspace-panel-buttons")
             .center_y()
@@ -2240,7 +2252,7 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
             panels.w_full().flex_wrap().px(12.).py(4.)
         });
     }
-    if !actions.is_empty() && !s.history.on_issues() {
+    if !actions.is_empty() && !s.history.on_utility_page() {
         let actions = row()
             .key("workspace-header-actions")
             .center_y()
@@ -2267,6 +2279,8 @@ pub(super) fn view(s: &Desktop, cx: &mut Cx<Desktop>, theme: &tok::Theme) -> El 
     }
     main = main.child(if s.history.on_issues() {
         crate::issues::view(s, theme, dark, measured_width, &mut overlays)
+    } else if s.history.on_pull_requests() {
+        crate::pull_requests::view(s, theme, dark, measured_width, &mut overlays)
     } else if let Some(id) = composing
         && let Some(project) = s.workspace.project(id)
     {

@@ -52,7 +52,7 @@ import {
   settlePullRequestOverrides,
   comparePullRequestsByRecency,
   largestPullRequestReadCount,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import {
   pullRequestListPreferences,
   type PullRequestListPreferencePatch,

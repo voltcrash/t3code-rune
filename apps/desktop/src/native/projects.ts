@@ -128,6 +128,7 @@ const pair = Effect.fn("nativeDesktop.pair")(function* (
     browserWritable: scopes.includes(AuthPreviewOperateScope),
     canReadIssues:
       descriptor.capabilities.issues === true && scopes.includes(AuthOrchestrationReadScope),
+    canReadPullRequests: scopes.includes(AuthOrchestrationReadScope),
     canPin: descriptor.capabilities.threadPinning === true,
     visitTracking: descriptor.capabilities.threadVisitedTracking === true,
     shellThreadFamilies: descriptor.capabilities.shellThreadFamilies === true,

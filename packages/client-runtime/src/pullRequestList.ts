@@ -1,5 +1,6 @@
-import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { msg } from "gt-react";
+import { sourceControlClients } from "./sourceControlClients.ts";
+import * as Schema from "effect/Schema";
+import { msg } from "gt-i18n";
 
 import { resolvePullRequestAuthorFilter } from "@t3tools/contracts";
 import type {
@@ -21,9 +22,19 @@ import type {
   PullRequestSummary,
 } from "@t3tools/contracts";
 
-import { isStalePullRequestReply } from "@t3tools/client-runtime/pull-request-reply";
-import { toSortableTimestamp } from "@t3tools/client-runtime/state/thread-sort";
-import type { PullRequestListSort } from "./pullRequestListPreferences";
+import { isStalePullRequestReply } from "./pullRequestReply.ts";
+import { toSortableTimestamp } from "./state/threadSort.ts";
+
+export const PullRequestListSort = Schema.Literals([
+  "ready",
+  "blocked",
+  "updated",
+  "newest",
+  "oldest",
+  "largest",
+  "smallest",
+]);
+export type PullRequestListSort = typeof PullRequestListSort.Type;
 
 export interface EnvironmentPullRequestEntry extends PullRequestListEntry {
   readonly environmentId: EnvironmentId;
@@ -114,13 +125,13 @@ export function collectPullRequestListFacets(
   return {
     authors: [...authors.values()]
       .filter((author) => author.count > 0)
-      .toSorted(
+      .sort(
         (left, right) =>
           right.mergedCount - left.mergedCount ||
           right.count - left.count ||
           left.actor.login.localeCompare(right.actor.login),
       ),
-    labels: [...labels.values()].toSorted(
+    labels: [...labels.values()].sort(
       (left, right) => right.count - left.count || left.name.localeCompare(right.name),
     ),
   };
@@ -476,11 +487,11 @@ export function partitionPullRequestsWithPriority<Entry extends PullRequestListE
     [
       {
         key: "authored",
-        entries: [...authoredByKey.values()].toSorted(comparePullRequestsByRecency),
+        entries: [...authoredByKey.values()].sort(comparePullRequestsByRecency),
       },
       {
         key: "reviewRequested",
-        entries: [...reviewByKey.values()].toSorted(comparePullRequestsByRecency),
+        entries: [...reviewByKey.values()].sort(comparePullRequestsByRecency),
       },
       { key: "others", entries: others },
     ] as const
@@ -581,7 +592,7 @@ export function mergePullRequestLists(
   return {
     viewers,
     providers: [...providers.values()],
-    entries: [...entries.values()].toSorted(comparePullRequestsByRecency),
+    entries: [...entries.values()].sort(comparePullRequestsByRecency),
     errors,
     truncated,
     nextCursors,
@@ -675,7 +686,7 @@ export function rankPullRequestMatches<Entry extends PullRequestListEntry>(
   query: string,
 ): ReadonlyArray<Entry> {
   if (query.trim().length === 0) return entries;
-  return entries.toSorted((left, right) => {
+  return [...entries].sort((left, right) => {
     const byScore = scorePullRequestMatch(right, query) - scorePullRequestMatch(left, query);
     return byScore !== 0 ? byScore : comparePullRequestsByRecency(left, right);
   });
@@ -693,7 +704,7 @@ export function rankPullRequestsByMergeReadiness<Entry extends PullRequestListEn
     if (entry.checksState === "passing") return 1;
     return 2;
   };
-  return entries.toSorted((left, right) => {
+  return [...entries].sort((left, right) => {
     const byTier = tier(left) - tier(right);
     if (byTier !== 0) return byTier;
     const measured = Number(hasMeasuredSize(right)) - Number(hasMeasuredSize(left));
@@ -718,7 +729,7 @@ function rankByTierThenRecency<Entry extends PullRequestListEntry>(
   entries: ReadonlyArray<Entry>,
   tier: (entry: Entry) => number,
 ): ReadonlyArray<Entry> {
-  return entries.toSorted((left, right) => {
+  return [...entries].sort((left, right) => {
     const byTier = tier(left) - tier(right);
     return byTier !== 0 ? byTier : comparePullRequestsByRecency(left, right);
   });
@@ -778,7 +789,7 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   const timestamp = (entry: Entry) =>
     toSortableTimestamp(entry.updatedAt) ?? toSortableTimestamp(entry.createdAt) ?? 0;
   return sortWithinGroups((entries) =>
-    entries.toSorted((left, right) => {
+    [...entries].sort((left, right) => {
       if (sort === "newest" || sort === "oldest") {
         const leftCreated = toSortableTimestamp(left.createdAt);
         const rightCreated = toSortableTimestamp(right.createdAt);

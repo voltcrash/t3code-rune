@@ -47,7 +47,7 @@ import { useComposerPathSearch, useDebouncedValue, useThreadSearch } from "~/sta
 import {
   matchesPullRequestQuery,
   rankPullRequestMatches,
-} from "../pullRequest/pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 import { matchComposerModelItems } from "./composerModelMentions";
 import type { ModelEsque } from "./providerIconUtils";

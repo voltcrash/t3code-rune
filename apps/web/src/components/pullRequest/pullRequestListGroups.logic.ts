@@ -18,7 +18,7 @@ import {
   rankPullRequestMatches,
   type EnvironmentPullRequestEntry,
   type PullRequestPartitionsSnapshot,
-} from "./pullRequestList.logic";
+} from "@t3tools/client-runtime/pull-request-list";
 
 export const pullRequestListEntryId = (target: Parameters<typeof pullRequestSurfaceId>[0]) =>
   pullRequestSurfaceId({ ...target, repository: target.repository.toLowerCase() });
