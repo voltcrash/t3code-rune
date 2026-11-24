@@ -44,12 +44,12 @@ const EYE: Icon = Icon {
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></g>"#,
 };
-const SORT: Icon = Icon {
+pub(crate) const SORT: Icon = Icon {
     name: "arrow-down-up",
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></g>"#,
 };
-const FILTER: Icon = Icon {
+pub(crate) const FILTER: Icon = Icon {
     name: "list-filter",
     view: 24.,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></g>"#,
@@ -307,7 +307,12 @@ pub(crate) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
     })
 }
 
-fn toolbar_button(key: &str, caption: &str, glyph: &'static Icon, theme: &tok::Theme) -> El {
+pub(crate) fn toolbar_button(
+    key: &str,
+    caption: &str,
+    glyph: &'static Icon,
+    theme: &tok::Theme,
+) -> El {
     row()
         .key(key)
         .role("button")
@@ -413,15 +418,16 @@ fn tone(state: State, dark: bool) -> (Color, &'static Icon) {
     }
 }
 
-fn age(at: i64, labels: &Labels) -> String {
+/// The web's relative time under a list row: "just now", else "{age} ago".
+pub(crate) fn age(at: i64, ago: &str, just_now: &str) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
     let elapsed = (now - at).max(0);
     if elapsed < 60 {
-        return labels.just_now.clone();
+        return just_now.to_owned();
     }
-    labels.ago.replace(
+    ago.replace(
         "{age}",
         &crate::workspace::sidebar_status::relative_age(elapsed),
     )
@@ -480,7 +486,10 @@ fn pull_request_row(s: &Desktop, entry: &Row, theme: &tok::Theme, dark: bool) ->
                 .shrink(),
         )
         .child(el().grow(1.))
-        .child(small(&age(entry.updated_at, labels), theme.text_secondary));
+        .child(small(
+            &age(entry.updated_at, &labels.ago, &labels.just_now),
+            theme.text_secondary,
+        ));
     let url = entry.url.clone();
     row()
         .key(entry.url.as_str())

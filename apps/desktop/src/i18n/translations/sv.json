@@ -498,5 +498,8 @@
   "760b0829c8381b1a": "Snooza",
   "0d36d1316d4fc58a": "Väck tråd",
   "021fe65858278fe9": "Snooza tråd",
-  "13e6f2309e418404": "Markera som klar"
+  "13e6f2309e418404": "Markera som klar",
+  "56a74a14f052879d": "Inget matchar det.",
+  "283ada62d3847554": "{count, plural, one {{count} projekt} other {{count} projekt}}",
+  "7cae1b414ae74c6b": "Den här ärendehanteraren kan inte läsas just nu."
 }

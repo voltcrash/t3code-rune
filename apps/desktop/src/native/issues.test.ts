@@ -93,11 +93,9 @@ it("keeps a late page out of a new filter and continues the current tracker curs
   expect(publish.mock.calls.map(([operation]) => operation)).toEqual([2]);
   await page.request({ operation: 3, state: "closed", query: "", action: "more" });
   expect(requests[2]?.cursors).toEqual({ "github.com example/app": "next" });
-  expect(publish.mock.lastCall?.[1]?.rows.map((row) => row.key)).toEqual([
-    "#enterprise",
-    "#2",
-    "#3",
-  ]);
+  const keys = () =>
+    publish.mock.lastCall?.[1]?.groups.map((group) => group.rows.map((row) => row.key));
+  expect(keys()).toEqual([["#enterprise"], ["#2", "#3"]]);
   await page.request({ operation: 4, state: "closed", query: "", action: "list", sort: "created" });
-  expect(publish.mock.lastCall?.[1]?.rows.map((row) => row.key)).toEqual(["#2", "#enterprise"]);
+  expect(keys()).toEqual([["#enterprise"], ["#2"]]);
 });
