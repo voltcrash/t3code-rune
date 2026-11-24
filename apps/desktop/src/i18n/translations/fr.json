@@ -423,5 +423,18 @@
   "ee3e8bd8b7918aec": "Rechercher",
   "858561b97fdd72f2": "Rechercher dans les paramètres",
   "fed2d32de2b0c566": "Effacer la recherche dans les paramètres",
-  "f49fcf2df97620b2": "Aucun réglage trouvé"
+  "f49fcf2df97620b2": "Aucun réglage trouvé",
+  "08f5b642746eebbe": "Désépingler le fil « {title} » ?",
+  "bc574b901d06687c": "Le fil sera retiré de votre section des épinglés.",
+  "81d0d1e78b196630": "Général",
+  "76f3c3e2f8dd0120": "Confirmations",
+  "7e4d81ca21a72019": "Confirmation avant de désépingler",
+  "caed837d6dc42548": "Réinitialiser la confirmation avant de désépingler à la valeur par défaut",
+  "1d5052cbe70d0b28": "Confirmation de l’archivage",
+  "b8555699c6ab0be8": "Réinitialiser la confirmation de l’archivage à la valeur par défaut",
+  "d5dd27a4eb853248": "Confirmation de la suppression",
+  "a6495a44afcda95c": "Réinitialiser la confirmation de suppression à la valeur par défaut",
+  "0bec2b894a0cf162": "Demander avant de supprimer un fil et son historique de discussion.",
+  "2dac4b7c79445b64": "Demander avant de désépingler un fil de la section épinglée.",
+  "62dc71661159d85c": "Exiger un second clic sur l’action d’archivage avant d’archiver un fil."
 }

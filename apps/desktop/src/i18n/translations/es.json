@@ -423,5 +423,18 @@
   "ee3e8bd8b7918aec": "Buscar",
   "858561b97fdd72f2": "Buscar ajustes",
   "fed2d32de2b0c566": "Borrar búsqueda de ajustes",
-  "f49fcf2df97620b2": "No se encontraron ajustes"
+  "f49fcf2df97620b2": "No se encontraron ajustes",
+  "08f5b642746eebbe": "¿Desfijar el hilo \"{title}\"?",
+  "bc574b901d06687c": "Esto sacará el hilo de tu sección de fijados.",
+  "81d0d1e78b196630": "General",
+  "76f3c3e2f8dd0120": "Confirmaciones",
+  "7e4d81ca21a72019": "Confirmación al desfijar",
+  "caed837d6dc42548": "Restablecer la confirmación al desfijar al valor predeterminado",
+  "1d5052cbe70d0b28": "Confirmación al archivar",
+  "b8555699c6ab0be8": "Restablecer la confirmación al archivar al valor predeterminado",
+  "d5dd27a4eb853248": "Confirmación al eliminar",
+  "a6495a44afcda95c": "Restablecer la confirmación al eliminar al valor predeterminado",
+  "0bec2b894a0cf162": "Preguntar antes de eliminar un hilo y su historial de chat.",
+  "2dac4b7c79445b64": "Preguntar antes de desfijar un hilo de la sección fijada.",
+  "62dc71661159d85c": "Exigir un segundo clic en la acción de archivar antes de archivar un hilo."
 }

@@ -423,5 +423,18 @@
   "ee3e8bd8b7918aec": "Suchen",
   "858561b97fdd72f2": "Einstellungen durchsuchen",
   "fed2d32de2b0c566": "Einstellungssuche leeren",
-  "f49fcf2df97620b2": "Keine Einstellungen gefunden"
+  "f49fcf2df97620b2": "Keine Einstellungen gefunden",
+  "08f5b642746eebbe": "Thread „{title}“ loslösen?",
+  "bc574b901d06687c": "Dadurch wird der Thread aus deinem Bereich „Angeheftet“ entfernt.",
+  "81d0d1e78b196630": "Allgemein",
+  "76f3c3e2f8dd0120": "Bestätigungen",
+  "7e4d81ca21a72019": "Loslösen bestätigen",
+  "caed837d6dc42548": "Bestätigung beim Loslösen auf Standard zurücksetzen",
+  "1d5052cbe70d0b28": "Archivieren bestätigen",
+  "b8555699c6ab0be8": "Bestätigung beim Archivieren auf Standard zurücksetzen",
+  "d5dd27a4eb853248": "Löschen bestätigen",
+  "a6495a44afcda95c": "Bestätigung beim Löschen auf Standard zurücksetzen",
+  "0bec2b894a0cf162": "Vor dem Löschen eines Threads und seines Chatverlaufs nachfragen.",
+  "2dac4b7c79445b64": "Vor dem Lösen eines Threads aus dem angehefteten Bereich nachfragen.",
+  "62dc71661159d85c": "Einen zweiten Klick auf die Archivieren-Aktion verlangen, bevor ein Thread archiviert wird."
 }

@@ -18,6 +18,8 @@ pub(crate) struct Labels {
     copy_path: String,
     copy_branch: String,
     copy_thread_id: String,
+    unpin_title: String,
+    unpin_description: String,
     archive: String,
     archive_title: String,
     delete: String,
@@ -59,6 +61,7 @@ struct Rename {
 pub(super) struct Actions {
     menu: Option<OpenMenu>,
     copy_open: bool,
+    unpinning: Option<Target>,
     archiving: Option<Target>,
     deleting: Option<Target>,
     rename: Option<Rename>,
@@ -84,6 +87,7 @@ impl Default for Actions {
         Self {
             menu: None,
             copy_open: false,
+            unpinning: None,
             archiving: None,
             deleting: None,
             rename: None,
@@ -126,6 +130,9 @@ impl Workspace {
         }
         if self.actions.archiving.as_ref().is_some_and(|t| !valid(t)) {
             self.actions.archiving = None;
+        }
+        if self.actions.unpinning.as_ref().is_some_and(|t| !valid(t)) {
+            self.actions.unpinning = None;
         }
     }
 }
@@ -240,6 +247,24 @@ impl Desktop {
         if self.workspace_edit_pending() || !self.can_pin {
             return;
         }
+        if !pinned && self.confirm_thread_unpin {
+            self.workspace.actions.unpinning = self.workspace.action_target(id, Origin::Sidebar);
+            return;
+        }
+        self.commit_pin(id, pinned);
+    }
+
+    fn confirm_unpin(&mut self) {
+        if let Some(target) = self.workspace.actions.unpinning.take()
+            && !self.workspace_edit_pending()
+            && self.can_pin
+            && self.workspace.feed == Some(target.watch)
+        {
+            self.commit_pin(&target.thread, false);
+        }
+    }
+
+    fn commit_pin(&mut self, id: &str, pinned: bool) {
         let Some(watch) = self.workspace.feed else {
             return;
         };
@@ -767,6 +792,32 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
     )
 }
 
+pub(super) fn unpin_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
+    let (Some(target), Some(labels)) = (&s.workspace.actions.unpinning, &s.thread_labels) else {
+        return;
+    };
+    let Some(&i) = s.workspace.by_thread.get(&target.thread) else {
+        return;
+    };
+    let title = labels
+        .unpin_title
+        .replace("{title}", &s.workspace.threads[i].title);
+    crate::confirm_dialog::overlay(
+        crate::confirm_dialog::Confirm {
+            key: "unpin-thread",
+            title: &title,
+            description: Some(&labels.unpin_description),
+            cancel: &labels.cancel,
+            confirm: &labels.confirm,
+            destructive: false,
+        },
+        theme,
+        |s| s.workspace.actions.unpinning = None,
+        Desktop::confirm_unpin,
+        overlays,
+    );
+}
+
 pub(super) fn archive_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<El>) {
     let (Some(target), Some(labels)) = (&s.workspace.actions.archiving, &s.thread_labels) else {
         return;
@@ -843,7 +894,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn archive_and_delete_wait_for_confirmation_only_when_settings_ask() {
+    fn unpin_archive_and_delete_wait_for_confirmation_only_when_settings_ask() {
         use std::io::{Read, Seek};
         let mut wire = tempfile::tempfile().unwrap();
         #[cfg(unix)]
@@ -858,7 +909,7 @@ mod tests {
             vec![],
             serde_json::from_value(json!([
                 {"id":"a","project":"p","title":"a","model":"m","status":"idle","settled":false,"snoozed_until":null},
-                {"id":"b","project":"p","title":"b","model":"m","status":"idle","settled":false,"snoozed_until":null}
+                {"id":"b","project":"p","title":"b","model":"m","status":"idle","settled":false,"pinned":true,"snoozed_until":null}
             ]))
             .unwrap(),
         );
@@ -875,6 +926,11 @@ mod tests {
         app.request_archive("a", Origin::Header);
         assert!(app.workspace.actions.archiving.is_some());
         app.confirm_archive();
+        app.can_pin = true;
+        app.confirm_thread_unpin = true;
+        app.set_pin("b", false);
+        assert!(app.workspace.actions.unpinning.is_some());
+        app.confirm_unpin();
         wire.rewind().unwrap();
         let mut text = String::new();
         wire.read_to_string(&mut text).unwrap();
@@ -894,6 +950,7 @@ mod tests {
             ("markunread", "b"),
             ("archivethread", "b"),
             ("archivethread", "a"),
+            ("setpin", "b"),
         ];
         assert_eq!(sent, expected.map(|(t, id)| (t.to_owned(), id.to_owned())));
     }

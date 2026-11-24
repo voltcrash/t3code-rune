@@ -3,6 +3,7 @@ use rune::{Color, Cx, El, Icon, Tx, col, el, icon, row, spacer, tok};
 mod archived;
 pub(crate) use archived::{Archived, Group as ArchivedGroup};
 mod chat;
+mod general;
 mod search;
 pub(crate) mod voice;
 pub(crate) use chat::{SettingsLabels, SettingsPage};
@@ -472,6 +473,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
     let mut body = match (s.settings_page, labels) {
         (SettingsPage::Voice, Some(labels)) => voice::view(s, &labels.voice, w < 640., theme),
         (SettingsPage::Chat, Some(labels)) => chat::settings(s, labels, w < 640., theme),
+        (SettingsPage::General, Some(labels)) => general::view(s, labels, w < 640., theme),
         (SettingsPage::Archive, Some(labels)) => {
             archived::view(s, &labels.archive, w < 640., theme)
         }
@@ -525,6 +527,7 @@ pub(crate) fn overlay(s: &Desktop, cx: &Cx<Desktop>, theme: &tok::Theme, overlay
                             SettingsPage::Chat => "chat-settings-scroll",
                             SettingsPage::Voice => "voice-settings-scroll",
                             SettingsPage::Archive => "archived-settings-scroll",
+                            SettingsPage::General => "general-settings-scroll",
                         })
                         .w_full()
                         .grow(1.)

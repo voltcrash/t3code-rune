@@ -1,5 +1,9 @@
 import { threadFindLabels, findInThread } from "../src/native/threadFind.ts";
-import { archivedPageLabels, threadMenuLabels } from "../src/native/threadMenu.ts";
+import {
+  archivedPageLabels,
+  generalPageLabels,
+  threadMenuLabels,
+} from "../src/native/threadMenu.ts";
 import { archivedThreadGroups } from "../src/native/archivedThreads.ts";
 import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
@@ -858,11 +862,13 @@ function publishClientSettings(error) {
     thread_labels: threadMenuLabels(),
     confirm_delete: clientSettings.confirmThreadDelete,
     confirm_archive: clientSettings.confirmThreadArchive,
+    confirm_unpin: clientSettings.confirmThreadUnpin,
     settings_labels: {
       settings: m(msg("Settings")),
       appearance: m(msg("Appearance")),
       chat: m(msg("Chat")),
       archive: archivedPageLabels(),
+      general: generalPageLabels(),
       voice: {
         title: m(msg("Voice")),
         dictation: {
@@ -953,6 +959,18 @@ async function setClientSetting(request) {
       changes = { fontSmoothing: request.smoothing };
     } else if (request.type === "setreadertitle" && typeof request.enabled === "boolean") {
       changes = { screenReaderWindowTitle: request.enabled };
+    } else if (
+      request.type === "setconfirmation" &&
+      typeof request.enabled === "boolean" &&
+      ["unpin", "archive", "delete"].includes(request.setting)
+    ) {
+      changes = {
+        [{
+          unpin: "confirmThreadUnpin",
+          archive: "confirmThreadArchive",
+          delete: "confirmThreadDelete",
+        }[request.setting]]: request.enabled,
+      };
     } else if (request.type === "setslashskills" && typeof request.enabled === "boolean") {
       changes = { showSkillsInSlashMenu: request.enabled };
     } else if (
@@ -2069,6 +2087,7 @@ try {
       request?.type === "setfontsmoothing" ||
       request?.type === "setslashskills" ||
       request?.type === "setreadertitle" ||
+      request?.type === "setconfirmation" ||
       request?.type === "setfontfamily" ||
       request?.type === "setchatwidth" ||
       request?.type === "setcontrast"

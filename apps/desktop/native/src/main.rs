@@ -134,6 +134,7 @@ enum Reply {
         thread_labels: Box<workspace::thread_actions::Labels>,
         confirm_delete: bool,
         confirm_archive: bool,
+        confirm_unpin: bool,
         slash_skills: bool,
         reader_title: bool,
         sans: String,
@@ -620,6 +621,10 @@ enum Request<'a> {
     SetReaderTitle {
         enabled: bool,
     },
+    SetConfirmation {
+        setting: &'static str,
+        enabled: bool,
+    },
     SetSlashSkills {
         enabled: bool,
     },
@@ -898,6 +903,7 @@ struct Desktop {
     thread_labels: Option<Box<workspace::thread_actions::Labels>>,
     confirm_thread_delete: bool,
     confirm_thread_archive: bool,
+    confirm_thread_unpin: bool,
     archived: appearance::Archived,
     slash_skills: bool,
     reader_title: bool,
@@ -971,6 +977,7 @@ impl Desktop {
             thread_labels: None,
             confirm_thread_delete: true,
             confirm_thread_archive: false,
+            confirm_thread_unpin: false,
             archived: Default::default(),
             slash_skills: true,
             reader_title: false,
@@ -1036,6 +1043,7 @@ impl Desktop {
             thread_labels: self.thread_labels.take(),
             confirm_thread_delete: self.confirm_thread_delete,
             confirm_thread_archive: self.confirm_thread_archive,
+            confirm_thread_unpin: self.confirm_thread_unpin,
             archived: Default::default(),
             slash_skills: self.slash_skills,
             reader_title: self.reader_title,
@@ -2688,6 +2696,7 @@ fn start() -> io::Result<()> {
                     thread_labels,
                     confirm_delete,
                     confirm_archive,
+                    confirm_unpin,
                     slash_skills,
                     reader_title,
                     sans,
@@ -2704,6 +2713,7 @@ fn start() -> io::Result<()> {
                     s.thread_labels = Some(thread_labels);
                     s.confirm_thread_delete = confirm_delete;
                     s.confirm_thread_archive = confirm_archive;
+                    s.confirm_thread_unpin = confirm_unpin;
                     if s.slash_skills != slash_skills {
                         s.slash_skills = slash_skills;
                         s.mentions.slash_settings_changed();

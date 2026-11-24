@@ -4,6 +4,10 @@ use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text_input, tok
 /// What the nav search can find: each page's title and the settings it shows.
 fn index(labels: &SettingsLabels) -> Vec<(SettingsPage, &str)> {
     vec![
+        (SettingsPage::General, labels.general.title.as_str()),
+        (SettingsPage::General, labels.general.unpin.as_str()),
+        (SettingsPage::General, labels.general.archive.as_str()),
+        (SettingsPage::General, labels.general.delete.as_str()),
         (SettingsPage::Appearance, labels.appearance.as_str()),
         (SettingsPage::Appearance, "Color scheme"),
         (SettingsPage::Appearance, "Contrast"),
