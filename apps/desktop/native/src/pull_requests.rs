@@ -298,22 +298,12 @@ pub(crate) struct Reply {
 
 pub(crate) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
     let name = &s.workspace.pull_requests.labels.as_ref()?.title;
-    let button = el()
-        .key("sidebar-pull-requests")
-        .role("button")
-        .label(name)
-        .help(name)
-        .size(28., 28.)
-        .radius(6.)
-        .center()
-        .child(icon(&ICON, 16.).color(theme.text_secondary));
+    let button =
+        crate::workspace::footer_button("sidebar-pull-requests", name, &ICON, theme, !s.pending);
     Some(if s.pending {
-        button.disabled(true).opacity(0.5)
-    } else {
         button
-            .focusable(true)
-            .hover(theme.hover)
-            .on_press_tx(Desktop::show_pull_requests)
+    } else {
+        button.on_press_tx(Desktop::show_pull_requests)
     })
 }
 

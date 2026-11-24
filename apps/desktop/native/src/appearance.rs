@@ -122,16 +122,7 @@ pub(crate) const GEAR: Icon = Icon {
 };
 
 pub(crate) fn trigger(theme: &tok::Theme) -> El {
-    el().key("settings-trigger")
-        .role("button")
-        .label("Settings")
-        .help("Settings")
-        .focusable(true)
-        .size(28., 28.)
-        .radius(6.)
-        .center()
-        .hover(theme.separator)
-        .child(icon(&GEAR, 16.).color(theme.text_secondary))
+    crate::workspace::footer_button("settings-trigger", "Settings", &GEAR, theme, true)
         .on_press_tx(Desktop::open_settings)
 }
 
