@@ -34,6 +34,7 @@ mod project_icon;
 mod provider_status;
 mod pull_requests;
 mod questions;
+mod saved_views;
 mod sidebar_layout;
 mod sidebar_providers;
 mod stage;
@@ -257,6 +258,9 @@ enum Reply {
         pull_request_labels: Option<Box<pull_requests::Labels>>,
         usage_labels: Option<Box<usage::Labels>>,
         usage_preferences: Option<usage::summary::Preferences>,
+        saved_view_labels: Option<Box<saved_views::Labels>>,
+        #[serde(default)]
+        saved_views: saved_views::Saved,
         details: Option<workspace::thread_details::Settings>,
         #[serde(default)]
         stage: stage::Stage,
@@ -571,6 +575,10 @@ enum Request<'a> {
     },
     SetUsagePreferences {
         preferences: usage::summary::Preferences,
+    },
+    SetSavedViews {
+        list: &'static str,
+        views: serde_json::Value,
     },
     ComposerFiles {
         watch: u64,
@@ -1705,6 +1713,8 @@ impl Desktop {
                 pull_request_labels,
                 usage_labels,
                 usage_preferences,
+                saved_view_labels,
+                saved_views,
                 details,
                 stage,
                 local,
@@ -1742,6 +1752,12 @@ impl Desktop {
                 self.workspace.pull_requests.labels = pull_request_labels.map(|labels| *labels);
                 self.workspace.usage.labels = usage_labels.map(|labels| *labels);
                 self.workspace.usage.summary.restore(usage_preferences);
+                self.workspace.saved_view_labels = saved_view_labels.map(|labels| *labels);
+                self.workspace
+                    .pull_requests
+                    .views
+                    .restore(saved_views.pull_requests);
+                self.workspace.issues.views.restore(saved_views.issues);
                 self.environment = Some(label);
                 self.pending = true;
             }
@@ -2989,6 +3005,8 @@ mod tests {
                 pull_request_labels: None,
                 usage_labels: None,
                 usage_preferences: None,
+                saved_view_labels: None,
+                saved_views: Default::default(),
                 label: "This computer".into(),
                 details: None,
                 stage: stage::Stage::Dev,

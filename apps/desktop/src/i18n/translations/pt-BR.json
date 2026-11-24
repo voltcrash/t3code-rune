@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "Não é possível ler este rastreador agora.",
   "4aa8190ec693085e": "Filtrar por rastreador",
   "d650b40b3b6eab7b": "Filtrar por provedor",
-  "46a2577ad57158b6": "Todos"
+  "46a2577ad57158b6": "Todos",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Visualizações de pull requests salvas} other {Visualizações de issues salvas}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {Salvar visualização de PR} other {Salvar visualização de issues}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {Renomear visualização de PR} other {Renomear visualização de issues}}",
+  "ed3f9d351d00c0da": "Visualizações",
+  "059b7a4de5adadf6": "Visualização modificada",
+  "587e9f4a8fbf87b0": "Salvar visualização atual…",
+  "0c23b8ea1d06fc88": "Atualizar visualização salva",
+  "22f08ba80504e5b7": "Renomear visualização…",
+  "0a76a3d58c4446c3": "Excluir visualização",
+  "3b50d0053c320a55": "Salve sua pesquisa, seus filtros e a ordenação neste dispositivo.",
+  "01c75f010cf6228f": "Nome da visualização",
+  "762fcce45b65eea9": "Salvar",
+  "556df31b330166ff": "Digite um nome para esta visualização.",
+  "262cd2c6c05667db": "Use no máximo {max} caracteres.",
+  "3a85d6e4f8a78c72": "Já existe uma visualização com este nome.",
+  "9a8fd03416860d24": "PRs que pedem minha revisão",
+  "01e7836447bcad93": "Issues atribuídas a mim"
 }

@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "Ce gestionnaire de tickets ne peut pas être lu pour le moment.",
   "4aa8190ec693085e": "Filtrer par gestionnaire de tickets",
   "d650b40b3b6eab7b": "Filtrer par fournisseur",
-  "46a2577ad57158b6": "Tous"
+  "46a2577ad57158b6": "Tous",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Vues de pull requests enregistrées} other {Vues de tickets enregistrées}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {Enregistrer la vue de PR} other {Enregistrer la vue de tickets}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {Renommer la vue de PR} other {Renommer la vue de tickets}}",
+  "ed3f9d351d00c0da": "Vues",
+  "059b7a4de5adadf6": "Vue modifiée",
+  "587e9f4a8fbf87b0": "Enregistrer la vue actuelle…",
+  "0c23b8ea1d06fc88": "Mettre à jour la vue enregistrée",
+  "22f08ba80504e5b7": "Renommer la vue…",
+  "0a76a3d58c4446c3": "Supprimer la vue",
+  "3b50d0053c320a55": "Enregistrez votre recherche, vos filtres et votre ordre de tri sur cet appareil.",
+  "01c75f010cf6228f": "Nom de la vue",
+  "762fcce45b65eea9": "Enregistrer",
+  "556df31b330166ff": "Saisissez un nom pour cette vue.",
+  "262cd2c6c05667db": "Utilisez {max} caractères au maximum.",
+  "3a85d6e4f8a78c72": "Une vue portant ce nom existe déjà.",
+  "9a8fd03416860d24": "PR qui demandent ma revue",
+  "01e7836447bcad93": "Tickets qui me sont assignés"
 }

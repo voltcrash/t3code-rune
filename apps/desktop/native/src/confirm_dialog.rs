@@ -37,6 +37,20 @@ pub(crate) fn overlay(
     on_confirm: fn(&mut Desktop),
     overlays: &mut Vec<El>,
 ) {
+    form(c, None, true, theme, on_cancel, on_confirm, overlays);
+}
+
+/// The web `Dialog` with a form: [`overlay`] plus a body between the header and footer, and a
+/// confirm button that stays disabled while the form can't be submitted.
+pub(crate) fn form(
+    c: Confirm,
+    body: Option<El>,
+    enabled: bool,
+    theme: &tok::Theme,
+    on_cancel: fn(&mut Desktop),
+    on_confirm: fn(&mut Desktop),
+    overlays: &mut Vec<El>,
+) {
     let mut header = col()
         .w_full()
         .padding(24.)
@@ -55,10 +69,12 @@ pub(crate) fn overlay(
     } else {
         (theme.text, theme.bg)
     };
-    let confirm = button(format!("{}-confirm", c.key), c.confirm, text)
-        .fill(fill)
-        .hover(fill.alpha(0.9))
-        .on_press(on_confirm);
+    let confirm = button(format!("{}-confirm", c.key), c.confirm, text).fill(fill);
+    let confirm = if enabled {
+        confirm.hover(fill.alpha(0.9)).on_press(on_confirm)
+    } else {
+        confirm.disabled(true).opacity(0.64)
+    };
     let panel = col()
         .key(format!("{}-dialog", c.key))
         .role("alertdialog")
@@ -71,6 +87,7 @@ pub(crate) fn overlay(
         .border(1., theme.text.alpha(0.08))
         .fill(theme.bg)
         .child(header)
+        .children(body.map(|body| body.px(24.).pb(24.)))
         .child(
             row()
                 .w_full()

@@ -9,6 +9,7 @@ import { issueDetailReader } from "../src/native/issueDetail.ts";
 import { issueLabels, workspaceIssues } from "../src/native/issues.ts";
 import { pullRequestLabels, workspacePullRequests } from "../src/native/pullRequests.ts";
 import { threadSnoozeMenu } from "../src/native/threadSnooze.ts";
+import { savedViewLabels, savedViewStore } from "../src/native/savedViews.ts";
 import { textPasteLimits } from "../src/native/attachments.ts";
 import { watchUsageTotals } from "../src/native/usageTotals.ts";
 import { usageLabels, usageProviders, watchUsage } from "../src/native/usage.ts";
@@ -1045,6 +1046,10 @@ function validUsagePreferences(value) {
         value.hiddenProviders.every((id) => usageProviders.includes(id))))
   );
 }
+const savedViews = savedViewStore(
+  () => readPreference("desktop-saved-views"),
+  (value) => savePreference("desktop-saved-views", value),
+);
 let unsavedUsagePreferences;
 function usagePreferences() {
   if (unsavedUsagePreferences) return unsavedUsagePreferences;
@@ -1508,6 +1513,8 @@ async function handleWorkspaceRequest(request, reply) {
         pull_request_labels: session.canReadPullRequests ? pullRequestLabels() : undefined,
         usage_labels: usageLabels(),
         usage_preferences: usagePreferences(),
+        saved_view_labels: savedViewLabels(),
+        saved_views: savedViews.load(),
         update_labels: {
           check: m(msg("Check for updates")),
           checking: m(msg("Checking for updates…")),
@@ -2242,6 +2249,13 @@ try {
       updateVisibleVisit();
     } else if (request?.type === "preparelanding") {
       void prepareLanding(request.project, reply);
+    } else if (request?.type === "setsavedviews") {
+      try {
+        if (!savedViews.write(request.list, request.views))
+          process.stderr.write("Ignored malformed saved views.\n");
+      } catch {
+        process.stderr.write("Couldn’t save views.\n");
+      }
     } else if (request?.type === "setusagepreferences") {
       if (validUsagePreferences(request.preferences)) {
         const hidden = new Set(request.preferences.hiddenProviders);

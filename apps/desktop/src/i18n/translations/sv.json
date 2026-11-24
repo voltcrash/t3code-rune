@@ -504,5 +504,22 @@
   "7cae1b414ae74c6b": "Den här ärendehanteraren kan inte läsas just nu.",
   "4aa8190ec693085e": "Filtrera efter ärendehanterare",
   "d650b40b3b6eab7b": "Filtrera efter leverantör",
-  "46a2577ad57158b6": "Alla"
+  "46a2577ad57158b6": "Alla",
+  "f7a0e9b9a22a0e34": "{list, select, pullRequest {Sparade vyer för pull requests} other {Sparade vyer för ärenden}}",
+  "b30360b98c4f18e0": "{list, select, pullRequest {Spara PR-vy} other {Spara ärendevy}}",
+  "88c2bacc3c40d927": "{list, select, pullRequest {Byt namn på PR-vy} other {Byt namn på ärendevy}}",
+  "ed3f9d351d00c0da": "Vyer",
+  "059b7a4de5adadf6": "Ändrad vy",
+  "587e9f4a8fbf87b0": "Spara aktuell vy…",
+  "0c23b8ea1d06fc88": "Uppdatera sparad vy",
+  "22f08ba80504e5b7": "Byt namn på vy…",
+  "0a76a3d58c4446c3": "Ta bort vy",
+  "3b50d0053c320a55": "Spara din sökning, dina filter och din sorteringsordning på den här enheten.",
+  "01c75f010cf6228f": "Vyns namn",
+  "762fcce45b65eea9": "Spara",
+  "556df31b330166ff": "Ange ett namn för den här vyn.",
+  "262cd2c6c05667db": "Använd högst {max} tecken.",
+  "3a85d6e4f8a78c72": "Det finns redan en vy med det här namnet.",
+  "9a8fd03416860d24": "PR:er som väntar på min granskning",
+  "01e7836447bcad93": "Ärenden tilldelade till mig"
 }

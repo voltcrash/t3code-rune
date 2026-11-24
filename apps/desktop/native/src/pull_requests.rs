@@ -7,7 +7,7 @@ use rune::{
     Color, El, GrowthSpec, Icon, ScrollSpec, TextEdit, TextStyle, col, el, icon, row, text,
     text_input, tok,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const ICON: Icon = Icon {
     name: "git-pull-request-arrow",
@@ -214,6 +214,7 @@ pub(crate) struct PullRequests {
     sort: usize,
     host: String,
     hosts: Vec<HostOption>,
+    pub(crate) views: crate::saved_views::Views<ViewPrefs>,
     menu: std::cell::Cell<Option<MenuKind>>,
     operation: u64,
     pending: bool,
@@ -238,6 +239,7 @@ impl Default for PullRequests {
             sort: 0,
             host: String::new(),
             hosts: Vec::new(),
+            views: Default::default(),
             menu: Default::default(),
             operation: 0,
             pending: false,
@@ -385,6 +387,61 @@ pub(crate) struct Reply {
     #[serde(default)]
     filtered: bool,
     error: Option<String>,
+}
+
+/// What a saved pull-request view keeps: the list's search, filters, sort and host.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct ViewPrefs {
+    state: usize,
+    involvement: usize,
+    sort: usize,
+    host: String,
+    query: String,
+}
+
+pub(crate) struct SavedPullRequests;
+
+impl crate::saved_views::SavedList for SavedPullRequests {
+    type Prefs = ViewPrefs;
+    const LIST: &'static str = "pullRequests";
+    const KEY: &'static str = "pull-request-views";
+    fn views(s: &Desktop) -> &crate::saved_views::Views<ViewPrefs> {
+        &s.workspace.pull_requests.views
+    }
+    fn views_mut(s: &mut Desktop) -> &mut crate::saved_views::Views<ViewPrefs> {
+        &mut s.workspace.pull_requests.views
+    }
+    fn current(s: &Desktop) -> ViewPrefs {
+        let page = &s.workspace.pull_requests;
+        ViewPrefs {
+            state: page.state,
+            involvement: page.involvement,
+            sort: page.sort,
+            host: page.host.clone(),
+            query: page.query.text.trim().to_owned(),
+        }
+    }
+    fn apply(s: &mut Desktop, prefs: ViewPrefs) {
+        let page = &mut s.workspace.pull_requests;
+        page.state = prefs.state;
+        page.involvement = prefs.involvement;
+        page.sort = prefs.sort;
+        page.host = prefs.host;
+        page.query = TextEdit::new(&prefs.query);
+        s.load_pull_requests("list");
+    }
+    fn labels(labels: &crate::saved_views::Labels) -> &crate::saved_views::ListLabels {
+        labels.pull_requests()
+    }
+    fn suggested(s: &Desktop, labels: &crate::saved_views::ListLabels) -> String {
+        // The web names a reviewing view after its placeholder, "PRs Requesting My Review".
+        if s.workspace.pull_requests.involvement == 1 {
+            labels.placeholder().to_owned()
+        } else {
+            String::new()
+        }
+    }
 }
 
 pub(crate) fn trigger(s: &Desktop, theme: &tok::Theme) -> Option<El> {
@@ -665,6 +722,7 @@ pub(crate) fn view(
     let Some(labels) = &page.labels else {
         return el();
     };
+    crate::saved_views::dialog::<SavedPullRequests>(s, theme, overlays);
     let wide = width >= 640.;
     let search = text_input(&page.query, TextStyle::new(13., 400.))
         .key("pull-request-search")
@@ -710,6 +768,12 @@ pub(crate) fn view(
         .gap(8.)
         .child(menu(s, MenuKind::Sort, theme, dark, overlays))
         .child(menu(s, MenuKind::Filter, theme, dark, overlays))
+        .child(crate::saved_views::menu::<SavedPullRequests>(
+            s,
+            theme,
+            &s.contrast.kit(dark),
+            overlays,
+        ))
         .child(menu(s, MenuKind::Host, theme, dark, overlays))
         .child(refresh);
     let toolbar = if wide {
