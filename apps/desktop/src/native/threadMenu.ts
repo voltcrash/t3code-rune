@@ -8,6 +8,8 @@ export function threadMenuLabels() {
     settle: m(msg("Settle thread")),
     unsettle: m(msg("Un-settle thread")),
     snooze: m(msg("Snooze", { $context: "verb, snooze the thread" })),
+    snooze_thread: m(msg("Snooze thread")),
+    settle_short: m(msg("Settle")),
     wake: m(msg("Wake thread")),
     rename: m(msg("Rename thread")),
     mark_unread: m(msg("Mark unread")),

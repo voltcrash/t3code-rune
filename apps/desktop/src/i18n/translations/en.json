@@ -496,5 +496,7 @@
   "e9682864e49df67a": "Could not wake thread",
   "6fc712c4f5a55ee2": "Could not snooze thread",
   "760b0829c8381b1a": "Snooze",
-  "0d36d1316d4fc58a": "Wake thread"
+  "0d36d1316d4fc58a": "Wake thread",
+  "021fe65858278fe9": "Snooze thread",
+  "13e6f2309e418404": "Settle"
 }

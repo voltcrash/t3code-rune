@@ -1220,15 +1220,35 @@ fn thread_row(
     s: &Desktop,
     thread: &Thread,
     selected: bool,
-    shelf: bool,
+    section: Option<Shelf>,
     theme: &tok::Theme,
     dark: bool,
 ) -> El {
+    let shelf = section.is_some();
     let project = s.workspace.project(&thread.project);
     let id = thread.id.clone();
     let recedes = thread.recedes && !selected;
     let indicator = thread.indicator(shelf);
     let (status, name) = sidebar_status::view(indicator, dark, theme, &s.workspace.row_clock);
+    // Like the web row, hovering swaps the time for the row's quick actions.
+    let status = match thread_actions::row_actions(s, thread, section, theme) {
+        // An open preset menu keeps its Snooze button showing, as the web row does.
+        Some(actions) if s.workspace.snooze_menu_open(&thread.id) => row()
+            .center_y()
+            .justify_end()
+            .child(status.opacity(0.))
+            .child(actions.pin(None, Some(0.), Some(-4.), Some(0.))),
+        Some(actions) => row()
+            .center_y()
+            .justify_end()
+            .child(status.group_opacity(1., 0.))
+            .child(
+                actions
+                    .pin(None, Some(0.), Some(-4.), Some(0.))
+                    .group_opacity(0., 1.),
+            ),
+        None => status,
+    };
     let project_name = project.map_or("", |p| p.title.as_str());
     let accessible = [Some(thread.title.as_str()), name, Some(project_name)]
         .into_iter()
@@ -1400,7 +1420,7 @@ fn sidebar_rows(s: &Desktop, shelf: Option<Shelf>, theme: &tok::Theme, dark: boo
                 } else {
                     s.workspace.search_target.as_ref() == Some(&t.id)
                 };
-                let card = thread_row(s, t, selected, shelf.is_some(), &colors, dark);
+                let card = thread_row(s, t, selected, shelf, &colors, dark);
                 let gap = if i + 1 < count { 1. } else { 0. };
                 let inset = if shelf.is_some() { 0. } else { 2. };
                 col().w_full().pt(inset).pb(inset + gap).child(card)

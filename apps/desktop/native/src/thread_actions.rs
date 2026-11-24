@@ -13,6 +13,8 @@ pub(crate) struct Labels {
     settle: String,
     unsettle: String,
     snooze: String,
+    snooze_thread: String,
+    settle_short: String,
     wake: String,
     rename: String,
     mark_unread: String,
@@ -74,6 +76,8 @@ pub(super) struct Actions {
     snooze_open: bool,
     /// The request the shown snooze choices answer, and the choices once they arrive.
     snooze: Option<(u64, Option<Vec<SnoozeChoice>>)>,
+    /// The thread whose row Snooze button opened the preset menu.
+    snooze_menu: Option<Target>,
     /// A confirmed snooze of the open thread moves on, keyed by the snooze's operation.
     snooze_forward: Option<(String, Forward)>,
     unpinning: Option<Target>,
@@ -96,6 +100,7 @@ impl Actions {
         self.copy_open = false;
         self.snooze_open = false;
         self.snooze = None;
+        self.snooze_menu = None;
     }
 }
 
@@ -107,6 +112,7 @@ impl Default for Actions {
             snooze_open: false,
             snooze: None,
             snooze_forward: None,
+            snooze_menu: None,
             unpinning: None,
             archiving: None,
             deleting: None,
@@ -176,6 +182,27 @@ impl Workspace {
         if self.actions.unpinning.as_ref().is_some_and(|t| !valid(t)) {
             self.actions.unpinning = None;
         }
+        // The preset menu anchors to the row's Snooze button, which only inbox rows show.
+        let snoozable = |t: &Target| {
+            valid(t)
+                && self.filtered.contains(&self.by_thread[&t.thread])
+                && !self.threads[self.by_thread[&t.thread]].settled
+        };
+        if self
+            .actions
+            .snooze_menu
+            .as_ref()
+            .is_some_and(|t| !snoozable(t))
+        {
+            self.actions.snooze_menu = None;
+        }
+    }
+
+    pub(super) fn snooze_menu_open(&self, thread: &str) -> bool {
+        self.actions
+            .snooze_menu
+            .as_ref()
+            .is_some_and(|t| t.thread == thread)
     }
 }
 
@@ -191,11 +218,14 @@ impl Desktop {
             .workspace
             .action_target(thread, origin)
             .map(|target| OpenMenu { target, point });
-        // The web menu resolves snooze times as it opens; ask now so the submenu is ready.
-        if self.can_operate
-            && let Some(watch) = self.workspace.feed
-            && self.workspace.actions.menu.is_some()
-        {
+        if self.workspace.actions.menu.is_some() {
+            self.request_snooze_presets(thread);
+        }
+    }
+
+    /// The web menu resolves snooze times as it opens; ask now so the choices are ready.
+    fn request_snooze_presets(&mut self, thread: &str) {
+        if let (true, Some(watch)) = (self.can_operate, self.workspace.feed) {
             let operation = self.next_request_id();
             self.workspace.actions.snooze = Some((operation, None));
             self.write_request(
@@ -206,6 +236,15 @@ impl Desktop {
                     operation,
                 },
             );
+        }
+    }
+
+    fn open_snooze_menu(&mut self, thread: &str) {
+        self.commit_title();
+        self.workspace.actions.close_menu();
+        self.workspace.actions.snooze_menu = self.workspace.action_target(thread, Origin::Sidebar);
+        if self.workspace.actions.snooze_menu.is_some() {
+            self.request_snooze_presets(thread);
         }
     }
 
@@ -683,6 +722,24 @@ pub(super) fn header(
         .build(kit, overlays)
 }
 
+const CHECK: rune::Icon = rune::Icon {
+    name: "check",
+    view: 24.,
+    body: r#"<path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
+const ALARM_OFF: rune::Icon = rune::Icon {
+    name: "alarm-clock-off",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.87 6.87a8 8 0 1 0 11.26 11.26"/><path d="M19.9 14.25a8 8 0 0 0-9.15-9.15"/><path d="m22 6-3-3"/><path d="M6.26 18.67 4 21"/><path d="m2 2 20 20"/><path d="M4 4 2 6"/></g>"#,
+};
+
+const UNDO: rune::Icon = rune::Icon {
+    name: "undo-2",
+    view: 24.,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></g>"#,
+};
+
 const CLOCK: rune::Icon = rune::Icon {
     name: "clock",
     view: 24.,
@@ -837,23 +894,7 @@ fn menu(s: &Desktop, thread: &Thread, origin: Origin, key: &str) -> Menu {
             .snooze
             .as_ref()
             .and_then(|(_, choices)| choices.as_ref());
-        let entries = choices.map_or_else(
-            || vec![MenuEntry::item(MenuItem::new("…").disabled(true))],
-            |choices| {
-                choices
-                    .iter()
-                    .map(|choice| {
-                        let id = id.clone();
-                        let preset = choice.id.clone();
-                        MenuEntry::item(
-                            MenuItem::new(&choice.label)
-                                .shortcut(&choice.when)
-                                .on_select(move |s: &mut Desktop| s.snooze(&id, Some(&preset))),
-                        )
-                    })
-                    .collect()
-            },
-        );
+        let entries = snooze_choices(s, &id);
         menu = menu.item(
             MenuItem::new(&labels.snooze)
                 .icon(&CLOCK)
@@ -1019,7 +1060,128 @@ pub(super) fn delete_dialog(s: &Desktop, theme: &tok::Theme, overlays: &mut Vec<
     );
 }
 
+fn snooze_choices(s: &Desktop, id: &str) -> Vec<MenuEntry> {
+    let choices = s
+        .workspace
+        .actions
+        .snooze
+        .as_ref()
+        .and_then(|(_, choices)| choices.as_ref());
+    choices.map_or_else(
+        || vec![MenuEntry::item(MenuItem::new("…").disabled(true))],
+        |choices| {
+            choices
+                .iter()
+                .map(|choice| {
+                    let id = id.to_owned();
+                    let preset = choice.id.clone();
+                    MenuEntry::item(
+                        MenuItem::new(&choice.label)
+                            .shortcut(&choice.when)
+                            .on_select(move |s: &mut Desktop| s.snooze(&id, Some(&preset))),
+                    )
+                })
+                .collect()
+        },
+    )
+}
+
+fn row_button(
+    key: String,
+    caption: &str,
+    glyph: &'static rune::Icon,
+    size: f32,
+    theme: &tok::Theme,
+) -> El {
+    row()
+        .key(key)
+        .role("button")
+        .label(caption)
+        .help(caption)
+        .h_full()
+        .px(6.)
+        .center()
+        .radius(6.)
+        .hover_group()
+        .focusable(true)
+        .child(
+            icon(glyph, size)
+                .color(theme.text_secondary)
+                .group_color(theme.text),
+        )
+}
+
+/// The web row's hover actions: Snooze and Settle in the inbox, Un-settle or Wake on a shelf.
+pub(super) fn row_actions(
+    s: &Desktop,
+    thread: &Thread,
+    shelf: Option<super::Shelf>,
+    theme: &tok::Theme,
+) -> Option<El> {
+    let labels = s.thread_labels.as_ref()?;
+    if !s.can_operate || s.pending {
+        return None;
+    }
+    let id = thread.id.clone();
+    let actions = rune::row().h(20.).center_y();
+    Some(match shelf {
+        Some(super::Shelf::Snoozed) => actions.child(
+            row_button(format!("wake-{id}"), &labels.wake, &ALARM_OFF, 12., theme)
+                .on_press(move |s: &mut Desktop| s.snooze(&id, None)),
+        ),
+        Some(super::Shelf::Settled) => actions.child(
+            row_button(
+                format!("unsettle-{id}"),
+                &labels.unsettle,
+                &UNDO,
+                14.,
+                theme,
+            )
+            .on_press(move |s: &mut Desktop| s.set_settlement(&id, false, Origin::Sidebar)),
+        ),
+        None => {
+            let snooze = id.clone();
+            actions
+                .child(
+                    row_button(
+                        format!("snooze-{id}-trigger"),
+                        &labels.snooze_thread,
+                        &CLOCK,
+                        12.,
+                        theme,
+                    )
+                    .on_press(move |s: &mut Desktop| s.open_snooze_menu(&snooze)),
+                )
+                .child(
+                    row_button(format!("settle-{id}"), &labels.settle, &CHECK, 14., theme)
+                        .child(
+                            label(&labels.settle_short, 12., 400., theme.text_secondary)
+                                .group_color(theme.text),
+                        )
+                        .gap(4.)
+                        .on_press(move |s: &mut Desktop| {
+                            s.set_settlement(&id, true, Origin::Sidebar)
+                        }),
+                )
+        }
+    })
+}
+
 pub(super) fn sidebar_menu(s: &Desktop, kit: &Kit, overlays: &mut Vec<El>) {
+    if let Some(target) = &s.workspace.actions.snooze_menu {
+        // The row's Snooze button carries this menu's trigger key, so the menu anchors to it.
+        let mut menu = Menu::new(format!("snooze-{}", target.thread))
+            .open(true)
+            .placement(rune_kit::Placement::BottomEnd)
+            .min_width(220.)
+            .on_close(|s: &mut Desktop| s.workspace.actions.close_menu());
+        for entry in snooze_choices(s, &target.thread) {
+            if let MenuEntry::Item(item) = entry {
+                menu = menu.item(*item);
+            }
+        }
+        let _ = menu.build(kit, overlays);
+    }
     let Some(m) = &s.workspace.actions.menu else {
         return;
     };

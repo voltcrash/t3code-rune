@@ -496,5 +496,7 @@
   "e9682864e49df67a": "Não foi possível reativar a thread",
   "6fc712c4f5a55ee2": "Não foi possível adiar a thread",
   "760b0829c8381b1a": "Adiar",
-  "0d36d1316d4fc58a": "Despertar thread"
+  "0d36d1316d4fc58a": "Despertar thread",
+  "021fe65858278fe9": "Adiar thread",
+  "13e6f2309e418404": "Concluir"
 }
