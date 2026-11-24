@@ -1,5 +1,5 @@
 use super::{Desktop, Request, label, reset_button};
-use rune::{El, Tx, col, el, row, tok};
+use rune::{Color, El, Tx, col, el, row, tok};
 use serde::Deserialize;
 
 const PALETTE: rune::Icon = rune::Icon {
@@ -20,6 +20,7 @@ pub(crate) struct SettingsLabels {
     pub(super) appearance: String,
     pub(super) chat: String,
     pub(super) archive: super::archived::Labels,
+    pub(super) general: super::general::Labels,
     pub(crate) voice: super::voice::Labels,
     composer: String,
     advanced: String,
@@ -40,6 +41,7 @@ pub(crate) struct SettingsLabels {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum SettingsPage {
     #[default]
+    General,
     Appearance,
     Chat,
     Voice,
@@ -49,6 +51,7 @@ pub(crate) enum SettingsPage {
 impl SettingsPage {
     pub(super) fn title(self, labels: Option<&SettingsLabels>) -> &str {
         match self {
+            Self::General => labels.map_or("General", |l| &l.general.title),
             Self::Appearance => labels.map_or("Appearance", |l| &l.appearance),
             Self::Voice => labels.map_or("Voice", |l| &l.voice.title),
             Self::Chat => labels.map_or("Chat", |l| &l.chat),
@@ -79,12 +82,18 @@ impl SettingsPage {
                 .gap(4.)
                 .children(pages.iter().map(|page| page.tab(s, theme)))
         };
-        tabs.child(group(&[Self::Appearance, Self::Chat, Self::Voice]))
-            .child(group(&[Self::Archive]))
+        tabs.child(group(&[
+            Self::General,
+            Self::Appearance,
+            Self::Chat,
+            Self::Voice,
+        ]))
+        .child(group(&[Self::Archive]))
     }
 
     pub(super) fn key(self) -> &'static str {
         match self {
+            Self::General => "settings-general",
             Self::Appearance => "settings-appearance",
             Self::Chat => "settings-chat",
             Self::Voice => "settings-voice",
@@ -111,6 +120,7 @@ impl SettingsPage {
         let name = self.title(s.settings_labels.as_ref());
         let key = self.key();
         let icon = match self {
+            Self::General => &super::general::SETTINGS,
             Self::Appearance => &PALETTE,
             Self::Chat => &CHAT,
             Self::Voice => &super::voice::MIC,
@@ -148,16 +158,22 @@ impl SettingsPage {
 }
 
 #[derive(Clone, Copy)]
-enum ChatSwitch {
+pub(super) enum Switch {
     SlashSkills,
     WindowTitle,
+    ConfirmUnpin,
+    ConfirmArchive,
+    ConfirmDelete,
 }
 
-impl ChatSwitch {
+impl Switch {
     fn key(self) -> &'static str {
         match self {
             Self::SlashSkills => "settings-slash-skills",
             Self::WindowTitle => "settings-window-title",
+            Self::ConfirmUnpin => "settings-confirm-unpin",
+            Self::ConfirmArchive => "settings-confirm-archive",
+            Self::ConfirmDelete => "settings-confirm-delete",
         }
     }
 
@@ -168,12 +184,31 @@ impl ChatSwitch {
         let request = match self {
             Self::SlashSkills => Request::SetSlashSkills { enabled },
             Self::WindowTitle => Request::SetReaderTitle { enabled },
+            Self::ConfirmUnpin => Request::SetConfirmation {
+                setting: "unpin",
+                enabled,
+            },
+            Self::ConfirmArchive => Request::SetConfirmation {
+                setting: "archive",
+                enabled,
+            },
+            Self::ConfirmDelete => Request::SetConfirmation {
+                setting: "delete",
+                enabled,
+            },
         };
         s.saving_client_settings = s.write_request(None, request);
         tx.focus_when_shown(self.key(), true);
     }
 
-    fn row(self, s: &Desktop, labels: &SettingsLabels, narrow: bool, theme: &tok::Theme) -> El {
+    pub(super) fn row(
+        self,
+        s: &Desktop,
+        labels: &SettingsLabels,
+        narrow: bool,
+        theme: &tok::Theme,
+    ) -> El {
+        let general = &labels.general;
         let key = self.key();
         let (checked, default, name, description, reset_label, reset_key) = match self {
             Self::SlashSkills => (
@@ -192,8 +227,33 @@ impl ChatSwitch {
                 &labels.title_reset,
                 "reset-window-title",
             ),
+            Self::ConfirmUnpin => (
+                s.confirm_thread_unpin,
+                false,
+                &general.unpin,
+                &general.unpin_description,
+                &general.unpin_reset,
+                "reset-confirm-unpin",
+            ),
+            Self::ConfirmArchive => (
+                s.confirm_thread_archive,
+                false,
+                &general.archive,
+                &general.archive_description,
+                &general.archive_reset,
+                "reset-confirm-archive",
+            ),
+            Self::ConfirmDelete => (
+                s.confirm_thread_delete,
+                true,
+                &general.delete,
+                &general.delete_description,
+                &general.delete_reset,
+                "reset-confirm-delete",
+            ),
         };
         let disabled = s.saving_client_settings;
+        let dark = theme.text.r > 0.5;
         let thumb = if narrow { 20. } else { 16. };
         let mut toggle = el()
             .key(key)
@@ -204,13 +264,24 @@ impl ChatSwitch {
             .disabled(disabled)
             .size(2. * thumb - 2., thumb + 2.)
             .radius(thumb)
-            .fill(if checked { theme.text } else { theme.separator })
+            .fill(match (checked, dark) {
+                (true, true) => super::color("#346bf1"),
+                (true, false) => super::color("#1b4ed8"),
+                (false, true) => Color::WHITE.alpha(0.11),
+                (false, false) => super::color("#d4d4d8"),
+            })
             .child(
                 el().absolute(if checked { thumb - 2. } else { 2. }, 2.)
                     .size(thumb - 2., thumb - 2.)
                     .radius(thumb)
-                    .fill(theme.bg),
+                    .fill(match (checked, dark) {
+                        (false, true) => super::color("#a3a3a3"),
+                        _ => theme.bg,
+                    }),
             );
+        if disabled {
+            toggle = toggle.opacity(0.64);
+        }
         if !disabled {
             toggle = toggle.on_press_tx(move |s: &mut Desktop, tx| self.set(s, !checked, tx));
         }
@@ -271,7 +342,7 @@ pub(super) fn settings(
     if s.composer_advanced {
         group = group
             .child(el().w_full().h(1.).fill(theme.separator))
-            .child(ChatSwitch::SlashSkills.row(s, labels, narrow, theme));
+            .child(Switch::SlashSkills.row(s, labels, narrow, theme));
     }
     let section = |name: &str, child: El| {
         col()
@@ -280,7 +351,7 @@ pub(super) fn settings(
             .child(label(name, 16., 600., theme.text).pl(16.))
             .child(child)
     };
-    let title = ChatSwitch::WindowTitle
+    let title = Switch::WindowTitle
         .row(s, labels, narrow, theme)
         .radius(12.)
         .border(1., theme.separator);

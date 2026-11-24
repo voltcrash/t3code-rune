@@ -423,5 +423,18 @@
   "ee3e8bd8b7918aec": "Pesquisar",
   "858561b97fdd72f2": "Buscar configurações",
   "fed2d32de2b0c566": "Limpar pesquisa de configurações",
-  "f49fcf2df97620b2": "Nenhuma configuração encontrada"
+  "f49fcf2df97620b2": "Nenhuma configuração encontrada",
+  "08f5b642746eebbe": "Desafixar a thread \"{title}\"?",
+  "bc574b901d06687c": "A thread sairá da seção de fixadas.",
+  "81d0d1e78b196630": "Geral",
+  "76f3c3e2f8dd0120": "Confirmações",
+  "7e4d81ca21a72019": "Confirmação ao desafixar",
+  "caed837d6dc42548": "Redefinir a confirmação ao desafixar para o padrão",
+  "1d5052cbe70d0b28": "Confirmação ao arquivar",
+  "b8555699c6ab0be8": "Redefinir a confirmação ao arquivar para o padrão",
+  "d5dd27a4eb853248": "Confirmação ao excluir",
+  "a6495a44afcda95c": "Redefinir a confirmação ao excluir para o padrão",
+  "0bec2b894a0cf162": "Perguntar antes de excluir uma conversa e seu histórico.",
+  "2dac4b7c79445b64": "Perguntar antes de desafixar uma conversa da seção fixada.",
+  "62dc71661159d85c": "Exigir um segundo clique na ação de arquivar antes de arquivar uma conversa."
 }

@@ -423,5 +423,18 @@
   "ee3e8bd8b7918aec": "Sök",
   "858561b97fdd72f2": "Sök i inställningar",
   "fed2d32de2b0c566": "Rensa sökningen i inställningar",
-  "f49fcf2df97620b2": "Inga inställningar hittades"
+  "f49fcf2df97620b2": "Inga inställningar hittades",
+  "08f5b642746eebbe": "Lossa tråden ”{title}”?",
+  "bc574b901d06687c": "Det här flyttar tråden från dina fästa trådar.",
+  "81d0d1e78b196630": "Allmänt",
+  "76f3c3e2f8dd0120": "Bekräftelser",
+  "7e4d81ca21a72019": "Bekräftelse vid lossning",
+  "caed837d6dc42548": "Återställ bekräftelse vid lossning till standard",
+  "1d5052cbe70d0b28": "Bekräftelse vid arkivering",
+  "b8555699c6ab0be8": "Återställ bekräftelse vid arkivering till standard",
+  "d5dd27a4eb853248": "Bekräftelse vid borttagning",
+  "a6495a44afcda95c": "Återställ bekräftelse vid borttagning till standard",
+  "0bec2b894a0cf162": "Fråga innan en tråd och dess chatthistorik tas bort.",
+  "2dac4b7c79445b64": "Fråga innan en tråd lossas från fästa trådar.",
+  "62dc71661159d85c": "Kräv ett andra klick på arkiveringsåtgärden innan en tråd arkiveras."
 }
